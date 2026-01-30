@@ -56,12 +56,12 @@ async function mondayApi<T = unknown>(
   return json.data;
 }
 
-// --- Group IDs ---
+// --- Group IDs (discovered from Monday.com API) ---
 
-// Quick requests board → "Incoming Requests" group
-const QUICK_BOARD_GROUP_ID = 'incoming_requests';
-// Full projects board → "Requested" group
-const FULL_BOARD_GROUP_ID = 'requested';
+// Quick requests board ("Marketing Department Requests") → "Incoming Requests" group
+const QUICK_BOARD_GROUP_ID = 'topics';
+// Full projects board ("Active Marketing Projects WIP") → "Requested" group
+const FULL_BOARD_GROUP_ID = 'group_mkw4sqp7';
 
 // --- Public API ---
 
@@ -83,23 +83,30 @@ export async function createQuickRequestItem(params: {
 
     const columnValues: Record<string, unknown> = {};
 
-    // Status: "Under Review"
+    // Column IDs from Monday.com API:
+    // status → Status, short_textzhli70zj → Requesting Person and Department,
+    // short_text850qt5t1 → Target, long_textcrvijt4x → Context & Background,
+    // long_textrywmn305 → Desired Outcomes, long_textljfnnagq → Deliverable(s),
+    // date → Due Date, long_text8tv0hcfw → Approvals and Constraints,
+    // long_textfktkwj3y → Supporting Links
+
     columnValues['status'] = { label: 'Under Review' };
 
     if (params.dueDate) {
       columnValues['date'] = { date: params.dueDate };
     }
-    if (params.requester) {
-      columnValues['text'] = params.requester;
-    }
-    if (params.department) {
-      columnValues['text6'] = params.department;
+    if (params.requester || params.department) {
+      const parts = [params.requester, params.department].filter(Boolean);
+      columnValues['short_textzhli70zj'] = parts.join(' — ');
     }
     if (params.target) {
-      columnValues['text9'] = params.target;
+      columnValues['short_text850qt5t1'] = params.target;
     }
     if (params.contextBackground) {
-      columnValues['long_text'] = { text: params.contextBackground };
+      columnValues['long_textcrvijt4x'] = { text: params.contextBackground };
+    }
+    if (params.desiredOutcomes) {
+      columnValues['long_textrywmn305'] = { text: params.desiredOutcomes };
     }
 
     const query = `
@@ -156,27 +163,10 @@ export async function createFullProjectItem(params: {
 
     const columnValues: Record<string, unknown> = {};
 
-    // Status: "Under Review"
-    columnValues['status'] = { label: 'Under Review' };
+    // Column IDs from Monday.com API:
+    // color_mkwrswkb → Status, link_mkx795n7 → Project Folder
 
-    if (params.dueDate) {
-      columnValues['date'] = { date: params.dueDate };
-    }
-    if (params.requester) {
-      columnValues['text'] = params.requester;
-    }
-    if (params.department) {
-      columnValues['text6'] = params.department;
-    }
-    if (params.target) {
-      columnValues['text9'] = params.target;
-    }
-    if (params.contextBackground) {
-      columnValues['long_text'] = { text: params.contextBackground };
-    }
-    if (params.deliverables.length > 0) {
-      columnValues['text0'] = params.deliverables.join(', ');
-    }
+    columnValues['color_mkwrswkb'] = { label: 'Under Review' };
 
     const query = `
       mutation ($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON!) {
@@ -213,6 +203,13 @@ export async function createFullProjectItem(params: {
   }
 }
 
+// Status column IDs per board (discovered from Monday.com API)
+// Quick board: "status", Full board: "color_mkwrswkb"
+export const QUICK_BOARD_STATUS_COLUMN = 'status';
+export const FULL_BOARD_STATUS_COLUMN = 'color_mkwrswkb';
+// Full board: link column for Project Folder
+export const FULL_BOARD_FOLDER_LINK_COLUMN = 'link_mkx795n7';
+
 /**
  * Update the status column of a Monday.com item.
  * Used by the approval handler to move items from "Under Review" to active.
@@ -222,6 +219,11 @@ export async function updateMondayItemStatus(
   boardId: string,
   newStatusLabel: string,
 ): Promise<void> {
+  // Pick the correct status column ID based on which board
+  const statusColumnId = boardId === config.mondayFullBoardId
+    ? FULL_BOARD_STATUS_COLUMN
+    : QUICK_BOARD_STATUS_COLUMN;
+
   const query = `
     mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
       change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues) {
@@ -234,7 +236,7 @@ export async function updateMondayItemStatus(
     boardId,
     itemId,
     columnValues: JSON.stringify({
-      status: { label: newStatusLabel },
+      [statusColumnId]: { label: newStatusLabel },
     }),
   });
 }

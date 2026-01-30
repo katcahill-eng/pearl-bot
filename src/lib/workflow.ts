@@ -3,7 +3,7 @@ import type { CollectedData } from './conversation';
 import type { RequestClassification } from './claude';
 import { generateBrief } from './brief-generator';
 import { createFullProjectDrive, type DriveResult } from './google-drive';
-import { createQuickRequestItem, createFullProjectItem, updateMondayItemStatus, updateMondayItemColumns, type MondayResult } from './monday';
+import { createQuickRequestItem, createFullProjectItem, updateMondayItemStatus, updateMondayItemColumns, FULL_BOARD_STATUS_COLUMN, FULL_BOARD_FOLDER_LINK_COLUMN, type MondayResult } from './monday';
 import { createProject } from './db';
 
 // --- Types ---
@@ -115,16 +115,13 @@ export async function executeApprovedWorkflow(opts: {
       }
     }
 
-    // Step 3: Update Monday.com item — status + links
+    // Step 3: Update Monday.com item — status + links (full board column IDs)
     try {
       const columnUpdates: Record<string, unknown> = {
-        status: { label: 'Working on it' },
+        [FULL_BOARD_STATUS_COLUMN]: { label: 'Working on it' },
       };
-      if (briefDocUrl) {
-        columnUpdates['link'] = { url: briefDocUrl, text: 'Brief' };
-      }
       if (folderUrl) {
-        columnUpdates['link6'] = { url: folderUrl, text: 'Drive Folder' };
+        columnUpdates[FULL_BOARD_FOLDER_LINK_COLUMN] = { url: folderUrl, text: 'Drive Folder' };
       }
       await updateMondayItemColumns(mondayItemId, mondayBoardId, columnUpdates);
     } catch (err) {
