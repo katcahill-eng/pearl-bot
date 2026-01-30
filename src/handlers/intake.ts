@@ -56,7 +56,7 @@ export async function handleIntakeMessage(opts: {
     const formFallback = config.intakeFormUrl ? ` You can also fill out the form instead: ${config.intakeFormUrl}` : '';
     try {
       await say({
-        text: `Something went wrong while processing your request. Your information has been saved.${formFallback}\nIf you need immediate help, reach out in #marketing-team.`,
+        text: `Something went wrong while processing your request. Your information has been saved.${formFallback}\nIf you need immediate help, tag someone from the marketing team in #marcoms-requests.`,
         thread_ts: threadTs,
       });
     } catch (sayErr) {
@@ -122,15 +122,37 @@ async function handleIntakeMessageInner(opts: {
       return;
     }
 
+    // Look up the user's real name from Slack
+    let realName = userName;
+    try {
+      const userInfo = await client.users.info({ user: userId });
+      realName = userInfo.user?.real_name ?? userInfo.user?.name ?? userName;
+    } catch {
+      console.error('[intake] Failed to look up user name for', userId);
+    }
+
     convo = new ConversationManager({
       userId,
-      userName,
+      userName: realName,
       channelId,
       threadTs,
     });
     // Auto-fill requester name from Slack
-    convo.markFieldCollected('requester_name', userName);
+    convo.markFieldCollected('requester_name', realName);
     convo.save();
+
+    // Send a warm welcome before processing their message (randomized)
+    const firstName = realName.split(' ')[0];
+    const welcomeMessages = [
+      `Hey ${firstName}, thanks for reaching out to marketing! I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.`,
+      `Hi ${firstName}! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.`,
+      `Hey there, ${firstName}! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.`,
+      `Hi ${firstName}, thanks for coming to us! Let me ask you a few quick questions so we can get your request set up and into the right hands.`,
+    ];
+    await say({
+      text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
+      thread_ts: threadTs,
+    });
   }
 
   const status = convo.getStatus();
@@ -391,7 +413,7 @@ async function handleGatheringState(
     console.error('[intake] Claude interpretation error during gathering:', error);
     const formFallback = config.intakeFormUrl ? ` Or fill out the form instead: ${config.intakeFormUrl}` : '';
     await say({
-      text: `I didn't quite catch that. Could you rephrase?${formFallback}\nIf you need immediate help, reach out in #marketing-team.`,
+      text: `I didn't quite catch that. Could you rephrase?${formFallback}\nIf you need immediate help, tag someone from the marketing team in #marcoms-requests.`,
       thread_ts: threadTs,
     });
     await askNextQuestion(convo, threadTs, say);

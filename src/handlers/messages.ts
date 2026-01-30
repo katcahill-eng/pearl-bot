@@ -1,5 +1,5 @@
 import type { App } from '@slack/bolt';
-import { detectIntent, getGreetingMessage, getHelpMessage } from './intent';
+import { detectIntent, getHelpMessage } from './intent';
 import { handleIntakeMessage, hasPendingDuplicateCheck } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
@@ -65,6 +65,7 @@ export function registerMessageHandler(app: App): void {
           break;
 
         case 'intake':
+        default:
           await handleIntakeMessage({
             userId,
             userName: userId,
@@ -75,17 +76,12 @@ export function registerMessageHandler(app: App): void {
             client,
           });
           break;
-
-        case 'greeting':
-        default:
-          await say({ text: getGreetingMessage(), thread_ts });
-          break;
       }
     } catch (err) {
       console.error('[messages] Unhandled error in DM handler:', err);
       try {
         await say({
-          text: "Something went wrong on my end. Your info hasn't been lost — you can try again, use the intake form, or reach out in #marketing-team for help.",
+          text: "Something went wrong on my end. Your info hasn't been lost — you can try again, use the intake form, or tag someone from the marketing team in #marcoms-requests for help.",
           thread_ts,
         });
       } catch (sayErr) {

@@ -217,7 +217,7 @@ export function buildCompletionMessage(
     lines.push(`You can also submit via the intake form as a backup: ${config.intakeFormUrl}`);
   }
 
-  lines.push('If you need immediate help, reach out in #marketing-team.');
+  lines.push('If you need immediate help, tag someone from the marketing team in #marcoms-requests.');
 
   return lines.join('\n');
 }

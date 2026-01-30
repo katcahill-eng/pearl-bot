@@ -1,10 +1,9 @@
-export type Intent = 'greeting' | 'help' | 'status' | 'search' | 'intake';
+export type Intent = 'help' | 'status' | 'search' | 'intake';
 
 const STATUS_PATTERNS = [
   /\bstatus\s+of\b/i,
   /\bwhere\s+are\s+we\s+on\b/i,
   /\bupdate\s+on\b/i,
-  /\bstatus\b/i,
   /\bwhat'?s\s+the\s+progress\b/i,
 ];
 
@@ -17,8 +16,9 @@ const SEARCH_PATTERNS = [
   /\bfind\b.*\bproject\b/i,
 ];
 
+// Only match explicit help-only messages (not "I need help with X")
 const HELP_PATTERNS = [
-  /\bhelp\b/i,
+  /^\s*help\s*$/i,
   /\bwhat\s+can\s+you\s+do\b/i,
   /\bcapabilities\b/i,
 ];
@@ -30,8 +30,9 @@ function stripMention(text: string): string {
 export function detectIntent(rawText: string): Intent {
   const text = stripMention(rawText);
 
+  // Empty messages or bare greetings → treat as intake (bot will start questions)
   if (!text || text.length === 0) {
-    return 'greeting';
+    return 'intake';
   }
 
   for (const pattern of HELP_PATTERNS) {
@@ -49,27 +50,10 @@ export function detectIntent(rawText: string): Intent {
   return 'intake';
 }
 
-export function getGreetingMessage(): string {
-  return [
-    "Hey there! :wave: I'm MarcomsBot, the marketing intake assistant.",
-    '',
-    'I can help you submit a marketing request. How would you like to get started?',
-    '',
-    '1. *Chat with me* — I\'ll ask a few questions and set everything up',
-    '2. *Fill out the form* — If you prefer a structured form instead',
-    '',
-    'Just reply with `1` to chat or `2` for the form link.',
-  ].join('\n');
-}
-
 export function getHelpMessage(): string {
   return [
-    ":bulb: *Here's what I can help with:*",
+    "Hey there! I'm MarcomsBot, the marketing team's intake assistant.",
     '',
-    '• *Submit a request* — Tell me about your marketing need and I\'ll create a brief, Drive folder, and Monday.com task',
-    '• *Check status* — Ask "status of [project name]" to see where a request stands',
-    '• *Find a brief* — Ask "find the brief for [project name]" to get links',
-    '',
-    'To start a new request, just describe what you need!',
+    "Just tell me what you need help with and I'll walk you through a few quick questions to get your request to the right people.",
   ].join('\n');
 }

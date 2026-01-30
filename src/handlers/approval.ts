@@ -280,7 +280,7 @@ export function registerApprovalHandler(app: App): void {
     const calendarUrl = config.marketingLeadCalendarUrl;
     const calendarLine = calendarUrl
       ? `\n\nPlease book a 30-minute call to discuss: ${calendarUrl}`
-      : '\n\nPlease reach out in #marketing-team to schedule a discussion.';
+      : '\n\nPlease tag someone from the marketing team in #marcoms-requests to schedule a discussion.';
 
     try {
       // Open a DM channel with the requester

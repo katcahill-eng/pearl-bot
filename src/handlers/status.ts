@@ -48,7 +48,7 @@ export async function handleStatusCheck(opts: {
         'A few things to try:',
         '• Use different keywords',
         `• Check <#${config.slackMarketingChannelId}> for recent requests`,
-        '• Ask in #marketing-team for older projects',
+        '• Tag someone from the marketing team in #marcoms-requests for older projects',
       ].join('\n'),
       thread_ts: threadTs,
     });

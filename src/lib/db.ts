@@ -120,7 +120,7 @@ export interface Division {
 // --- Helper Functions ---
 
 const stmts = {
-  getConversation: db.prepare<[string, string], Conversation>(
+  getConversation: db.prepare<[string], Conversation>(
     `SELECT * FROM conversations WHERE user_id = ? AND status IN ('gathering', 'confirming', 'pending_approval') ORDER BY updated_at DESC LIMIT 1`
   ),
   getConversationByThread: db.prepare<[string], Conversation>(
@@ -175,7 +175,7 @@ const stmts = {
 };
 
 export function getConversation(userId: string, threadTs: string): Conversation | undefined {
-  return stmts.getConversationByThread.get(threadTs) ?? stmts.getConversation.get(userId, threadTs);
+  return stmts.getConversationByThread.get(threadTs) ?? stmts.getConversation.get(userId);
 }
 
 export function getConversationById(id: number): Conversation | undefined {
