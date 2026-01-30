@@ -2,7 +2,7 @@ import Database, { Database as DatabaseType } from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -175,7 +175,7 @@ const stmts = {
 };
 
 export function getConversation(userId: string, threadTs: string): Conversation | undefined {
-  return stmts.getConversationByThread.get(threadTs) ?? stmts.getConversation.get(userId);
+  return stmts.getConversationByThread.get(threadTs);
 }
 
 export function getConversationById(id: number): Conversation | undefined {

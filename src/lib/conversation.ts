@@ -36,8 +36,8 @@ const REQUIRED_FIELDS: (keyof CollectedData)[] = [
 /** Prompts and examples for each intake field. */
 const FIELD_PROMPTS: Record<string, { question: string; example: string }> = {
   requester_department: {
-    question: 'What department are you in?',
-    example: 'e.g., CX, Corporate, BD, Product, P2',
+    question: 'Which department is requesting marketing support?',
+    example: 'e.g., CX, Corporate, BD, Product, P2, or Other',
   },
   target: {
     question: 'Who is the target audience for this request?',

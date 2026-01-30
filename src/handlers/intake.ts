@@ -104,10 +104,12 @@ async function handleIntakeMessageInner(opts: {
 
   // Load or create conversation
   let convo = ConversationManager.load(userId, threadTs);
+  console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? 'found existing' : 'no conversation'}`);
 
   if (!convo) {
     // Check for active conversation in another thread
     const existingConvo = getActiveConversationForUser(userId, threadTs);
+    console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
     if (existingConvo) {
       // Store pending duplicate check and prompt user
       pendingDuplicateChecks.set(dupKey, {
@@ -123,12 +125,13 @@ async function handleIntakeMessageInner(opts: {
     }
 
     // Look up the user's real name from Slack
-    let realName = userName;
+    let realName: string;
     try {
       const userInfo = await client.users.info({ user: userId });
-      realName = userInfo.user?.real_name ?? userInfo.user?.name ?? userName;
+      realName = userInfo.user?.real_name ?? userInfo.user?.name ?? 'there';
     } catch {
       console.error('[intake] Failed to look up user name for', userId);
+      realName = 'there';
     }
 
     convo = new ConversationManager({
@@ -142,6 +145,7 @@ async function handleIntakeMessageInner(opts: {
     convo.save();
 
     // Send a warm welcome before processing their message (randomized)
+    console.log(`[intake] Sending welcome message to ${realName} in thread ${threadTs}`);
     const firstName = realName.split(' ')[0];
     const welcomeMessages = [
       `Hey ${firstName}, thanks for reaching out to marketing! I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.`,
