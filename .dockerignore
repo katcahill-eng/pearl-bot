@@ -1,8 +1,6 @@
 node_modules
-src
+dist
 data
 .env
 .env.*
-*.ts
-tsconfig.json
 .DS_Store
