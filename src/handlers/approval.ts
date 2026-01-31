@@ -4,6 +4,7 @@ import { getConversationById } from '../lib/db';
 import { ConversationManager, type CollectedData } from '../lib/conversation';
 import { executeApprovedWorkflow, buildCompletionMessage } from '../lib/workflow';
 import { buildNotificationMessage } from '../lib/notifications';
+import { updateMondayItemStatus } from '../lib/monday';
 
 // --- Types ---
 
@@ -73,6 +74,13 @@ export async function sendApprovalRequest(
             text: { type: 'plain_text', text: "Let's Discuss" },
             action_id: 'approval_discuss',
             value: JSON.stringify({ conversationId }),
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Decline' },
+            style: 'danger',
+            action_id: 'approval_decline',
+            value: JSON.stringify({ conversationId, mondayItemId }),
           },
         ],
       },
@@ -250,30 +258,57 @@ export function registerApprovalHandler(app: App): void {
 
     // Monday.com item stays "Under Review" — no status change needed
 
-    // Remove buttons from the approval message
+    // Keep original message with buttons, insert a discussion context block above the actions
     if (body.message && body.channel?.id) {
       const discussBy = body.user?.name ?? body.user?.id ?? 'Unknown';
+
+      // Rebuild blocks: keep header + fields, add discussion note, keep actions
+      const existingBlocks = body.message.blocks ?? [];
+      const updatedBlocks: any[] = [];
+
+      for (const block of existingBlocks) {
+        if ((block as any).type === 'actions') {
+          // Insert discussion context block before actions
+          updatedBlocks.push({
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: `:speech_balloon: Discussion requested by ${discussBy}`,
+              },
+            ],
+          });
+        }
+        updatedBlocks.push(block);
+      }
+
       await client.chat.update({
         channel: body.channel.id,
         ts: body.message.ts,
-        text: `Discussion requested by ${discussBy}`,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `:speech_balloon: *Discussion requested* by ${discussBy}`,
-            },
-          },
-        ],
+        text: `Discussion requested by ${discussBy} — ${existingBlocks[0]?.text?.text ?? 'Request'}`,
+        blocks: updatedBlocks,
       });
 
       // Post confirmation in thread
       await client.chat.postMessage({
         channel: body.channel.id,
-        text: `${discussBy} wants to discuss this request before approving. The requester has been sent a calendar link.`,
+        text: `${discussBy} wants to discuss this request before approving. The requester has been notified.`,
         thread_ts: body.message.ts,
       });
+    }
+
+    // Notify requester in their original thread
+    const convo = ConversationManager.load(row.user_id, row.thread_ts);
+    if (convo) {
+      try {
+        await client.chat.postMessage({
+          channel: convo.getChannelId(),
+          text: "Your request is under review — the marketing team would like to discuss it further. They'll reach out to schedule a time.",
+          thread_ts: convo.getThreadTs(),
+        });
+      } catch (err) {
+        console.error('[approval] Failed to notify requester thread:', err);
+      }
     }
 
     // DM the requester with a calendar booking link
@@ -296,6 +331,98 @@ export function registerApprovalHandler(app: App): void {
       }
     } catch (err) {
       console.error('[approval] Failed to DM requester:', err);
+    }
+  });
+
+  // --- Decline ---
+  app.action('approval_decline', async ({ ack, body, client }) => {
+    await ack();
+
+    if (body.type !== 'block_actions' || !body.actions?.[0]) return;
+
+    const action = body.actions[0];
+    if (!('value' in action) || !action.value) return;
+
+    const { conversationId, mondayItemId } = JSON.parse(action.value) as {
+      conversationId: number;
+      mondayItemId: string;
+    };
+
+    // Load conversation
+    const row = getConversationById(conversationId);
+    if (!row) {
+      console.error('[approval] Conversation not found:', conversationId);
+      return;
+    }
+
+    // Guard: only process if still pending_approval
+    if (row.status !== 'pending_approval') {
+      if (body.message && body.channel?.id) {
+        await client.chat.update({
+          channel: body.channel.id,
+          ts: body.message.ts,
+          text: 'This request has already been processed.',
+          blocks: [
+            {
+              type: 'section',
+              text: { type: 'mrkdwn', text: ':information_source: This request has already been processed.' },
+            },
+          ],
+        });
+      }
+      return;
+    }
+
+    const convo = ConversationManager.load(row.user_id, row.thread_ts);
+    if (!convo) {
+      console.error('[approval] Could not load ConversationManager for:', conversationId);
+      return;
+    }
+
+    const classification = convo.getClassification() === 'undetermined' ? 'quick' : convo.getClassification() as 'quick' | 'full';
+
+    // Mark conversation as cancelled
+    convo.setStatus('cancelled');
+    convo.save();
+
+    // Replace approval message with declined notice (buttons removed)
+    if (body.message && body.channel?.id) {
+      const declinedBy = body.user?.name ?? body.user?.id ?? 'Unknown';
+      await client.chat.update({
+        channel: body.channel.id,
+        ts: body.message.ts,
+        text: `Declined by ${declinedBy}`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `:no_entry_sign: *Declined* by ${declinedBy}`,
+            },
+          },
+        ],
+      });
+    }
+
+    // Notify requester in their original thread
+    try {
+      await client.chat.postMessage({
+        channel: convo.getChannelId(),
+        text: 'Your request was reviewed and was not approved at this time.',
+        thread_ts: convo.getThreadTs(),
+      });
+    } catch (err) {
+      console.error('[approval] Failed to notify requester of decline:', err);
+    }
+
+    // Update Monday.com status to "Declined"
+    try {
+      const mondayBoardId = classification === 'quick'
+        ? config.mondayQuickBoardId
+        : config.mondayFullBoardId;
+      await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Declined');
+    } catch (err) {
+      console.error('[approval] Failed to update Monday.com status to Declined:', err);
     }
   });
 }

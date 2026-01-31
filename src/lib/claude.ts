@@ -142,14 +142,32 @@ export function classifyRequest(
     (kw) => context.includes(kw) || outcomes.includes(kw),
   );
 
-  // Classification logic
-  if (isFullKeyword) return 'full';
-  if (deliverables.length > 2) return 'full';
-  if (deliverables.length <= 1 && isQuickKeyword) return 'quick';
-  if (deliverables.length === 1) return 'quick';
-  if (deliverables.length === 2 && isQuickKeyword) return 'quick';
-  if (deliverables.length === 2) return 'full';
+  // Check if any deliverable matches a quick asset type
+  const quickDeliverableKeywords = [
+    'social post', 'social media post', 'one-pager', 'one pager',
+    'email template', 'blog post', 'flyer', 'banner', 'graphic',
+    'icon', 'headshot', 'photo edit', 'update', 'revision', 'tweak', 'edit',
+  ];
+  const hasQuickDeliverable = deliverables.some((d) =>
+    quickDeliverableKeywords.some((kw) => d.toLowerCase().includes(kw)),
+  );
 
+  // Classification logic — deliverable count + type takes priority over context keywords
+  // 1. 1-2 deliverables that match quick asset types → quick
+  if (deliverables.length >= 1 && deliverables.length <= 2 && hasQuickDeliverable) return 'quick';
+  // 2. 3+ deliverables → full
+  if (deliverables.length > 2) return 'full';
+  // 3. 1 deliverable (any type) → quick
+  if (deliverables.length === 1) return 'quick';
+  // 4. Full keyword + 2 deliverables → full
+  if (isFullKeyword && deliverables.length === 2) return 'full';
+  // 5. 2 deliverables (no signal) → full
+  if (deliverables.length === 2) return 'full';
+  // 6. Full keyword + 0 deliverables → full
+  if (isFullKeyword && deliverables.length === 0) return 'full';
+  // 7. Quick keyword anywhere + 0 deliverables → quick
+  if (isQuickKeyword && deliverables.length === 0) return 'quick';
+  // 8. Fallback
   return 'undetermined';
 }
 
