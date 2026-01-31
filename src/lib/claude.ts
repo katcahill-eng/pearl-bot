@@ -67,10 +67,11 @@ export async function interpretMessage(
   message: string,
   conversationState: Partial<CollectedData>,
   currentDate?: string,
+  currentStep?: string | null,
 ): Promise<ExtractedFields> {
   const today = currentDate ?? new Date().toISOString().split('T')[0];
 
-  const userPrompt = buildUserPrompt(message, conversationState, today);
+  const userPrompt = buildUserPrompt(message, conversationState, today, currentStep);
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -177,6 +178,7 @@ function buildUserPrompt(
   message: string,
   conversationState: Partial<CollectedData>,
   today: string,
+  currentStep?: string | null,
 ): string {
   const parts: string[] = [`Today's date: ${today}`, ''];
 
@@ -194,6 +196,11 @@ function buildUserPrompt(
     for (const [key, val] of collected) {
       parts.push(`- ${key}: ${Array.isArray(val) ? val.join(', ') : val}`);
     }
+    parts.push('');
+  }
+
+  if (currentStep) {
+    parts.push(`The bot just asked the user about: ${currentStep}. Prioritize mapping their response to this field unless it clearly belongs elsewhere.`);
     parts.push('');
   }
 

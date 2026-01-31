@@ -3,7 +3,6 @@ import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
 import { ConversationManager, type CollectedData } from '../lib/conversation';
 import { interpretMessage, classifyRequest, type ExtractedFields } from '../lib/claude';
-import { createMondayItemForReview } from '../lib/workflow';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, cancelConversation } from '../lib/db';
 
@@ -266,19 +265,7 @@ async function handleConfirmingState(
     const collectedData = convo.getCollectedData();
     const requesterName = convo.getUserName();
 
-    // Step 1: Create Monday.com item with "Under Review" status
-    const mondayResult = await createMondayItemForReview({
-      collectedData,
-      classification: effectiveClassification,
-      requesterName,
-    });
-
-    if (mondayResult.success && mondayResult.itemId && mondayResult.boardUrl) {
-      // Store Monday item ID in conversation
-      convo.setMondayItemId(mondayResult.itemId);
-    }
-
-    // Step 2: Set status to pending_approval
+    // Set status to pending_approval (Monday.com item deferred until "In Progress")
     convo.setStatus('pending_approval');
     convo.save();
 
@@ -288,7 +275,7 @@ async function handleConfirmingState(
       thread_ts: threadTs,
     });
 
-    // Step 3: Post approval request to #mktg-triage
+    // Post approval request to #mktg-triage
     const projectName =
       collectedData.context_background?.slice(0, 80) ??
       collectedData.deliverables[0] ??
@@ -301,8 +288,6 @@ async function handleConfirmingState(
         classification: effectiveClassification,
         collectedData,
         requesterName,
-        mondayItemId: mondayResult.itemId ?? '',
-        mondayUrl: mondayResult.boardUrl ?? '',
       });
     } catch (err) {
       console.error('[intake] Failed to send approval request:', err);
@@ -377,7 +362,7 @@ async function handleGatheringState(
   // Interpret the message via Claude
   console.log(`[intake] Calling Claude to interpret: "${text.substring(0, 80)}" for convo threadTs=${convo.getThreadTs()}, replyThreadTs=${threadTs}`);
   try {
-    const extracted = await interpretMessage(text, convo.getCollectedData());
+    const extracted = await interpretMessage(text, convo.getCollectedData(), undefined, convo.getCurrentStep());
     console.log(`[intake] Claude response: confidence=${extracted.confidence}, department=${extracted.requester_department}`);
     const fieldsApplied = applyExtractedFields(convo, extracted);
 
