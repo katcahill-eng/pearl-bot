@@ -374,8 +374,10 @@ async function handleGatheringState(
   }
 
   // Interpret the message via Claude
+  console.log(`[intake] Calling Claude to interpret: "${text.substring(0, 80)}" for convo threadTs=${convo.getThreadTs()}, replyThreadTs=${threadTs}`);
   try {
     const extracted = await interpretMessage(text, convo.getCollectedData());
+    console.log(`[intake] Claude response: confidence=${extracted.confidence}, department=${extracted.requester_department}`);
     const fieldsApplied = applyExtractedFields(convo, extracted);
 
     if (fieldsApplied === 0 && extracted.confidence < 0.3) {

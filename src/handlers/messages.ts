@@ -15,6 +15,8 @@ export function registerMessageHandler(app: App): void {
     const thread_ts = event.thread_ts ?? event.ts;
     const userId = 'user' in event ? (event.user as string) : '';
 
+    console.log(`[messages] DM received from ${userId}: "${text.substring(0, 80)}" thread_ts=${thread_ts} event.thread_ts=${event.thread_ts ?? 'none'} event.ts=${event.ts}`);
+
     try {
       // Check if there's a pending duplicate-thread prompt — route to intake to handle the response
       if (hasPendingDuplicateCheck(userId, thread_ts)) {
