@@ -22,14 +22,14 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
 }
 
 /**
- * Tracks threads where the user was asked about a duplicate active conversation.
- * Maps `${userId}:${threadTs}` → the existing conversation's thread_ts and channel_id.
+ * Tracks users who were asked about a duplicate active conversation.
+ * Maps userId → the existing conversation's thread_ts, channel_id, and the thread where the prompt was shown.
  */
-const pendingDuplicateChecks = new Map<string, { existingThreadTs: string; existingChannelId: string; existingConvoId: number }>();
+const pendingDuplicateChecks = new Map<string, { existingThreadTs: string; existingChannelId: string; existingConvoId: number; promptThreadTs: string }>();
 
-/** Check if a thread has a pending duplicate-conversation prompt. */
-export function hasPendingDuplicateCheck(userId: string, threadTs: string): boolean {
-  return pendingDuplicateChecks.has(`${userId}:${threadTs}`);
+/** Check if a user has a pending duplicate-conversation prompt. */
+export function hasPendingDuplicateCheck(userId: string, _threadTs: string): boolean {
+  return pendingDuplicateChecks.has(userId);
 }
 
 // --- Public handler ---
@@ -77,28 +77,27 @@ async function handleIntakeMessageInner(opts: {
   const { userId, userName, channelId, threadTs, text, say, client } = opts;
 
   // --- Handle pending duplicate-check responses ---
-  const dupKey = `${userId}:${threadTs}`;
-  const pendingDup = pendingDuplicateChecks.get(dupKey);
+  const pendingDup = pendingDuplicateChecks.get(userId);
   if (pendingDup) {
+    const replyThreadTs = pendingDup.promptThreadTs;
     if (matchesAny(text, CONTINUE_THERE_PATTERNS)) {
-      pendingDuplicateChecks.delete(dupKey);
+      pendingDuplicateChecks.delete(userId);
       // Build a Slack deep link to the original thread
       const tsNoDot = pendingDup.existingThreadTs.replace('.', '');
       await say({
         text: `No problem! Here's your open conversation: https://slack.com/archives/${pendingDup.existingChannelId}/p${tsNoDot}\nJust reply there to pick up where you left off.`,
-        thread_ts: threadTs,
+        thread_ts: replyThreadTs,
       });
       return;
     }
     if (matchesAny(text, START_FRESH_PATTERNS)) {
-      pendingDuplicateChecks.delete(dupKey);
-      // Cancel the old conversation and start a new one
+      pendingDuplicateChecks.delete(userId);
+      // Cancel the old conversation and start a new one — fall through to create new conversation below
       cancelConversation(pendingDup.existingConvoId);
-      // Fall through to create new conversation below
     } else {
-      // Unrecognized response — re-prompt
-      pendingDuplicateChecks.delete(dupKey);
-      // Treat as "start fresh" since user is clearly trying to interact in this thread
+      pendingDuplicateChecks.delete(userId);
+      // Unrecognized response — treat as "start fresh" since user is clearly trying to interact
+      cancelConversation(pendingDup.existingConvoId);
     }
   }
 
@@ -111,14 +110,25 @@ async function handleIntakeMessageInner(opts: {
     const existingConvo = getActiveConversationForUser(userId, threadTs);
     console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
     if (existingConvo) {
+      // Look up the user's name for the welcome-back message
+      let firstName = 'there';
+      try {
+        const userInfo = await client.users.info({ user: userId });
+        const name = userInfo.user?.real_name ?? userInfo.user?.name;
+        if (name) firstName = name.split(' ')[0];
+      } catch {
+        // fall back to "there"
+      }
+
       // Store pending duplicate check and prompt user
-      pendingDuplicateChecks.set(dupKey, {
+      pendingDuplicateChecks.set(userId, {
         existingThreadTs: existingConvo.thread_ts,
         existingChannelId: existingConvo.channel_id,
         existingConvoId: existingConvo.id,
+        promptThreadTs: threadTs,
       });
       await say({
-        text: "We have an open request in another thread — want to *continue there* or *start fresh* here?",
+        text: `Welcome back, ${firstName}! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?`,
         thread_ts: threadTs,
       });
       return;
