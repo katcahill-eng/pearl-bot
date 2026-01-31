@@ -9,7 +9,10 @@ export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
     // Only handle DMs (message.im) — ignore channel messages, edits, and bot messages
     if (event.channel_type !== 'im') return;
-    if (event.subtype) return; // Skip edits, deletes, bot messages, etc.
+    if (event.subtype) {
+      console.log(`[messages] Skipping DM with subtype: ${event.subtype}`);
+      return;
+    }
 
     const text = event.text ?? '';
     const thread_ts = event.thread_ts ?? event.ts;

@@ -136,8 +136,9 @@ async function handleIntakeMessageInner(opts: {
     try {
       const userInfo = await client.users.info({ user: userId });
       realName = userInfo.user?.real_name ?? userInfo.user?.name ?? 'Unknown';
-    } catch {
-      console.error('[intake] Failed to look up user name for', userId);
+      console.log(`[intake] Resolved user name: ${realName}`);
+    } catch (err) {
+      console.error('[intake] Failed to look up user name for', userId, '— bot may need users:read scope. Error:', err);
     }
 
     convo = new ConversationManager({
