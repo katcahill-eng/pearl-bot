@@ -175,7 +175,7 @@ const stmts = {
 };
 
 export function getConversation(userId: string, threadTs: string): Conversation | undefined {
-  return stmts.getConversationByThread.get(threadTs);
+  return stmts.getConversationByThread.get(threadTs) ?? stmts.getConversation.get(userId);
 }
 
 export function getConversationById(id: number): Conversation | undefined {
