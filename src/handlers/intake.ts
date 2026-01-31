@@ -74,7 +74,8 @@ async function handleIntakeMessageInner(opts: {
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
-  const { userId, userName, channelId, threadTs, text, say, client } = opts;
+  const { userId, userName, channelId, text, say, client } = opts;
+  let threadTs = opts.threadTs;
 
   // --- Handle pending duplicate-check responses ---
   const pendingDup = pendingDuplicateChecks.get(userId);
@@ -104,6 +105,12 @@ async function handleIntakeMessageInner(opts: {
   // Load or create conversation
   let convo = ConversationManager.load(userId, threadTs);
   console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? 'found existing' : 'no conversation'}`);
+
+  // If the conversation was found via userId fallback, use its stored threadTs for replies
+  if (convo && convo.getThreadTs() !== threadTs) {
+    console.log(`[intake] Using conversation's stored threadTs ${convo.getThreadTs()} instead of ${threadTs}`);
+    threadTs = convo.getThreadTs();
+  }
 
   if (!convo) {
     // Check for active conversation in another thread
