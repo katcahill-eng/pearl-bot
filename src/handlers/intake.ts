@@ -110,16 +110,6 @@ async function handleIntakeMessageInner(opts: {
     const existingConvo = getActiveConversationForUser(userId, threadTs);
     console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
     if (existingConvo) {
-      // Look up the user's name for the welcome-back message
-      let firstName = 'there';
-      try {
-        const userInfo = await client.users.info({ user: userId });
-        const name = userInfo.user?.real_name ?? userInfo.user?.name;
-        if (name) firstName = name.split(' ')[0];
-      } catch {
-        // fall back to "there"
-      }
-
       // Store pending duplicate check and prompt user
       pendingDuplicateChecks.set(userId, {
         existingThreadTs: existingConvo.thread_ts,
@@ -128,20 +118,19 @@ async function handleIntakeMessageInner(opts: {
         promptThreadTs: threadTs,
       });
       await say({
-        text: `Welcome back, ${firstName}! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?`,
+        text: "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
         thread_ts: threadTs,
       });
       return;
     }
 
-    // Look up the user's real name from Slack
-    let realName: string;
+    // Look up the user's real name from Slack for the requester field
+    let realName = 'Unknown';
     try {
       const userInfo = await client.users.info({ user: userId });
-      realName = userInfo.user?.real_name ?? userInfo.user?.name ?? 'there';
+      realName = userInfo.user?.real_name ?? userInfo.user?.name ?? 'Unknown';
     } catch {
       console.error('[intake] Failed to look up user name for', userId);
-      realName = 'there';
     }
 
     convo = new ConversationManager({
@@ -155,13 +144,12 @@ async function handleIntakeMessageInner(opts: {
     convo.save();
 
     // Send a warm welcome before processing their message (randomized)
-    console.log(`[intake] Sending welcome message to ${realName} in thread ${threadTs}`);
-    const firstName = realName.split(' ')[0];
+    console.log(`[intake] Sending welcome message in thread ${threadTs}`);
     const welcomeMessages = [
-      `Hey ${firstName}, thanks for reaching out to marketing! I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.`,
-      `Hi ${firstName}! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.`,
-      `Hey there, ${firstName}! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.`,
-      `Hi ${firstName}, thanks for coming to us! Let me ask you a few quick questions so we can get your request set up and into the right hands.`,
+      "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.",
+      "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.",
+      "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.",
+      "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.",
     ];
     await say({
       text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
