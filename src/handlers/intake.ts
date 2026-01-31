@@ -157,6 +157,10 @@ async function handleIntakeMessageInner(opts: {
       text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
       thread_ts: threadTs,
     });
+
+    // Ask the first question and return — don't try to interpret the initial message as an answer
+    await askNextQuestion(convo, threadTs, say);
+    return;
   }
 
   const status = convo.getStatus();
