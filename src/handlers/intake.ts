@@ -203,8 +203,10 @@ async function handleIntakeMessageInner(opts: {
       channelId,
       threadTs,
     });
-    // Auto-fill requester name from Slack
-    convo.markFieldCollected('requester_name', realName);
+    // Auto-fill requester name from Slack — only if we actually got a real name
+    if (realName !== 'Unknown') {
+      convo.markFieldCollected('requester_name', realName);
+    }
     await convo.save();
 
     // Send a warm welcome before processing their message (randomized)
@@ -465,6 +467,10 @@ async function handleGatheringState(
   }
   if (currentStep === 'draft:awaiting_expected_date') {
     await handleDraftExpectedDate(convo, text, threadTs, say);
+    return;
+  }
+  if (currentStep === 'draft:awaiting_more') {
+    await handleDraftMore(convo, text, threadTs, say);
     return;
   }
 
@@ -1131,7 +1137,24 @@ export function registerPostSubmissionActions(app: App): void {
   });
 }
 
-// --- Draft collection mini-flow ---
+// --- Draft/existing content collection mini-flow ---
+
+interface ExistingAsset {
+  link: string;
+  status: string; // 'Ready' or 'In progress — expected [date]'
+}
+
+function getExistingAssets(convo: ConversationManager): ExistingAsset[] {
+  const raw = convo.getCollectedData().additional_details['__existing_assets'];
+  if (!raw) return [];
+  try { return JSON.parse(raw) as ExistingAsset[]; } catch { return []; }
+}
+
+function saveExistingAssets(convo: ConversationManager, assets: ExistingAsset[]): void {
+  const details = convo.getCollectedData().additional_details;
+  details['__existing_assets'] = JSON.stringify(assets);
+  convo.markFieldCollected('additional_details', details);
+}
 
 async function handleDraftLink(
   convo: ConversationManager,
@@ -1140,44 +1163,34 @@ async function handleDraftLink(
   say: SayFn,
 ): Promise<void> {
   if (matchesAny(text, SKIP_PATTERNS)) {
-    // No link provided — move on
-    const details = convo.getCollectedData().additional_details;
-    details['draft_link'] = '_will share later_';
-    convo.markFieldCollected('additional_details', details);
+    const assets = getExistingAssets(convo);
+    if (assets.length === 0) {
+      const details = convo.getCollectedData().additional_details;
+      details['draft_link'] = '_will share later_';
+      convo.markFieldCollected('additional_details', details);
+    }
     restoreStepAfterDraft(convo);
     await convo.save();
     await say({
-      text: "No problem — you can share it anytime in this thread after submitting. Let's continue!",
+      text: "No problem — you can share links anytime in this thread after submitting. Let's continue!",
       thread_ts: threadTs,
     });
     await resumeAfterDraft(convo, threadTs, say);
     return;
   }
 
-  // Check if the message contains a URL
+  // Extract URL or store as description
   const urlMatch = text.match(/<(https?:\/\/[^|>]+)/i) ?? text.match(/(https?:\/\/\S+)/i);
   const details = convo.getCollectedData().additional_details;
+  details['__current_draft_link'] = urlMatch ? urlMatch[1] : text;
+  convo.markFieldCollected('additional_details', details);
+  convo.setCurrentStep('draft:awaiting_readiness');
+  await convo.save();
 
-  if (urlMatch) {
-    details['draft_link'] = urlMatch[1];
-    convo.markFieldCollected('additional_details', details);
-    convo.setCurrentStep('draft:awaiting_readiness');
-    await convo.save();
-    await say({
-      text: "Got it, linked! Is this draft ready for marketing to work with, or is it still in progress?\n_Just say *ready* or *in progress*._",
-      thread_ts: threadTs,
-    });
-  } else {
-    // Treat as a file reference or description, store it
-    details['draft_link'] = text;
-    convo.markFieldCollected('additional_details', details);
-    convo.setCurrentStep('draft:awaiting_readiness');
-    await convo.save();
-    await say({
-      text: "Noted! Is this content ready for marketing to work with, or is it still in progress?\n_Just say *ready* or *in progress*._",
-      thread_ts: threadTs,
-    });
-  }
+  await say({
+    text: `Got it! Is this ${urlMatch ? 'content' : 'draft'} ready for marketing to work with, or is it still in progress?\n_Just say *ready* or *in progress*._`,
+    thread_ts: threadTs,
+  });
 }
 
 async function handleDraftReadiness(
@@ -1188,23 +1201,24 @@ async function handleDraftReadiness(
 ): Promise<void> {
   const lower = text.toLowerCase().trim();
   const details = convo.getCollectedData().additional_details;
+  const currentLink = details['__current_draft_link'] ?? '';
 
   const isReady = /^(ready|done|finished|good\s*to\s*go|yes|yep|it'?s?\s*ready)/i.test(lower);
   const isInProgress = /^(in\s*progress|not\s*(yet|ready|done)|still\s*(working|in progress|drafting)|wip|needs?\s*(work|more))/i.test(lower);
 
   if (isReady) {
-    details['draft_status'] = 'Ready for marketing';
+    const assets = getExistingAssets(convo);
+    assets.push({ link: currentLink, status: 'Ready' });
+    saveExistingAssets(convo, assets);
+    delete details['__current_draft_link'];
     convo.markFieldCollected('additional_details', details);
-    restoreStepAfterDraft(convo);
+    convo.setCurrentStep('draft:awaiting_more');
     await convo.save();
     await say({
-      text: "Great — we'll pull it in and get started. Let's keep going!",
+      text: "Great — we'll pull it in! Do you have any other existing content or links to share? (landing pages, email drafts, slide decks, etc.)\n_Say *done* if that's everything._",
       thread_ts: threadTs,
     });
-    await resumeAfterDraft(convo, threadTs, say);
   } else if (isInProgress || matchesAny(text, SKIP_PATTERNS)) {
-    details['draft_status'] = 'In progress — not ready for marketing yet';
-    convo.markFieldCollected('additional_details', details);
     convo.setCurrentStep('draft:awaiting_expected_date');
     await convo.save();
     await say({
@@ -1212,9 +1226,8 @@ async function handleDraftReadiness(
       thread_ts: threadTs,
     });
   } else {
-    // Can't parse — store as-is and ask for clarification
     await say({
-      text: "Just to make sure — is the draft *ready* for marketing to use, or is it still *in progress*?",
+      text: "Just to make sure — is this *ready* for marketing to use, or is it still *in progress*?",
       thread_ts: threadTs,
     });
   }
@@ -1227,23 +1240,54 @@ async function handleDraftExpectedDate(
   say: SayFn,
 ): Promise<void> {
   const details = convo.getCollectedData().additional_details;
+  const currentLink = details['__current_draft_link'] ?? '';
+  const expectedDate = matchesAny(text, SKIP_PATTERNS) ? 'TBD' : text;
 
-  if (matchesAny(text, SKIP_PATTERNS)) {
-    details['draft_expected_date'] = 'TBD';
-  } else {
-    details['draft_expected_date'] = text;
-  }
-
-  details['draft_status'] = `In progress — expected ${details['draft_expected_date']}`;
+  const assets = getExistingAssets(convo);
+  assets.push({ link: currentLink, status: `In progress — expected ${expectedDate}` });
+  saveExistingAssets(convo, assets);
+  delete details['__current_draft_link'];
   convo.markFieldCollected('additional_details', details);
-  restoreStepAfterDraft(convo);
+  convo.setCurrentStep('draft:awaiting_more');
   await convo.save();
 
   await say({
-    text: `:memo: Noted — we'll follow up on the draft around ${details['draft_expected_date'] === 'TBD' ? 'that time' : details['draft_expected_date']}. Let's keep going!`,
+    text: `:memo: Noted — we'll follow up around ${expectedDate === 'TBD' ? 'that time' : expectedDate}. Do you have any other existing content or links to share?\n_Say *done* if that's everything._`,
     thread_ts: threadTs,
   });
-  await resumeAfterDraft(convo, threadTs, say);
+}
+
+async function handleDraftMore(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  // Check if user is done adding content
+  if (matchesAny(text, DONE_PATTERNS) || matchesAny(text, SKIP_PATTERNS) || /^(no|nope|that'?s?\s*(it|all)|nothing)/i.test(text.trim())) {
+    restoreStepAfterDraft(convo);
+    await convo.save();
+    const assets = getExistingAssets(convo);
+    await say({
+      text: `Got it — ${assets.length} existing asset${assets.length === 1 ? '' : 's'} linked. Let's keep going!`,
+      thread_ts: threadTs,
+    });
+    await resumeAfterDraft(convo, threadTs, say);
+    return;
+  }
+
+  // User is providing another link — capture it and ask about readiness
+  const urlMatch = text.match(/<(https?:\/\/[^|>]+)/i) ?? text.match(/(https?:\/\/\S+)/i);
+  const details = convo.getCollectedData().additional_details;
+  details['__current_draft_link'] = urlMatch ? urlMatch[1] : text;
+  convo.markFieldCollected('additional_details', details);
+  convo.setCurrentStep('draft:awaiting_readiness');
+  await convo.save();
+
+  await say({
+    text: "Got it! Is this one ready for marketing, or still in progress?\n_Just say *ready* or *in progress*._",
+    thread_ts: threadTs,
+  });
 }
 
 /** Save the pre-draft step so we can resume after the mini-flow. */

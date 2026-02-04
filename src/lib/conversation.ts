@@ -31,6 +31,7 @@ export type Classification = Conversation['classification'];
 
 /** Fields in the order they should be asked. */
 const REQUIRED_FIELDS: (keyof CollectedData)[] = [
+  'requester_name',
   'requester_department',
   'target',
   'context_background',
@@ -41,6 +42,10 @@ const REQUIRED_FIELDS: (keyof CollectedData)[] = [
 
 /** Prompts and examples for each intake field. */
 const FIELD_PROMPTS: Record<string, { question: string; example: string }> = {
+  requester_name: {
+    question: "First things first — what's your name?",
+    example: 'e.g., "Jane Smith", "Alex from BD"',
+  },
   requester_department: {
     question: 'Which department is requesting marketing support?',
     example: 'e.g., CX, Corporate, BD, Product, P2, or Other',
@@ -380,16 +385,21 @@ export class ConversationManager {
 
     // Show items flagged for discussion
     const discussionFlags = this.getDiscussionFlags();
-    // Show draft/content info
-    const draftLink = d.additional_details['draft_link'];
-    const draftStatus = d.additional_details['draft_status'];
-    if (draftLink && draftLink !== '_will share later_') {
-      lines.push(`• *Draft/existing content:* ${draftLink}`);
-      if (draftStatus) {
-        lines.push(`• *Draft status:* ${draftStatus}`);
-      }
-    } else if (draftLink === '_will share later_') {
-      lines.push('• *Draft/existing content:* _will share later_');
+    // Show existing content/assets
+    const existingAssetsRaw = d.additional_details['__existing_assets'];
+    if (existingAssetsRaw) {
+      try {
+        const assets = JSON.parse(existingAssetsRaw) as { link: string; status: string }[];
+        if (assets.length > 0) {
+          lines.push('');
+          lines.push('*Existing content:*');
+          for (const asset of assets) {
+            lines.push(`• ${asset.link} — _${asset.status}_`);
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    } else if (d.additional_details['draft_link'] === '_will share later_') {
+      lines.push('• *Existing content:* _will share later_');
     }
 
     if (discussionFlags.length > 0) {
