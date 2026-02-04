@@ -380,6 +380,18 @@ export class ConversationManager {
 
     // Show items flagged for discussion
     const discussionFlags = this.getDiscussionFlags();
+    // Show draft/content info
+    const draftLink = d.additional_details['draft_link'];
+    const draftStatus = d.additional_details['draft_status'];
+    if (draftLink && draftLink !== '_will share later_') {
+      lines.push(`• *Draft/existing content:* ${draftLink}`);
+      if (draftStatus) {
+        lines.push(`• *Draft status:* ${draftStatus}`);
+      }
+    } else if (draftLink === '_will share later_') {
+      lines.push('• *Draft/existing content:* _will share later_');
+    }
+
     if (discussionFlags.length > 0) {
       lines.push('');
       lines.push(':speech_balloon: *Flagged for discussion:*');

@@ -36,6 +36,23 @@ const DISCUSS_PATTERNS = [
   /^not\s*sure.*talk/i, /^circle\s*back/i,
 ];
 
+/** Detect mentions of existing content/drafts in user messages. */
+function mentionsExistingContent(text: string): boolean {
+  const lower = text.toLowerCase();
+  const patterns = [
+    /existing\s+(content|draft|deck|copy|doc|document|slides?|one[- ]?pager|asset)/i,
+    /already\s+(have|started|wrote|created|drafted|built)/i,
+    /draft\s+(is|that|we|i)/i,
+    /have\s+a\s+(draft|deck|doc|document|version|start)/i,
+    /started\s+(on|writing|creating|drafting|working)/i,
+    /rough\s+(draft|version|copy|outline)/i,
+    /needs?\s+(refreshing|updating|refresh|update|polish)/i,
+    /work[- ]?in[- ]?progress/i,
+    /wip/i,
+  ];
+  return patterns.some((p) => p.test(lower));
+}
+
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   const trimmed = text.trim();
   return patterns.some((p) => p.test(trimmed));
@@ -436,6 +453,21 @@ async function handleGatheringState(
     return;
   }
 
+  // --- Handle draft collection sub-flow ---
+  const currentStep = convo.getCurrentStep();
+  if (currentStep === 'draft:awaiting_link') {
+    await handleDraftLink(convo, text, threadTs, say);
+    return;
+  }
+  if (currentStep === 'draft:awaiting_readiness') {
+    await handleDraftReadiness(convo, text, threadTs, say);
+    return;
+  }
+  if (currentStep === 'draft:awaiting_expected_date') {
+    await handleDraftExpectedDate(convo, text, threadTs, say);
+    return;
+  }
+
   // --- Handle follow-up phase ---
   if (convo.isInFollowUp()) {
     await handleFollowUpAnswer(convo, text, threadTs, say);
@@ -509,6 +541,22 @@ async function handleGatheringState(
       if (timeline) {
         await say({ text: timeline, thread_ts: threadTs });
       }
+    }
+
+    // Detect mentions of existing content — start draft collection mini-flow
+    const details = convo.getCollectedData().additional_details;
+    if (mentionsExistingContent(text) && !details['draft_link'] && !details['__draft_asked']) {
+      // Mark that we've asked so we don't re-trigger, and save current step to resume
+      details['__draft_asked'] = 'true';
+      details['__pre_draft_step'] = convo.getCurrentStep() ?? '';
+      convo.markFieldCollected('additional_details', details);
+      convo.setCurrentStep('draft:awaiting_link');
+      await convo.save();
+      await say({
+        text: "It sounds like you have some existing content or a draft started — that's super helpful! Can you share a Google Drive link so we can take a look?\n_If you don't have a link handy, just say *skip* and you can share it later._",
+        thread_ts: threadTs,
+      });
+      return;
     }
 
     // Check if all required fields are now collected
@@ -707,6 +755,21 @@ async function handleFollowUpAnswer(
     const details = convo.getCollectedData().additional_details;
     details[currentQuestion.field_key] = text;
     convo.markFieldCollected('additional_details', details);
+  }
+
+  // Detect mentions of existing content in follow-up answers
+  const followUpDetails = convo.getCollectedData().additional_details;
+  if (mentionsExistingContent(text) && !followUpDetails['draft_link'] && !followUpDetails['__draft_asked']) {
+    followUpDetails['__draft_asked'] = 'true';
+    followUpDetails['__pre_draft_step'] = convo.getCurrentStep() ?? '';
+    convo.markFieldCollected('additional_details', followUpDetails);
+    convo.setCurrentStep('draft:awaiting_link');
+    await convo.save();
+    await say({
+      text: "It sounds like you have some existing content or a draft — nice! Can you share a Google Drive link so we can pull it in?\n_Say *skip* if you don't have a link handy._",
+      thread_ts: threadTs,
+    });
+    return;
   }
 
   // Advance to next unanswered question
@@ -1066,6 +1129,165 @@ export function registerPostSubmissionActions(app: App): void {
       console.error('[intake] Failed to prompt for withdraw confirmation:', err);
     }
   });
+}
+
+// --- Draft collection mini-flow ---
+
+async function handleDraftLink(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  if (matchesAny(text, SKIP_PATTERNS)) {
+    // No link provided — move on
+    const details = convo.getCollectedData().additional_details;
+    details['draft_link'] = '_will share later_';
+    convo.markFieldCollected('additional_details', details);
+    restoreStepAfterDraft(convo);
+    await convo.save();
+    await say({
+      text: "No problem — you can share it anytime in this thread after submitting. Let's continue!",
+      thread_ts: threadTs,
+    });
+    await resumeAfterDraft(convo, threadTs, say);
+    return;
+  }
+
+  // Check if the message contains a URL
+  const urlMatch = text.match(/<(https?:\/\/[^|>]+)/i) ?? text.match(/(https?:\/\/\S+)/i);
+  const details = convo.getCollectedData().additional_details;
+
+  if (urlMatch) {
+    details['draft_link'] = urlMatch[1];
+    convo.markFieldCollected('additional_details', details);
+    convo.setCurrentStep('draft:awaiting_readiness');
+    await convo.save();
+    await say({
+      text: "Got it, linked! Is this draft ready for marketing to work with, or is it still in progress?\n_Just say *ready* or *in progress*._",
+      thread_ts: threadTs,
+    });
+  } else {
+    // Treat as a file reference or description, store it
+    details['draft_link'] = text;
+    convo.markFieldCollected('additional_details', details);
+    convo.setCurrentStep('draft:awaiting_readiness');
+    await convo.save();
+    await say({
+      text: "Noted! Is this content ready for marketing to work with, or is it still in progress?\n_Just say *ready* or *in progress*._",
+      thread_ts: threadTs,
+    });
+  }
+}
+
+async function handleDraftReadiness(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  const lower = text.toLowerCase().trim();
+  const details = convo.getCollectedData().additional_details;
+
+  const isReady = /^(ready|done|finished|good\s*to\s*go|yes|yep|it'?s?\s*ready)/i.test(lower);
+  const isInProgress = /^(in\s*progress|not\s*(yet|ready|done)|still\s*(working|in progress|drafting)|wip|needs?\s*(work|more))/i.test(lower);
+
+  if (isReady) {
+    details['draft_status'] = 'Ready for marketing';
+    convo.markFieldCollected('additional_details', details);
+    restoreStepAfterDraft(convo);
+    await convo.save();
+    await say({
+      text: "Great — we'll pull it in and get started. Let's keep going!",
+      thread_ts: threadTs,
+    });
+    await resumeAfterDraft(convo, threadTs, say);
+  } else if (isInProgress || matchesAny(text, SKIP_PATTERNS)) {
+    details['draft_status'] = 'In progress — not ready for marketing yet';
+    convo.markFieldCollected('additional_details', details);
+    convo.setCurrentStep('draft:awaiting_expected_date');
+    await convo.save();
+    await say({
+      text: "No problem! When do you think the draft will be ready? This way we can plan around it.\n_e.g., \"end of this week\", \"by March 10\", or say *skip* if you're not sure yet._",
+      thread_ts: threadTs,
+    });
+  } else {
+    // Can't parse — store as-is and ask for clarification
+    await say({
+      text: "Just to make sure — is the draft *ready* for marketing to use, or is it still *in progress*?",
+      thread_ts: threadTs,
+    });
+  }
+}
+
+async function handleDraftExpectedDate(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  const details = convo.getCollectedData().additional_details;
+
+  if (matchesAny(text, SKIP_PATTERNS)) {
+    details['draft_expected_date'] = 'TBD';
+  } else {
+    details['draft_expected_date'] = text;
+  }
+
+  details['draft_status'] = `In progress — expected ${details['draft_expected_date']}`;
+  convo.markFieldCollected('additional_details', details);
+  restoreStepAfterDraft(convo);
+  await convo.save();
+
+  await say({
+    text: `:memo: Noted — we'll follow up on the draft around ${details['draft_expected_date'] === 'TBD' ? 'that time' : details['draft_expected_date']}. Let's keep going!`,
+    thread_ts: threadTs,
+  });
+  await resumeAfterDraft(convo, threadTs, say);
+}
+
+/** Save the pre-draft step so we can resume after the mini-flow. */
+function restoreStepAfterDraft(convo: ConversationManager): void {
+  const details = convo.getCollectedData().additional_details;
+  const savedStep = details['__pre_draft_step'];
+  if (savedStep) {
+    convo.setCurrentStep(savedStep);
+    delete details['__pre_draft_step'];
+    convo.markFieldCollected('additional_details', details);
+  }
+}
+
+/** Resume normal flow after draft collection is done. */
+async function resumeAfterDraft(
+  convo: ConversationManager,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  if (convo.isInFollowUp()) {
+    const questions = getStoredFollowUpQuestions(convo);
+    const index = convo.getFollowUpIndex();
+    if (questions && index < questions.length) {
+      // Advance past the current follow-up (already answered before draft detour)
+      const details = convo.getCollectedData().additional_details;
+      let nextIndex = index + 1;
+      while (nextIndex < questions.length && details[questions[nextIndex].field_key]) {
+        nextIndex++;
+      }
+      if (nextIndex >= questions.length) {
+        await transitionToConfirming(convo, threadTs, say);
+      } else {
+        convo.setFollowUpIndex(nextIndex);
+        await convo.save();
+        await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
+      }
+    } else {
+      await transitionToConfirming(convo, threadTs, say);
+    }
+  } else if (convo.isComplete()) {
+    await enterFollowUpPhase(convo, 1, threadTs, say);
+  } else {
+    await askNextQuestion(convo, threadTs, say);
+  }
 }
 
 // --- Helpers ---
