@@ -60,10 +60,15 @@
 
 ### Webinars
 
-**Types:**
-- **Live webinars:** Zoom Webinars (one-time, live presentation)
-- **Pre-recorded:** GoTo (fully pre-recorded content, automated playback)
-- **Evergreen:** Recorded live via GoTo, then hosted on-demand as if live (recurring schedule, automated registration and playback)
+**Types — we offer three formats:**
+
+- **Live:** A one-time, real-time presentation via Zoom Webinars. Best for interactive sessions where you want live Q&A, audience polls, or real-time engagement. Great for product launches, expert panels, or topics that benefit from live energy.
+
+- **Pre-recorded:** Fully produced content hosted on GoTo with automated playback. Best when you want a polished, edited presentation without the risk of live technical issues. Good for training content or evergreen topics where live interaction isn't needed.
+
+- **Evergreen:** Record a live session via GoTo, then host it on-demand as an automated encore — it looks and feels live to new registrants, with recurring scheduled sessions and automated registration. Best for scaling a great live session into an ongoing lead-generation tool. Run ads and emails to it over time without re-recording.
+
+**You can combine formats:** Start with a live webinar, then convert the recording into an evergreen session. This is a great strategy — get the live energy and Q&A first, then turn it into an automated encore you can promote with ads and emails over time.
 
 **What marketing handles:**
 - Webinar landing page copy
@@ -82,10 +87,10 @@
 - Webinar hosting/moderation
 - Technical setup of GoTo or Zoom
 
-**Tools:** GoTo (automated/recurring), Zoom Webinars (live), Canva, Google Slides
+**Tools:** GoTo (automated/recurring/evergreen), Zoom Webinars (live), Canva, Google Slides
 
 **Follow-up questions:**
-- Is this a live, pre-recorded, or evergreen webinar? (Evergreen = recorded live, then hosted on-demand via GoTo)
+- What type of webinar are you thinking? We offer three formats: *Live* (real-time via Zoom, great for Q&A), *Pre-recorded* (polished and edited, automated playback via GoTo), or *Evergreen* (record a live session, then run it on-demand as an automated encore). You can also start live and convert to evergreen later — not sure which fits? We can help you decide.
 - What is the topic and who is the presenter?
 - Are there any outside or guest presenters?
 - What date/time is the webinar (or when should recurring sessions begin)?
@@ -168,6 +173,25 @@
 | Meta (Facebook) | B2C | Homeowners |
 | Bluesky | B2C | Homeowners |
 | Instagram | Internal only | Recruitment/culture — team moments, NOT promotional |
+
+---
+
+## Digital Ads
+
+**What marketing handles:**
+- Ad creative (copy, graphics, video assets)
+- Campaign strategy and targeting recommendations
+- Landing page copy for ad destinations
+
+**Platforms:** LinkedIn Ads, Meta/Facebook Ads, Google Ads
+
+**Common use cases:**
+- Webinar promotion (especially evergreen — ads drive ongoing registrations)
+- Content promotion (reports, guides, tools)
+- Event/conference awareness
+- Lead generation campaigns
+
+**Note:** When discussing promotion for any request type, digital ads should be offered alongside email and social as a distribution channel.
 
 ---
 

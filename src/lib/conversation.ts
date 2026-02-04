@@ -307,6 +307,17 @@ export class ConversationManager {
     };
   }
 
+  /** Get items flagged for discussion. */
+  getDiscussionFlags(): { field: string; label: string }[] {
+    const raw = this.collectedData.additional_details['__needs_discussion'];
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as { field: string; label: string }[];
+    } catch {
+      return [];
+    }
+  }
+
   /** True when all required fields have been populated. */
   isComplete(): boolean {
     return REQUIRED_FIELDS.every((f) => isFieldPopulated(this.collectedData, f));
@@ -365,6 +376,16 @@ export class ConversationManager {
     }
     if (d.outside_presenters) {
       lines.push(`• *Outside presenters:* ${d.outside_presenters}`);
+    }
+
+    // Show items flagged for discussion
+    const discussionFlags = this.getDiscussionFlags();
+    if (discussionFlags.length > 0) {
+      lines.push('');
+      lines.push(':speech_balloon: *Flagged for discussion:*');
+      for (const flag of discussionFlags) {
+        lines.push(`• ${formatFieldLabel(flag.label)}`);
+      }
     }
 
     lines.push('');
@@ -456,4 +477,8 @@ function isFieldPopulated(data: CollectedData, field: keyof CollectedData): bool
   const value = data[field];
   if (Array.isArray(value)) return value.length > 0;
   return value !== null && value !== '';
+}
+
+function formatFieldLabel(field: string): string {
+  return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }

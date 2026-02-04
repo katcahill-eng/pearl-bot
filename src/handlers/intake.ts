@@ -27,6 +27,13 @@ const IDK_PATTERNS = [
   /^dunno/i, /^beats\s*me/i, /^not\s*certain/i, /^no\s*preference/i,
   /^hmm+/i, /^i['\u2019]?m\s*unsure/i,
 ];
+const DISCUSS_PATTERNS = [
+  /^discuss$/i, /^let['\u2019]?s\s*discuss/i, /^need\s*to\s*(talk|discuss|chat)/i,
+  /^want\s*to\s*(talk|discuss|chat)/i, /^can\s*we\s*(talk|discuss|chat)/i,
+  /^flag\s*(this|it)?/i, /^needs?\s*discussion/i, /^talk\s*(about\s*)?(this|it)/i,
+  /^let['\u2019]?s\s*talk/i, /^come\s*back\s*to\s*(this|it)/i,
+  /^not\s*sure.*talk/i, /^circle\s*back/i,
+];
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   const trimmed = text.trim();
@@ -439,12 +446,40 @@ async function handleGatheringState(
     const currentField = convo.getCurrentStep();
     if (currentField) {
       const guidance = await generateFieldGuidance(currentField, convo.getCollectedData());
-      await say({ text: guidance, thread_ts: threadTs });
+      const calendarNote = config.marketingLeadCalendarUrl
+        ? `\n\n_Or if you'd like to talk it through, <${config.marketingLeadCalendarUrl}|schedule time with marketing>._`
+        : '';
+      await say({ text: guidance + calendarNote, thread_ts: threadTs });
     } else {
       await say({
         text: "No worries — just tell me a bit about what you need and I'll help figure out the rest!",
         thread_ts: threadTs,
       });
+    }
+    return;
+  }
+
+  // --- "Needs discussion" flag in gathering phase ---
+  if (matchesAny(text, DISCUSS_PATTERNS)) {
+    const currentField = convo.getCurrentStep();
+    if (currentField) {
+      flagForDiscussion(convo, currentField, currentField);
+      // Set a placeholder so the field counts as "answered" and we move on
+      convo.markFieldCollected(currentField as keyof CollectedData, '_needs discussion_');
+      await convo.save();
+      const calendarLink = config.marketingLeadCalendarUrl
+        ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
+        : '';
+      await say({
+        text: `:speech_balloon: Flagged *${formatFieldLabel(currentField)}* for discussion — we'll make sure to cover it.${calendarLink} Let's keep going!`,
+        thread_ts: threadTs,
+      });
+      // Ask the next question or transition
+      if (convo.isComplete()) {
+        await enterFollowUpPhase(convo, 1, threadTs, say);
+      } else {
+        await askNextQuestion(convo, threadTs, say);
+      }
     }
     return;
   }
@@ -598,10 +633,42 @@ async function handleFollowUpAnswer(
 
   // Check for IDK in follow-up phase
   if (matchesAny(text, IDK_PATTERNS)) {
+    const calendarNote = config.marketingLeadCalendarUrl
+      ? ` Or <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
+      : '';
     await say({
-      text: "No worries — you can say *skip* to move on, or give your best guess and the team will refine it.",
+      text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation, or give your best guess and the team will refine it.${calendarNote}`,
       thread_ts: threadTs,
     });
+    return;
+  }
+
+  // Check for "needs discussion" in follow-up phase
+  if (matchesAny(text, DISCUSS_PATTERNS)) {
+    const currentQuestion = questions[currentIndex];
+    flagForDiscussion(convo, currentQuestion.field_key, currentQuestion.question);
+    // Store placeholder and advance
+    const details = convo.getCollectedData().additional_details;
+    details[currentQuestion.field_key] = '_needs discussion_';
+    convo.markFieldCollected('additional_details', details);
+
+    const calendarLink = config.marketingLeadCalendarUrl
+      ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing>.`
+      : '';
+    await say({
+      text: `:speech_balloon: Flagged for discussion — we'll cover this when we meet.${calendarLink}`,
+      thread_ts: threadTs,
+    });
+
+    // Advance to next question
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= questions.length) {
+      await transitionToConfirming(convo, threadTs, say);
+    } else {
+      convo.setFollowUpIndex(nextIndex);
+      await convo.save();
+      await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
+    }
     return;
   }
 
@@ -1067,4 +1134,26 @@ function applyExtractedFields(
   }
 
   return count;
+}
+
+/**
+ * Flag a field as needing discussion. Stores in additional_details under __needs_discussion.
+ */
+function flagForDiscussion(convo: ConversationManager, fieldKey: string, label: string): void {
+  const details = convo.getCollectedData().additional_details;
+  let flags: { field: string; label: string }[] = [];
+  try {
+    flags = JSON.parse(details['__needs_discussion'] ?? '[]');
+  } catch { /* ignore */ }
+  // Avoid duplicates
+  if (!flags.some((f) => f.field === fieldKey)) {
+    flags.push({ field: fieldKey, label });
+  }
+  details['__needs_discussion'] = JSON.stringify(flags);
+  convo.markFieldCollected('additional_details', details);
+}
+
+/** Format a snake_case field key as a readable label. */
+function formatFieldLabel(field: string): string {
+  return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }

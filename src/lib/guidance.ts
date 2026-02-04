@@ -166,6 +166,6 @@ ${KNOWLEDGE_BASE}`;
     if (field === 'deliverables') {
       return "No problem! What kind of thing are you picturing — an email, social posts, a one-pager, a slide deck, or something else?";
     }
-    return "No worries — you can say *skip* to move on, or give your best guess and the team will refine it.";
+    return "No worries — you can say *skip* to move on, *discuss* to flag it for a conversation with marketing, or give your best guess and the team will refine it.";
   }
 }
