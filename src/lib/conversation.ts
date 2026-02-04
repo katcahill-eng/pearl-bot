@@ -504,3 +504,61 @@ function isFieldPopulated(data: CollectedData, field: keyof CollectedData): bool
 function formatFieldLabel(field: string): string {
   return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/**
+ * Generate a descriptive project name for triage from collected data.
+ * e.g., "Webinar Series — Q2 Partner Training" or "Conference — AHR Expo Booth Materials"
+ */
+export function generateProjectName(data: Partial<CollectedData>): string {
+  const requestType = (data as CollectedData).request_type ?? '';
+  const context = data.context_background ?? '';
+  const deliverables = data.deliverables ?? [];
+
+  // Build type prefix
+  const typeLabels: Record<string, string> = {
+    conference: 'Conference',
+    insider_dinner: 'Insider Dinner',
+    webinar: 'Webinar',
+    email: 'Email Campaign',
+    graphic_design: 'Design',
+    general: 'Request',
+  };
+
+  // Handle multi-type (comma-separated)
+  const types = requestType.split(',').map((t) => t.trim()).filter(Boolean);
+  let typePrefix: string;
+  if (types.length > 1) {
+    typePrefix = types.map((t) => typeLabels[t] ?? t).join(' + ');
+  } else if (types.length === 1 && typeLabels[types[0]]) {
+    typePrefix = typeLabels[types[0]];
+  } else {
+    typePrefix = 'Request';
+  }
+
+  // Detect "series" or "campaign" modifiers
+  const lower = context.toLowerCase();
+  if (lower.includes('series')) typePrefix += ' Series';
+  else if (lower.includes('campaign') && !typePrefix.includes('Campaign')) typePrefix += ' Campaign';
+
+  // Extract a short descriptor from context (first meaningful phrase)
+  let descriptor = '';
+  if (context) {
+    // Try to get the first sentence or clause
+    const firstSentence = context.split(/[.!?\n]/)[0].trim();
+    // If it's short enough, use it; otherwise take first ~60 chars at a word boundary
+    if (firstSentence.length <= 60) {
+      descriptor = firstSentence;
+    } else {
+      const truncated = firstSentence.slice(0, 60);
+      const lastSpace = truncated.lastIndexOf(' ');
+      descriptor = lastSpace > 30 ? truncated.slice(0, lastSpace) : truncated;
+    }
+  } else if (deliverables.length > 0) {
+    descriptor = deliverables.slice(0, 3).join(', ');
+  }
+
+  if (descriptor) {
+    return `${typePrefix} — ${descriptor}`;
+  }
+  return typePrefix;
+}

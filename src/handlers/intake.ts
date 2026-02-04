@@ -1,7 +1,7 @@
 import type { App, SayFn } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
-import { ConversationManager, type CollectedData } from '../lib/conversation';
+import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
 import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
 import { generateFieldGuidance } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
@@ -320,7 +320,8 @@ async function handleConfirmingState(
       classification === 'undetermined' ? 'quick' : classification;
 
     const collectedData = convo.getCollectedData();
-    const requesterName = convo.getUserName();
+    // Use the collected requester_name (which the user may have corrected), not the initial Slack lookup
+    const requesterName = collectedData.requester_name ?? convo.getUserName();
 
     // Create Monday.com item at submission time
     let mondayItemId: string | null = null;
@@ -351,10 +352,7 @@ async function handleConfirmingState(
     });
 
     // Post approval request to #mktg-triage
-    const projectName =
-      collectedData.context_background?.slice(0, 80) ??
-      collectedData.deliverables[0] ??
-      'Untitled Request';
+    const projectName = generateProjectName(collectedData);
 
     try {
       await sendApprovalRequest(client, {

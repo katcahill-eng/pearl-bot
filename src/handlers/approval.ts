@@ -1,7 +1,7 @@
 import type { App } from '@slack/bolt';
 import { config } from '../lib/config';
 import { getConversationById, updateTriageInfo } from '../lib/db';
-import { ConversationManager, type CollectedData } from '../lib/conversation';
+import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
 import { executeApprovedWorkflow, buildCompletionMessage } from '../lib/workflow';
 import { buildNotificationMessage } from '../lib/notifications';
 import { updateMondayItemStatus, addMondayItemUpdate } from '../lib/monday';
@@ -72,6 +72,14 @@ function buildTriageBlocks(opts: {
       : collectedData.context_background.slice(0, 120))
     : 'No description provided';
 
+  // Build deliverables line
+  const deliverablesLine = collectedData.deliverables.length > 0
+    ? collectedData.deliverables.join(', ')
+    : 'Not specified';
+
+  // Build request type label
+  const requestType = collectedData.request_type ?? 'Not specified';
+
   const blocks: any[] = [
     {
       type: 'header',
@@ -84,14 +92,83 @@ function buildTriageBlocks(opts: {
       type: 'section',
       fields: [
         { type: 'mrkdwn', text: `*Requester:*\n${requesterName}` },
+        { type: 'mrkdwn', text: `*Department:*\n${collectedData.requester_department ?? 'Not specified'}` },
         { type: 'mrkdwn', text: `*Status:*\n${status}` },
+        { type: 'mrkdwn', text: `*Type:*\n${requestType}` },
         { type: 'mrkdwn', text: `*Classification:*\n${classificationLabel(classification)} — ${classificationExplanation(classification)}` },
-        { type: 'mrkdwn', text: `*Summary:*\n${oneLiner}` },
-        { type: 'mrkdwn', text: `*Target:*\n${collectedData.target ?? 'Not specified'}` },
         { type: 'mrkdwn', text: `*Due Date:*\n${collectedData.due_date ?? 'Not specified'}` },
       ],
     },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Summary:*\n${oneLiner}`,
+      },
+    },
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Target:*\n${collectedData.target ?? 'Not specified'}` },
+        { type: 'mrkdwn', text: `*Deliverables:*\n${deliverablesLine}` },
+      ],
+    },
   ];
+
+  // Add desired outcomes if present
+  if (collectedData.desired_outcomes) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Desired Outcomes:*\n${collectedData.desired_outcomes}`,
+      },
+    });
+  }
+
+  // Add existing content/assets if present
+  let existingAssetsText = '';
+  try {
+    const assetsRaw = collectedData.additional_details['__existing_assets'];
+    if (assetsRaw) {
+      const assets = JSON.parse(assetsRaw) as { link: string; status: string }[];
+      if (assets.length > 0) {
+        existingAssetsText = assets.map((a) => `• ${a.link} — _${a.status}_`).join('\n');
+      }
+    }
+  } catch { /* ignore */ }
+
+  if (existingAssetsText) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Existing Content:*\n${existingAssetsText}`,
+      },
+    });
+  }
+
+  // Add discussion flags if present
+  let discussionText = '';
+  try {
+    const flagsRaw = collectedData.additional_details['__needs_discussion'];
+    if (flagsRaw) {
+      const flags = JSON.parse(flagsRaw) as { field: string; label: string }[];
+      if (flags.length > 0) {
+        discussionText = flags.map((f) => `• ${f.label.replace(/_/g, ' ')}`).join('\n');
+      }
+    }
+  } catch { /* ignore */ }
+
+  if (discussionText) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:speech_balloon: *Needs Discussion:*\n${discussionText}`,
+      },
+    });
+  }
 
   // Monday.com link section
   if (mondayUrl) {
@@ -204,7 +281,40 @@ export async function sendApprovalRequest(
     } catch (err) {
       console.error('[approval] Failed to store triage info:', err);
     }
+
+    // Post triage guide as a threaded reply for context
+    try {
+      await client.chat.postMessage({
+        channel: config.slackNotificationChannelId,
+        thread_ts: result.ts,
+        text: triageGuideText(),
+      });
+    } catch (err) {
+      console.error('[approval] Failed to post triage guide:', err);
+    }
   }
+}
+
+function triageGuideText(): string {
+  return (
+    ':clipboard: *Triage Guide*\n\n' +
+    '*What to do:*\n' +
+    '1. Review the request details above\n' +
+    '2. Use the *Change Status* dropdown to move it through the workflow\n' +
+    '3. Use *Notify Requester* to send them a status update\n\n' +
+    '*Statuses:*\n' +
+    '• *Under Review* — Default. You\'re looking at it.\n' +
+    '• *Discussion Needed* — Auto-DMs the requester with a calendar link to schedule time.\n' +
+    '• *In Progress* — Approved. Creates a brief + Drive folder (Full Projects) or updates Monday (Quick Requests).\n' +
+    '• *On Hold* — Paused. Requester is notified.\n' +
+    '• *Completed* — Done. Locks the panel.\n' +
+    '• *Declined* — Not taking it on. Requester is notified.\n' +
+    '• *Withdrawn* — Requester cancelled.\n\n' +
+    '*Classification:*\n' +
+    '• *Quick Request* — Single asset, goes straight to the team.\n' +
+    '• *Full Project* — Generates a brief + Google Drive folder on approval.\n\n' +
+    '_You can reclassify at any time using the Classification dropdown._'
+  );
 }
 
 /**
@@ -243,13 +353,10 @@ export function registerApprovalHandler(app: App): void {
 
     const collectedData = convo.getCollectedData();
     const classification = convo.getClassification() === 'undetermined' ? 'quick' : convo.getClassification() as 'quick' | 'full';
-    const requesterName = convo.getUserName();
+    const requesterName = collectedData.requester_name ?? convo.getUserName();
     const actorName = body.user?.name ?? body.user?.id ?? 'Unknown';
 
-    const projectName =
-      collectedData.context_background?.slice(0, 80) ??
-      collectedData.deliverables[0] ??
-      'Untitled Request';
+    const projectName = generateProjectName(collectedData);
 
     // Build Monday URL from existing item
     const mondayItemId = convo.getMondayItemId();
@@ -478,11 +585,8 @@ export function registerApprovalHandler(app: App): void {
     convo.save();
 
     const collectedData = convo.getCollectedData();
-    const requesterName = convo.getUserName();
-    const projectName =
-      collectedData.context_background?.slice(0, 80) ??
-      collectedData.deliverables[0] ??
-      'Untitled Request';
+    const requesterName = collectedData.requester_name ?? convo.getUserName();
+    const projectName = generateProjectName(collectedData);
 
     // Determine current status from the status dropdown in the message
     const currentStatus = extractCurrentStatus(body) ?? 'Under Review';
