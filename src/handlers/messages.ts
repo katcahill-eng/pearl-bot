@@ -22,8 +22,23 @@ export function registerMessageHandler(app: App): void {
 
     console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
 
-    // For channel thread replies, only handle if there's an active conversation in this thread
+    // For channel thread replies, only handle if there's an active conversation or pending duplicate check
     if (!isDM) {
+      // Check for pending duplicate-check prompt (user replying "start fresh" or "continue there")
+      if (hasPendingDuplicateCheck(userId, thread_ts)) {
+        await handleIntakeMessage({
+          userId,
+          userName: userId,
+          channelId: event.channel,
+          threadTs: thread_ts,
+          messageTs,
+          text,
+          say,
+          client,
+        });
+        return;
+      }
+
       const existingConvo = ConversationManager.load(userId, thread_ts);
       if (!existingConvo) {
         console.log(`[messages] No active conversation in thread ${thread_ts}, ignoring channel message`);
