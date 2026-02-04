@@ -31,6 +31,13 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
  */
 const pendingDuplicateChecks = new Map<string, { existingThreadTs: string; existingChannelId: string; existingConvoId: number; promptThreadTs: string }>();
 
+/**
+ * Deduplication: tracks recently processed message timestamps to prevent
+ * double-processing when both app_mention and message events fire for the same message.
+ */
+const recentlyProcessed = new Set<string>();
+const DEDUP_TTL_MS = 30_000; // 30 seconds
+
 /** Check if a user has a pending duplicate-conversation prompt. */
 export function hasPendingDuplicateCheck(userId: string, _threadTs: string): boolean {
   return pendingDuplicateChecks.has(userId);
@@ -47,11 +54,21 @@ export async function handleIntakeMessage(opts: {
   userName: string;
   channelId: string;
   threadTs: string;
+  messageTs: string;
   text: string;
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
-  const { userId, userName, channelId, threadTs, text, say, client } = opts;
+  const { userId, userName, channelId, threadTs, messageTs, text, say, client } = opts;
+
+  // Deduplicate: skip if this exact message was already processed
+  // (happens when both app_mention and message events fire for the same @mention in a thread)
+  if (recentlyProcessed.has(messageTs)) {
+    console.log(`[intake] Skipping duplicate message ${messageTs}`);
+    return;
+  }
+  recentlyProcessed.add(messageTs);
+  setTimeout(() => recentlyProcessed.delete(messageTs), DEDUP_TTL_MS);
 
   try {
     await handleIntakeMessageInner({ userId, userName, channelId, threadTs, text, say, client });
@@ -404,7 +421,8 @@ async function handleGatheringState(
     console.log(`[intake] Claude response: confidence=${extracted.confidence}, department=${extracted.requester_department}`);
     const fieldsApplied = applyExtractedFields(convo, extracted);
 
-    if (fieldsApplied === 0 && extracted.confidence < 0.3) {
+    if (fieldsApplied === 0) {
+      console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${convo.getCurrentStep()})`);
       await say({
         text: "I didn't quite catch that. Could you rephrase?",
         thread_ts: threadTs,

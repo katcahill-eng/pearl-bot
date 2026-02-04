@@ -16,6 +16,7 @@ export function registerMessageHandler(app: App): void {
     if (!isDM && !isThreadReply) return;
 
     const text = event.text ?? '';
+    const messageTs = event.ts;
     const thread_ts = event.thread_ts ?? event.ts;
     const userId = 'user' in event ? (event.user as string) : '';
 
@@ -39,6 +40,7 @@ export function registerMessageHandler(app: App): void {
         userName: userId,
         channelId: event.channel,
         threadTs: thread_ts,
+        messageTs,
         text,
         say,
         client,
@@ -55,6 +57,7 @@ export function registerMessageHandler(app: App): void {
           userName: userId,
           channelId: event.channel,
           threadTs: thread_ts,
+          messageTs,
           text,
           say,
           client,
@@ -72,6 +75,7 @@ export function registerMessageHandler(app: App): void {
             userName: userId,
             channelId: event.channel,
             threadTs: thread_ts,
+            messageTs,
             text,
             say,
             client,
@@ -103,6 +107,7 @@ export function registerMessageHandler(app: App): void {
             userName: userId,
             channelId: event.channel,
             threadTs: thread_ts,
+            messageTs,
             text,
             say,
             client,
