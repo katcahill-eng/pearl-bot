@@ -124,7 +124,7 @@ function extractSearchQuery(rawText: string): string | null {
 
 async function safeSearchLocal(query: string): Promise<Project[]> {
   try {
-    return searchProjects(query);
+    return await searchProjects(query);
   } catch (err) {
     console.error('[status] Local search failed:', err);
     return [];

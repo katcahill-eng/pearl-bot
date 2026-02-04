@@ -200,7 +200,7 @@ export async function sendApprovalRequest(
   // Store triage message timestamp for post-submission thread handling
   if (result.ts) {
     try {
-      updateTriageInfo(conversationId, result.ts, config.slackNotificationChannelId);
+      await updateTriageInfo(conversationId, result.ts, config.slackNotificationChannelId);
     } catch (err) {
       console.error('[approval] Failed to store triage info:', err);
     }
@@ -229,13 +229,13 @@ export function registerApprovalHandler(app: App): void {
       return;
     }
 
-    const row = getConversationById(conversationId);
+    const row = await getConversationById(conversationId);
     if (!row) {
       console.error('[approval] Conversation not found:', conversationId);
       return;
     }
 
-    const convo = ConversationManager.load(row.user_id, row.thread_ts);
+    const convo = await ConversationManager.load(row.user_id, row.thread_ts);
     if (!convo) {
       console.error('[approval] Could not load ConversationManager for:', conversationId);
       return;
@@ -347,7 +347,7 @@ export function registerApprovalHandler(app: App): void {
       }
 
       convo.setStatus('complete');
-      convo.save();
+      await convo.save();
     }
 
     if (newStatus === 'On Hold') {
@@ -372,12 +372,12 @@ export function registerApprovalHandler(app: App): void {
       }
 
       convo.setStatus('complete');
-      convo.save();
+      await convo.save();
     }
 
     if (newStatus === 'Declined') {
       convo.setStatus('cancelled');
-      convo.save();
+      await convo.save();
 
       // Notify requester
       try {
@@ -393,7 +393,7 @@ export function registerApprovalHandler(app: App): void {
 
     if (newStatus === 'Withdrawn') {
       convo.setStatus('withdrawn');
-      convo.save();
+      await convo.save();
 
       // Update Monday.com
       if (mondayItemId) {
@@ -461,13 +461,13 @@ export function registerApprovalHandler(app: App): void {
       return;
     }
 
-    const row = getConversationById(conversationId);
+    const row = await getConversationById(conversationId);
     if (!row) {
       console.error('[approval] Conversation not found:', conversationId);
       return;
     }
 
-    const convo = ConversationManager.load(row.user_id, row.thread_ts);
+    const convo = await ConversationManager.load(row.user_id, row.thread_ts);
     if (!convo) {
       console.error('[approval] Could not load ConversationManager for:', conversationId);
       return;
@@ -523,13 +523,13 @@ export function registerApprovalHandler(app: App): void {
 
     const { conversationId } = JSON.parse(action.value) as { conversationId: number };
 
-    const row = getConversationById(conversationId);
+    const row = await getConversationById(conversationId);
     if (!row) {
       console.error('[approval] Conversation not found:', conversationId);
       return;
     }
 
-    const convo = ConversationManager.load(row.user_id, row.thread_ts);
+    const convo = await ConversationManager.load(row.user_id, row.thread_ts);
     if (!convo) {
       console.error('[approval] Could not load ConversationManager for:', conversationId);
       return;

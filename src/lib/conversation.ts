@@ -124,8 +124,8 @@ export class ConversationManager {
   }
 
   /** Load an existing conversation from the DB, or return undefined. */
-  static load(userId: string, threadTs: string): ConversationManager | undefined {
-    const row = getConversation(userId, threadTs);
+  static async load(userId: string, threadTs: string): Promise<ConversationManager | undefined> {
+    const row = await getConversation(userId, threadTs);
     if (!row) return undefined;
 
     return new ConversationManager({
@@ -324,8 +324,8 @@ export class ConversationManager {
   }
 
   /** Persist current state to the database. Returns the row id. */
-  save(): number {
-    const rowId = upsertConversation({
+  async save(): Promise<number> {
+    const rowId = await upsertConversation({
       id: this.id,
       user_id: this.userId,
       user_name: this.userName,

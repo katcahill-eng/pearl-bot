@@ -14,9 +14,9 @@ import {
 export async function checkTimeouts(client: WebClient): Promise<void> {
   // Phase 1: Auto-cancel conversations that were already notified 24h ago
   try {
-    const autoCancel = getAutoCancelConversations();
+    const autoCancel = await getAutoCancelConversations();
     for (const convo of autoCancel) {
-      cancelConversation(convo.id);
+      await cancelConversation(convo.id);
       console.log(`[timeout] Auto-cancelled conversation ${convo.id} for user ${convo.user_id}`);
     }
   } catch (err) {
@@ -25,10 +25,10 @@ export async function checkTimeouts(client: WebClient): Promise<void> {
 
   // Phase 2: Send timeout messages for newly expired conversations
   try {
-    const timedOut = getTimedOutConversations();
+    const timedOut = await getTimedOutConversations();
     for (const convo of timedOut) {
       await sendTimeoutMessage(client, convo);
-      markTimeoutNotified(convo.id);
+      await markTimeoutNotified(convo.id);
       console.log(`[timeout] Sent timeout message for conversation ${convo.id} to user ${convo.user_id}`);
     }
   } catch (err) {

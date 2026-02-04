@@ -144,7 +144,7 @@ export async function executeApprovedWorkflow(opts: {
   let projectId: number | undefined;
   const mondayUrl = `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${mondayItemId}`;
   try {
-    projectId = createProject({
+    projectId = await createProject({
       name: projectName,
       type: classification,
       requester_name: requesterName,

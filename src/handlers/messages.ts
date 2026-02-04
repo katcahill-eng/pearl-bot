@@ -39,7 +39,7 @@ export function registerMessageHandler(app: App): void {
         return;
       }
 
-      const existingConvo = ConversationManager.load(userId, thread_ts);
+      const existingConvo = await ConversationManager.load(userId, thread_ts);
       if (!existingConvo) {
         console.log(`[messages] No active conversation in thread ${thread_ts}, ignoring channel message`);
         return;
@@ -81,7 +81,7 @@ export function registerMessageHandler(app: App): void {
       }
 
       // Check if there's an active conversation in this thread — if so, route directly to intake
-      const existingConvo = ConversationManager.load(userId, thread_ts);
+      const existingConvo = await ConversationManager.load(userId, thread_ts);
       if (existingConvo) {
         const status = existingConvo.getStatus();
         if (status === 'gathering' || status === 'confirming' || status === 'pending_approval' || status === 'complete') {

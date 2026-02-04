@@ -7,6 +7,7 @@ import { registerApprovalHandler } from './handlers/approval';
 import { registerPostSubmissionActions } from './handlers/intake';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
+import { initDb } from './lib/db';
 
 const app = new App({
   token: config.slackBotToken,
@@ -24,6 +25,7 @@ registerPostSubmissionActions(app);
 const TIMEOUT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
 (async () => {
+  await initDb();
   await app.start();
   console.log('⚡ MarcomsBot is running in socket mode (v3 — knowledge base, follow-ups, post-submission)');
 

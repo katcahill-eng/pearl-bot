@@ -1,90 +1,60 @@
-import Database, { Database as DatabaseType } from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+import { Pool } from 'pg';
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes('railway')
+    ? { rejectUnauthorized: false }
+    : undefined,
+});
+
+// --- Schema init ---
+
+export async function initDb(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      thread_ts TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'gathering' CHECK(status IN ('gathering','confirming','pending_approval','complete','cancelled','withdrawn')),
+      current_step TEXT,
+      collected_data JSONB NOT NULL DEFAULT '{}',
+      classification TEXT DEFAULT 'undetermined' CHECK(classification IN ('quick','full','undetermined')),
+      monday_item_id TEXT,
+      triage_message_ts TEXT,
+      triage_channel_id TEXT,
+      timeout_notified INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours')
+    );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('quick','full')),
+      requester_name TEXT NOT NULL,
+      requester_slack_id TEXT NOT NULL,
+      requester_email TEXT,
+      division TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      drive_folder_url TEXT,
+      brief_doc_url TEXT,
+      monday_item_id TEXT,
+      monday_url TEXT,
+      source TEXT NOT NULL DEFAULT 'conversation' CHECK(source IN ('conversation','form')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      due_date TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS divisions (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      slack_channel TEXT
+    );
+  `);
 }
-
-const db: DatabaseType = new Database(path.join(DATA_DIR, 'marcomsbot.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-// --- Schema ---
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS conversations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    user_name TEXT NOT NULL,
-    channel_id TEXT NOT NULL,
-    thread_ts TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'gathering' CHECK(status IN ('gathering','confirming','pending_approval','complete','cancelled','withdrawn')),
-    current_step TEXT,
-    collected_data TEXT NOT NULL DEFAULT '{}',
-    classification TEXT DEFAULT 'undetermined' CHECK(classification IN ('quick','full','undetermined')),
-    monday_item_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at TEXT NOT NULL DEFAULT (datetime('now', '+24 hours'))
-  );
-
-  CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('quick','full')),
-    requester_name TEXT NOT NULL,
-    requester_slack_id TEXT NOT NULL,
-    requester_email TEXT,
-    division TEXT,
-    status TEXT NOT NULL DEFAULT 'new',
-    drive_folder_url TEXT,
-    brief_doc_url TEXT,
-    monday_item_id TEXT,
-    monday_url TEXT,
-    source TEXT NOT NULL DEFAULT 'conversation' CHECK(source IN ('conversation','form')),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    due_date TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS divisions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    slack_channel TEXT
-  );
-`);
-
-// Add timeout_notified column if it doesn't exist (for conversation timeout handling)
-try {
-  db.exec(`ALTER TABLE conversations ADD COLUMN timeout_notified INTEGER NOT NULL DEFAULT 0`);
-} catch {
-  // Column already exists — ignore
-}
-
-// Add monday_item_id column if it doesn't exist (for approval gate)
-try {
-  db.exec(`ALTER TABLE conversations ADD COLUMN monday_item_id TEXT`);
-} catch {
-  // Column already exists — ignore
-}
-
-// Add triage message tracking columns
-try {
-  db.exec(`ALTER TABLE conversations ADD COLUMN triage_message_ts TEXT`);
-} catch {
-  // Column already exists — ignore
-}
-try {
-  db.exec(`ALTER TABLE conversations ADD COLUMN triage_channel_id TEXT`);
-} catch {
-  // Column already exists — ignore
-}
-
-// Migrate status CHECK constraint to include 'pending_approval'
-// SQLite doesn't support ALTER CHECK, but the CREATE TABLE above already has it for new DBs.
-// For existing DBs, we disable foreign keys temporarily and recreate if needed.
-// In practice, better-sqlite3 won't enforce CHECK on existing rows, so new inserts/updates will work.
 
 // --- Types ---
 
@@ -131,75 +101,36 @@ export interface Division {
   slack_channel: string | null;
 }
 
+// --- Helper to normalize row ---
+
+function normalizeConversationRow(row: any): Conversation {
+  return {
+    ...row,
+    collected_data: typeof row.collected_data === 'object'
+      ? JSON.stringify(row.collected_data)
+      : row.collected_data,
+  };
+}
+
 // --- Helper Functions ---
 
-const stmts = {
-  getConversation: db.prepare<[string], Conversation>(
-    `SELECT * FROM conversations WHERE user_id = ? AND status IN ('gathering', 'confirming', 'pending_approval') ORDER BY updated_at DESC LIMIT 1`
-  ),
-  getConversationByThread: db.prepare<[string], Conversation>(
-    `SELECT * FROM conversations WHERE thread_ts = ? LIMIT 1`
-  ),
-  getConversationById: db.prepare<[number], Conversation>(
-    `SELECT * FROM conversations WHERE id = ?`
-  ),
-  insertConversation: db.prepare(`
-    INSERT INTO conversations (user_id, user_name, channel_id, thread_ts, status, current_step, collected_data, classification, monday_item_id)
-    VALUES (@user_id, @user_name, @channel_id, @thread_ts, @status, @current_step, @collected_data, @classification, @monday_item_id)
-  `),
-  updateConversation: db.prepare(`
-    UPDATE conversations
-    SET status = @status,
-        current_step = @current_step,
-        collected_data = @collected_data,
-        classification = @classification,
-        monday_item_id = @monday_item_id,
-        updated_at = datetime('now'),
-        expires_at = datetime('now', '+24 hours')
-    WHERE id = @id
-  `),
-  insertProject: db.prepare(`
-    INSERT INTO projects (name, type, requester_name, requester_slack_id, requester_email, division, status, drive_folder_url, brief_doc_url, monday_item_id, monday_url, source, due_date)
-    VALUES (@name, @type, @requester_name, @requester_slack_id, @requester_email, @division, @status, @drive_folder_url, @brief_doc_url, @monday_item_id, @monday_url, @source, @due_date)
-  `),
-  getProject: db.prepare<[number], Project>(
-    `SELECT * FROM projects WHERE id = ?`
-  ),
-  searchProjects: db.prepare<[string], Project>(
-    `SELECT * FROM projects WHERE name LIKE ? ORDER BY created_at DESC LIMIT 20`
-  ),
-  getTimedOutConversations: db.prepare<[], Conversation>(
-    `SELECT * FROM conversations WHERE status IN ('gathering', 'confirming') AND expires_at <= datetime('now') AND timeout_notified = 0`
-  ),
-  getAutoCancel: db.prepare<[], Conversation>(
-    `SELECT * FROM conversations WHERE status IN ('gathering', 'confirming') AND expires_at <= datetime('now') AND timeout_notified = 1`
-  ),
-  getActiveConversationForUser: db.prepare<[string, string], Conversation>(
-    `SELECT * FROM conversations WHERE user_id = ? AND status IN ('gathering', 'confirming', 'pending_approval') AND thread_ts != ? ORDER BY updated_at DESC LIMIT 1`
-  ),
-  markTimeoutNotified: db.prepare(
-    `UPDATE conversations SET timeout_notified = 1, expires_at = datetime('now', '+24 hours'), updated_at = datetime('now') WHERE id = ?`
-  ),
-  cancelConversation: db.prepare(
-    `UPDATE conversations SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`
-  ),
-  updateMondayItemId: db.prepare(
-    `UPDATE conversations SET monday_item_id = ?, updated_at = datetime('now') WHERE id = ?`
-  ),
-  updateTriageInfo: db.prepare(
-    `UPDATE conversations SET triage_message_ts = ?, triage_channel_id = ?, updated_at = datetime('now') WHERE id = ?`
-  ),
-};
-
-export function getConversation(userId: string, threadTs: string): Conversation | undefined {
-  return stmts.getConversationByThread.get(threadTs);
+export async function getConversation(userId: string, threadTs: string): Promise<Conversation | undefined> {
+  const result = await pool.query(
+    `SELECT * FROM conversations WHERE thread_ts = $1 LIMIT 1`,
+    [threadTs]
+  );
+  return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
 }
 
-export function getConversationById(id: number): Conversation | undefined {
-  return stmts.getConversationById.get(id);
+export async function getConversationById(id: number): Promise<Conversation | undefined> {
+  const result = await pool.query(
+    `SELECT * FROM conversations WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
 }
 
-export function upsertConversation(data: {
+export async function upsertConversation(data: {
   id?: number;
   user_id: string;
   user_name: string;
@@ -210,33 +141,32 @@ export function upsertConversation(data: {
   collected_data: string;
   classification: Conversation['classification'];
   monday_item_id?: string | null;
-}): number {
+}): Promise<number> {
   if (data.id) {
-    stmts.updateConversation.run({
-      id: data.id,
-      status: data.status,
-      current_step: data.current_step,
-      collected_data: data.collected_data,
-      classification: data.classification,
-      monday_item_id: data.monday_item_id ?? null,
-    });
+    await pool.query(
+      `UPDATE conversations
+       SET status = $1,
+           current_step = $2,
+           collected_data = $3,
+           classification = $4,
+           monday_item_id = $5,
+           updated_at = NOW(),
+           expires_at = NOW() + INTERVAL '24 hours'
+       WHERE id = $6`,
+      [data.status, data.current_step, data.collected_data, data.classification, data.monday_item_id ?? null, data.id]
+    );
     return data.id;
   }
-  const result = stmts.insertConversation.run({
-    user_id: data.user_id,
-    user_name: data.user_name,
-    channel_id: data.channel_id,
-    thread_ts: data.thread_ts,
-    status: data.status,
-    current_step: data.current_step,
-    collected_data: data.collected_data,
-    classification: data.classification,
-    monday_item_id: data.monday_item_id ?? null,
-  });
-  return Number(result.lastInsertRowid);
+  const result = await pool.query(
+    `INSERT INTO conversations (user_id, user_name, channel_id, thread_ts, status, current_step, collected_data, classification, monday_item_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id`,
+    [data.user_id, data.user_name, data.channel_id, data.thread_ts, data.status, data.current_step, data.collected_data, data.classification, data.monday_item_id ?? null]
+  );
+  return result.rows[0].id;
 }
 
-export function createProject(data: {
+export async function createProject(data: {
   name: string;
   type: Project['type'];
   requester_name: string;
@@ -250,59 +180,92 @@ export function createProject(data: {
   monday_url?: string | null;
   source?: Project['source'];
   due_date?: string | null;
-}): number {
-  const result = stmts.insertProject.run({
-    name: data.name,
-    type: data.type,
-    requester_name: data.requester_name,
-    requester_slack_id: data.requester_slack_id,
-    requester_email: data.requester_email ?? null,
-    division: data.division ?? null,
-    status: data.status ?? 'new',
-    drive_folder_url: data.drive_folder_url ?? null,
-    brief_doc_url: data.brief_doc_url ?? null,
-    monday_item_id: data.monday_item_id ?? null,
-    monday_url: data.monday_url ?? null,
-    source: data.source ?? 'conversation',
-    due_date: data.due_date ?? null,
-  });
-  return Number(result.lastInsertRowid);
+}): Promise<number> {
+  const result = await pool.query(
+    `INSERT INTO projects (name, type, requester_name, requester_slack_id, requester_email, division, status, drive_folder_url, brief_doc_url, monday_item_id, monday_url, source, due_date)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     RETURNING id`,
+    [
+      data.name,
+      data.type,
+      data.requester_name,
+      data.requester_slack_id,
+      data.requester_email ?? null,
+      data.division ?? null,
+      data.status ?? 'new',
+      data.drive_folder_url ?? null,
+      data.brief_doc_url ?? null,
+      data.monday_item_id ?? null,
+      data.monday_url ?? null,
+      data.source ?? 'conversation',
+      data.due_date ?? null,
+    ]
+  );
+  return result.rows[0].id;
 }
 
-export function getProject(id: number): Project | undefined {
-  return stmts.getProject.get(id);
+export async function getProject(id: number): Promise<Project | undefined> {
+  const result = await pool.query(
+    `SELECT * FROM projects WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0] ?? undefined;
 }
 
-export function searchProjects(query: string): Project[] {
-  return stmts.searchProjects.all(`%${query}%`);
+export async function searchProjects(query: string): Promise<Project[]> {
+  const result = await pool.query(
+    `SELECT * FROM projects WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT 20`,
+    [`%${query}%`]
+  );
+  return result.rows;
 }
 
-export function getTimedOutConversations(): Conversation[] {
-  return stmts.getTimedOutConversations.all();
+export async function getTimedOutConversations(): Promise<Conversation[]> {
+  const result = await pool.query(
+    `SELECT * FROM conversations WHERE status IN ('gathering', 'confirming') AND expires_at <= NOW() AND timeout_notified = 0`
+  );
+  return result.rows.map(normalizeConversationRow);
 }
 
-export function getAutoCancelConversations(): Conversation[] {
-  return stmts.getAutoCancel.all();
+export async function getAutoCancelConversations(): Promise<Conversation[]> {
+  const result = await pool.query(
+    `SELECT * FROM conversations WHERE status IN ('gathering', 'confirming') AND expires_at <= NOW() AND timeout_notified = 1`
+  );
+  return result.rows.map(normalizeConversationRow);
 }
 
-export function markTimeoutNotified(id: number): void {
-  stmts.markTimeoutNotified.run(id);
+export async function markTimeoutNotified(id: number): Promise<void> {
+  await pool.query(
+    `UPDATE conversations SET timeout_notified = 1, expires_at = NOW() + INTERVAL '24 hours', updated_at = NOW() WHERE id = $1`,
+    [id]
+  );
 }
 
-export function cancelConversation(id: number): void {
-  stmts.cancelConversation.run(id);
+export async function cancelConversation(id: number): Promise<void> {
+  await pool.query(
+    `UPDATE conversations SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+    [id]
+  );
 }
 
-export function getActiveConversationForUser(userId: string, excludeThreadTs: string): Conversation | undefined {
-  return stmts.getActiveConversationForUser.get(userId, excludeThreadTs);
+export async function getActiveConversationForUser(userId: string, excludeThreadTs: string): Promise<Conversation | undefined> {
+  const result = await pool.query(
+    `SELECT * FROM conversations WHERE user_id = $1 AND status IN ('gathering', 'confirming', 'pending_approval') AND thread_ts != $2 ORDER BY updated_at DESC LIMIT 1`,
+    [userId, excludeThreadTs]
+  );
+  return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
 }
 
-export function updateMondayItemId(conversationId: number, itemId: string): void {
-  stmts.updateMondayItemId.run(itemId, conversationId);
+export async function updateMondayItemId(conversationId: number, itemId: string): Promise<void> {
+  await pool.query(
+    `UPDATE conversations SET monday_item_id = $1, updated_at = NOW() WHERE id = $2`,
+    [itemId, conversationId]
+  );
 }
 
-export function updateTriageInfo(conversationId: number, messageTs: string, channelId: string): void {
-  stmts.updateTriageInfo.run(messageTs, channelId, conversationId);
+export async function updateTriageInfo(conversationId: number, messageTs: string, channelId: string): Promise<void> {
+  await pool.query(
+    `UPDATE conversations SET triage_message_ts = $1, triage_channel_id = $2, updated_at = NOW() WHERE id = $3`,
+    [messageTs, channelId, conversationId]
+  );
 }
-
-export default db;

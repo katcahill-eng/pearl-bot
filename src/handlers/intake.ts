@@ -114,16 +114,16 @@ async function handleIntakeMessageInner(opts: {
     if (matchesAny(text, START_FRESH_PATTERNS)) {
       pendingDuplicateChecks.delete(userId);
       // Cancel the old conversation and start a new one — fall through to create new conversation below
-      cancelConversation(pendingDup.existingConvoId);
+      await cancelConversation(pendingDup.existingConvoId);
     } else {
       pendingDuplicateChecks.delete(userId);
       // Unrecognized response — treat as "start fresh" since user is clearly trying to interact
-      cancelConversation(pendingDup.existingConvoId);
+      await cancelConversation(pendingDup.existingConvoId);
     }
   }
 
   // Load or create conversation
-  let convo = ConversationManager.load(userId, threadTs);
+  let convo = await ConversationManager.load(userId, threadTs);
   console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? `found existing (status=${convo.getStatus()})` : 'no conversation'}`);
 
   // If the conversation in this thread is terminal, treat it as "no conversation" — user is starting fresh
@@ -134,7 +134,7 @@ async function handleIntakeMessageInner(opts: {
 
   if (!convo) {
     // Check for active conversation in another thread
-    const existingConvo = getActiveConversationForUser(userId, threadTs);
+    const existingConvo = await getActiveConversationForUser(userId, threadTs);
     console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
     if (existingConvo) {
       // Store pending duplicate check and prompt user
@@ -169,7 +169,7 @@ async function handleIntakeMessageInner(opts: {
     });
     // Auto-fill requester name from Slack
     convo.markFieldCollected('requester_name', realName);
-    convo.save();
+    await convo.save();
 
     // Send a warm welcome before processing their message (randomized)
     console.log(`[intake] Sending welcome message in thread ${threadTs}`);
@@ -237,7 +237,7 @@ async function handleConfirmingState(
   // Check for cancel
   if (matchesAny(text, CANCEL_PATTERNS)) {
     convo.setStatus('cancelled');
-    convo.save();
+    await convo.save();
     await say({
       text: "No problem — request cancelled. If you change your mind, just start a new conversation!",
       thread_ts: threadTs,
@@ -248,7 +248,7 @@ async function handleConfirmingState(
   // Check for start over
   if (matchesAny(text, RESET_PATTERNS)) {
     convo.reset();
-    convo.save();
+    await convo.save();
     await say({
       text: "Starting fresh! Let's begin again.",
       thread_ts: threadTs,
@@ -304,7 +304,7 @@ async function handleConfirmingState(
 
     // Set status to pending_approval
     convo.setStatus('pending_approval');
-    convo.save();
+    await convo.save();
 
     // Tell requester it's submitted for review
     await say({
@@ -339,7 +339,7 @@ async function handleConfirmingState(
   try {
     const extracted = await interpretMessage(text, convo.getCollectedData());
     applyExtractedFields(convo, extracted);
-    convo.save();
+    await convo.save();
 
     await say({
       text: "Got it, I've updated the request. Here's the revised summary:",
@@ -368,7 +368,7 @@ async function handleGatheringState(
   // Check for cancel
   if (matchesAny(text, CANCEL_PATTERNS)) {
     convo.setStatus('cancelled');
-    convo.save();
+    await convo.save();
     await say({
       text: "No problem — request cancelled. If you change your mind, just start a new conversation!",
       thread_ts: threadTs,
@@ -379,7 +379,7 @@ async function handleGatheringState(
   // Check for start over
   if (matchesAny(text, RESET_PATTERNS)) {
     convo.reset();
-    convo.save();
+    await convo.save();
     await say({
       text: "Starting fresh! Let's begin again.",
       thread_ts: threadTs,
@@ -437,7 +437,7 @@ async function handleGatheringState(
       // Enter follow-up phase
       await enterFollowUpPhase(convo, fieldsApplied, threadTs, say);
     } else {
-      convo.save();
+      await convo.save();
 
       // Acknowledge what we captured if multiple fields came in
       if (fieldsApplied > 1) {
@@ -488,7 +488,7 @@ async function enterFollowUpPhase(
     // Store follow-up questions
     storeFollowUpQuestions(convo, questions);
     convo.setFollowUpIndex(0);
-    convo.save();
+    await convo.save();
 
     // Transition message
     const typeLabels: Record<string, string> = {
@@ -548,7 +548,7 @@ async function handleFollowUpAnswer(
       await transitionToConfirming(convo, threadTs, say);
     } else {
       convo.setFollowUpIndex(nextIndex);
-      convo.save();
+      await convo.save();
       await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
     }
     return;
@@ -592,7 +592,7 @@ async function handleFollowUpAnswer(
     await transitionToConfirming(convo, threadTs, say);
   } else {
     convo.setFollowUpIndex(nextIndex);
-    convo.save();
+    await convo.save();
     await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
   }
 }
@@ -814,7 +814,7 @@ async function handlePostSubWithdrawConfirm(
 ): Promise<void> {
   if (!matchesAny(text, CONFIRM_PATTERNS)) {
     convo.setCurrentStep(null);
-    convo.save();
+    await convo.save();
     await say({
       text: "Withdrawal cancelled. Your request is still active.",
       thread_ts: threadTs,
@@ -874,11 +874,11 @@ export function registerPostSubmissionActions(app: App): void {
     if (!('value' in action) || !action.value) return;
 
     const { conversationId } = JSON.parse(action.value) as { conversationId: number };
-    const convo = loadConversationById(conversationId);
+    const convo = await loadConversationById(conversationId);
     if (!convo) return;
 
     convo.setCurrentStep('post_sub:awaiting_info');
-    convo.save();
+    await convo.save();
 
     try {
       await client.chat.postMessage({
@@ -898,11 +898,11 @@ export function registerPostSubmissionActions(app: App): void {
     if (!('value' in action) || !action.value) return;
 
     const { conversationId } = JSON.parse(action.value) as { conversationId: number };
-    const convo = loadConversationById(conversationId);
+    const convo = await loadConversationById(conversationId);
     if (!convo) return;
 
     convo.setCurrentStep('post_sub:awaiting_change');
-    convo.save();
+    await convo.save();
 
     try {
       await client.chat.postMessage({
@@ -922,11 +922,11 @@ export function registerPostSubmissionActions(app: App): void {
     if (!('value' in action) || !action.value) return;
 
     const { conversationId } = JSON.parse(action.value) as { conversationId: number };
-    const convo = loadConversationById(conversationId);
+    const convo = await loadConversationById(conversationId);
     if (!convo) return;
 
     convo.setCurrentStep('post_sub:awaiting_withdraw_confirm');
-    convo.save();
+    await convo.save();
 
     try {
       await client.chat.postMessage({
@@ -942,13 +942,13 @@ export function registerPostSubmissionActions(app: App): void {
 
 // --- Helpers ---
 
-function loadConversationById(conversationId: number): ConversationManager | null {
-  const row = getConversationById(conversationId);
+async function loadConversationById(conversationId: number): Promise<ConversationManager | null> {
+  const row = await getConversationById(conversationId);
   if (!row) {
     console.error('[intake] Conversation not found:', conversationId);
     return null;
   }
-  const convo = ConversationManager.load(row.user_id, row.thread_ts);
+  const convo = await ConversationManager.load(row.user_id, row.thread_ts);
   if (!convo) {
     console.error('[intake] Could not load ConversationManager for:', conversationId);
     return null;
