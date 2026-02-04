@@ -12,7 +12,7 @@
 - One-pagers, handouts, signage
 - Digital conference booth setup (pilot program — 4 iPads pre-loaded with content)
 
-**Digital booth pilot:** Marketing has a digital conference booth kit with 4 iPads that can be pre-loaded with demos, one-pagers, videos, or interactive content. This is a pilot program — offer it as an option for conferences where interactive or digital content would be useful.
+**Digital booth pilot:** Marketing has a digital conference booth kit with 4 iPads that can be pre-loaded with demos, one-pagers, videos, or interactive content. This is a pilot program — offer it as an option for ANY conference attendance, even if the team is not exhibiting or has no booth. The iPads are portable and can be used in meetings, at dinners, in hallway conversations, or anywhere at the event.
 
 **What marketing does NOT handle:**
 - On-site conference support (marketing team is 1.5 people)
@@ -27,7 +27,7 @@
 - Will there be a presentation? If so, who is presenting?
 - Are there any outside/guest presenters?
 - What collateral do you need for the booth (one-pagers, banners, handouts)?
-- Would you be interested in our digital booth pilot? We have 4 iPads that can be pre-loaded with demos, one-pagers, or interactive content.
+- Even if you're not exhibiting, would you be interested in our digital booth pilot? We have 4 iPads that can be pre-loaded with demos or content — they're portable and work great for meetings, dinners, or hallway conversations.
 - Is there a sponsorship level that includes specific deliverables?
 - Do you need pre-conference or post-conference email campaigns?
 
