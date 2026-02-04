@@ -21,10 +21,11 @@ const SUBMIT_AS_IS_PATTERNS = [/^submit\s*as[\s-]*is$/i, /^just\s*submit$/i, /^s
 const SKIP_PATTERNS = [/^skip$/i, /^skip\s*this$/i, /^pass$/i, /^next$/i];
 const DONE_PATTERNS = [/^done$/i, /^that'?s?\s*all$/i, /^no\s*more$/i, /^nothing\s*(else)?$/i];
 const IDK_PATTERNS = [
-  /^i\s*don'?t\s*know$/i, /^not\s*sure$/i, /^no\s*idea$/i, /^unsure$/i,
-  /^idk$/i, /^no\s*clue$/i, /^i'?m\s*not\s*sure$/i, /^haven'?t\s*decided$/i,
-  /^good\s*question$/i, /^help\s*me\s*decide$/i, /^i\s*have\s*no\s*idea$/i,
-  /^dunno$/i, /^beats\s*me$/i, /^not\s*certain$/i,
+  /^i\s*don['\u2019]?t\s*know/i, /^not\s*sure/i, /^no\s*idea/i, /^unsure$/i,
+  /^idk$/i, /^no\s*clue/i, /^i['\u2019]?m\s*not\s*sure/i, /^haven['\u2019]?t\s*decided/i,
+  /^good\s*question/i, /^help\s*me\s*decide/i, /^i\s*have\s*no\s*idea/i,
+  /^dunno/i, /^beats\s*me/i, /^not\s*certain/i, /^no\s*preference/i,
+  /^hmm+/i, /^i['\u2019]?m\s*unsure/i,
 ];
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
@@ -102,7 +103,10 @@ async function handleIntakeMessageInner(opts: {
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
-  const { userId, userName, channelId, threadTs, text, say, client } = opts;
+  const { userId, userName, channelId, threadTs, text: rawText, say, client } = opts;
+
+  // Strip bot mentions (e.g., "<@U123ABC>") so pattern matching works on the actual message
+  const text = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
 
   // --- Handle pending duplicate-check responses ---
   const pendingDup = pendingDuplicateChecks.get(userId);
@@ -342,6 +346,15 @@ async function handleConfirmingState(
     return;
   }
 
+  // Check for IDK during confirmation — help the user think through what to change
+  if (matchesAny(text, IDK_PATTERNS)) {
+    await say({
+      text: "No worries! Here are your options:\n\n• Reply *yes* to submit as-is\n• Tell me what you'd like to change (e.g., \"change the due date to March 15\")\n• Say *start over* to redo the whole request\n• Say *cancel* to scrap it\n\nWhat would you like to do?",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
   // User is describing changes — re-interpret and update
   try {
     const extracted = await interpretMessage(text, convo.getCollectedData());
@@ -427,8 +440,13 @@ async function handleGatheringState(
     if (currentField) {
       const guidance = await generateFieldGuidance(currentField, convo.getCollectedData());
       await say({ text: guidance, thread_ts: threadTs });
-      return;
+    } else {
+      await say({
+        text: "No worries — just tell me a bit about what you need and I'll help figure out the rest!",
+        thread_ts: threadTs,
+      });
     }
+    return;
   }
 
   // Interpret the message via Claude
