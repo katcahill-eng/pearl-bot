@@ -53,6 +53,7 @@ function generateTargetGuidance(collectedData: Partial<CollectedData>): string {
       "• *Real estate agents* — if it's an industry conference\n" +
       "• *Contractors / HVAC professionals* — if it's a trade show\n" +
       "• *Partners* — existing Pearl partners attending\n\n" +
+      "Also — we have a *digital booth pilot* with 4 iPads that can be pre-loaded with demos or content. Something to consider!\n\n" +
       "Who are you trying to reach at the event?"
     );
   }
