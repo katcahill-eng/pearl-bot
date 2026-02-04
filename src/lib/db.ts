@@ -5,6 +5,8 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL?.includes('railway')
     ? { rejectUnauthorized: false }
     : undefined,
+  min: 1,
+  idleTimeoutMillis: 30000,
 });
 
 // --- Schema init ---
