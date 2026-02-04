@@ -4,6 +4,7 @@ import { config } from '../lib/config';
 import { ConversationManager, type CollectedData } from '../lib/conversation';
 import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
 import { generateFieldGuidance } from '../lib/guidance';
+import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
@@ -500,6 +501,14 @@ async function handleGatheringState(
       // Re-ask the current question
       await askNextQuestion(convo, threadTs, say);
       return;
+    }
+
+    // Show production timeline if we just captured a due date
+    if (extracted.due_date_parsed) {
+      const timeline = generateProductionTimeline(convo.getCollectedData());
+      if (timeline) {
+        await say({ text: timeline, thread_ts: threadTs });
+      }
     }
 
     // Check if all required fields are now collected
