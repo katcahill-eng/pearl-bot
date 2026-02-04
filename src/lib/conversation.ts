@@ -18,9 +18,15 @@ export interface CollectedData {
   approvals: string | null;
   constraints: string | null;
   supporting_links: string[];
+  request_type: string | null;
+  additional_details: Record<string, string>;
+  conference_start_date: string | null;
+  conference_end_date: string | null;
+  presenter_names: string | null;
+  outside_presenters: string | null;
 }
 
-export type ConversationStatus = Conversation['status'];
+export type ConversationStatus = Conversation['status']; // includes 'withdrawn'
 export type Classification = Conversation['classification'];
 
 /** Fields in the order they should be asked. */
@@ -86,6 +92,8 @@ export class ConversationManager {
   private collectedData: CollectedData;
   private classification: Classification;
   private mondayItemId: string | null;
+  private triageMessageTs: string | null;
+  private triageChannelId: string | null;
 
   constructor(opts: {
     id?: number;
@@ -98,6 +106,8 @@ export class ConversationManager {
     collectedData?: CollectedData;
     classification?: Classification;
     mondayItemId?: string | null;
+    triageMessageTs?: string | null;
+    triageChannelId?: string | null;
   }) {
     this.id = opts.id;
     this.userId = opts.userId;
@@ -109,6 +119,8 @@ export class ConversationManager {
     this.collectedData = opts.collectedData ?? emptyCollectedData();
     this.classification = opts.classification ?? 'undetermined';
     this.mondayItemId = opts.mondayItemId ?? null;
+    this.triageMessageTs = opts.triageMessageTs ?? null;
+    this.triageChannelId = opts.triageChannelId ?? null;
   }
 
   /** Load an existing conversation from the DB, or return undefined. */
@@ -127,6 +139,8 @@ export class ConversationManager {
       collectedData: parseCollectedData(row.collected_data),
       classification: row.classification,
       mondayItemId: row.monday_item_id ?? null,
+      triageMessageTs: row.triage_message_ts ?? null,
+      triageChannelId: row.triage_channel_id ?? null,
     });
   }
 
@@ -172,6 +186,37 @@ export class ConversationManager {
     return this.mondayItemId;
   }
 
+  getTriageMessageTs(): string | null {
+    return this.triageMessageTs;
+  }
+
+  getTriageChannelId(): string | null {
+    return this.triageChannelId;
+  }
+
+  // --- Follow-up helpers ---
+
+  isInFollowUp(): boolean {
+    return this.currentStep?.startsWith('follow_up:') ?? false;
+  }
+
+  getFollowUpIndex(): number {
+    if (!this.currentStep?.startsWith('follow_up:')) return 0;
+    return parseInt(this.currentStep.split(':')[1], 10) || 0;
+  }
+
+  setFollowUpIndex(n: number): void {
+    this.currentStep = `follow_up:${n}`;
+  }
+
+  setRequestType(type: string): void {
+    this.collectedData.request_type = type;
+  }
+
+  setCurrentStep(step: string | null): void {
+    this.currentStep = step;
+  }
+
   // --- State transitions ---
 
   setStatus(status: ConversationStatus): void {
@@ -187,14 +232,16 @@ export class ConversationManager {
   }
 
   /** Mark a single field as collected. */
-  markFieldCollected(field: keyof CollectedData, value: string | string[]): void {
-    if (field === 'deliverables' || field === 'supporting_links') {
-      const arr = Array.isArray(value) ? value : [value];
+  markFieldCollected(field: keyof CollectedData, value: string | string[] | Record<string, string>): void {
+    if (field === 'additional_details') {
+      this.collectedData.additional_details = value as Record<string, string>;
+    } else if (field === 'deliverables' || field === 'supporting_links') {
+      const arr = Array.isArray(value) ? value : [value as string];
       (this.collectedData[field] as string[]) = arr;
     } else {
       (this.collectedData[field] as string | null) = Array.isArray(value)
         ? value.join(', ')
-        : value;
+        : value as string;
     }
   }
 
@@ -238,6 +285,36 @@ export class ConversationManager {
     }
     if (d.supporting_links.length > 0) {
       lines.push(`• *Supporting links:* ${d.supporting_links.join(', ')}`);
+    }
+
+    if (d.request_type) {
+      lines.push(`• *Request type:* ${d.request_type}`);
+    }
+
+    // Show additional details from follow-up questions (skip internal keys)
+    const additionalEntries = Object.entries(d.additional_details).filter(
+      ([key]) => !key.startsWith('__')
+    );
+    if (additionalEntries.length > 0) {
+      lines.push('');
+      lines.push('*Additional details:*');
+      for (const [key, value] of additionalEntries) {
+        const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        lines.push(`• *${label}:* ${value}`);
+      }
+    }
+
+    if (d.conference_start_date) {
+      lines.push(`• *Conference start:* ${d.conference_start_date}`);
+    }
+    if (d.conference_end_date) {
+      lines.push(`• *Conference end:* ${d.conference_end_date}`);
+    }
+    if (d.presenter_names) {
+      lines.push(`• *Presenter(s):* ${d.presenter_names}`);
+    }
+    if (d.outside_presenters) {
+      lines.push(`• *Outside presenters:* ${d.outside_presenters}`);
     }
 
     lines.push('');
@@ -289,6 +366,12 @@ function emptyCollectedData(): CollectedData {
     approvals: null,
     constraints: null,
     supporting_links: [],
+    request_type: null,
+    additional_details: {},
+    conference_start_date: null,
+    conference_end_date: null,
+    presenter_names: null,
+    outside_presenters: null,
   };
 }
 
@@ -307,6 +390,12 @@ function parseCollectedData(raw: string): CollectedData {
       approvals: parsed.approvals ?? null,
       constraints: parsed.constraints ?? null,
       supporting_links: parsed.supporting_links ?? [],
+      request_type: parsed.request_type ?? null,
+      additional_details: parsed.additional_details ?? {},
+      conference_start_date: parsed.conference_start_date ?? null,
+      conference_end_date: parsed.conference_end_date ?? null,
+      presenter_names: parsed.presenter_names ?? null,
+      outside_presenters: parsed.outside_presenters ?? null,
     };
   } catch {
     return emptyCollectedData();

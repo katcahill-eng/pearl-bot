@@ -16,6 +16,7 @@ Slack bot for Pearl marketing intake — handles requests via conversation or fo
 │                                      │
 │  Intent Detection → Conversation     │
 │  State Machine → Claude NLP          │
+│  Knowledge Base → Follow-up Engine   │
 │  Brief Generation → Workflow Engine  │
 └──┬──────────┬──────────┬────────────┘
    │          │          │
@@ -183,7 +184,8 @@ pearl-bot/
 │   │   ├── mentions.ts           # @mention event handler
 │   │   ├── messages.ts           # DM event handler
 │   │   ├── intent.ts             # Intent detection (greeting, help, status, search, intake)
-│   │   ├── intake.ts             # Conversational intake flow, duplicate detection
+│   │   ├── intake.ts             # Conversational intake, follow-ups, post-submission actions
+│   │   ├── approval.ts           # Triage control panel, status workflow, withdrawn handling
 │   │   ├── status.ts             # Status check handler
 │   │   ├── search.ts             # Search/retrieval handler
 │   │   └── timeout.ts            # Conversation timeout scheduler
@@ -191,7 +193,8 @@ pearl-bot/
 │       ├── config.ts             # Environment validation and typed config
 │       ├── db.ts                 # SQLite database (better-sqlite3)
 │       ├── conversation.ts       # ConversationManager state machine
-│       ├── claude.ts             # Claude API — NLP interpretation, classification
+│       ├── claude.ts             # Claude API — NLP, classification, follow-up generation
+│       ├── knowledge-base.md     # Marketing knowledge base (request types, tools, boundaries)
 │       ├── brief-generator.ts    # Brief generation via Claude
 │       ├── google-drive.ts       # Google Drive folder/doc creation
 │       ├── monday.ts             # Monday.com GraphQL API

@@ -4,6 +4,7 @@ import { App, LogLevel } from '@slack/bolt';
 import { registerMentionHandler } from './handlers/mentions';
 import { registerMessageHandler } from './handlers/messages';
 import { registerApprovalHandler } from './handlers/approval';
+import { registerPostSubmissionActions } from './handlers/intake';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
 
@@ -18,12 +19,13 @@ const app = new App({
 registerMentionHandler(app);
 registerMessageHandler(app);
 registerApprovalHandler(app);
+registerPostSubmissionActions(app);
 
 const TIMEOUT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
 (async () => {
   await app.start();
-  console.log('⚡ MarcomsBot is running in socket mode');
+  console.log('⚡ MarcomsBot is running in socket mode (v3 — knowledge base, follow-ups, post-submission)');
 
   // Start periodic timeout check
   setInterval(() => {

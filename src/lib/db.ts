@@ -20,7 +20,7 @@ db.exec(`
     user_name TEXT NOT NULL,
     channel_id TEXT NOT NULL,
     thread_ts TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'gathering' CHECK(status IN ('gathering','confirming','pending_approval','complete','cancelled')),
+    status TEXT NOT NULL DEFAULT 'gathering' CHECK(status IN ('gathering','confirming','pending_approval','complete','cancelled','withdrawn')),
     current_step TEXT,
     collected_data TEXT NOT NULL DEFAULT '{}',
     classification TEXT DEFAULT 'undetermined' CHECK(classification IN ('quick','full','undetermined')),
@@ -69,6 +69,18 @@ try {
   // Column already exists — ignore
 }
 
+// Add triage message tracking columns
+try {
+  db.exec(`ALTER TABLE conversations ADD COLUMN triage_message_ts TEXT`);
+} catch {
+  // Column already exists — ignore
+}
+try {
+  db.exec(`ALTER TABLE conversations ADD COLUMN triage_channel_id TEXT`);
+} catch {
+  // Column already exists — ignore
+}
+
 // Migrate status CHECK constraint to include 'pending_approval'
 // SQLite doesn't support ALTER CHECK, but the CREATE TABLE above already has it for new DBs.
 // For existing DBs, we disable foreign keys temporarily and recreate if needed.
@@ -82,11 +94,13 @@ export interface Conversation {
   user_name: string;
   channel_id: string;
   thread_ts: string;
-  status: 'gathering' | 'confirming' | 'pending_approval' | 'complete' | 'cancelled';
+  status: 'gathering' | 'confirming' | 'pending_approval' | 'complete' | 'cancelled' | 'withdrawn';
   current_step: string | null;
   collected_data: string;
   classification: 'quick' | 'full' | 'undetermined';
   monday_item_id: string | null;
+  triage_message_ts: string | null;
+  triage_channel_id: string | null;
   created_at: string;
   updated_at: string;
   expires_at: string;
@@ -172,10 +186,13 @@ const stmts = {
   updateMondayItemId: db.prepare(
     `UPDATE conversations SET monday_item_id = ?, updated_at = datetime('now') WHERE id = ?`
   ),
+  updateTriageInfo: db.prepare(
+    `UPDATE conversations SET triage_message_ts = ?, triage_channel_id = ?, updated_at = datetime('now') WHERE id = ?`
+  ),
 };
 
 export function getConversation(userId: string, threadTs: string): Conversation | undefined {
-  return stmts.getConversationByThread.get(threadTs) ?? stmts.getConversation.get(userId);
+  return stmts.getConversationByThread.get(threadTs);
 }
 
 export function getConversationById(id: number): Conversation | undefined {
@@ -282,6 +299,10 @@ export function getActiveConversationForUser(userId: string, excludeThreadTs: st
 
 export function updateMondayItemId(conversationId: number, itemId: string): void {
   stmts.updateMondayItemId.run(itemId, conversationId);
+}
+
+export function updateTriageInfo(conversationId: number, messageTs: string, channelId: string): void {
+  stmts.updateTriageInfo.run(messageTs, channelId, conversationId);
 }
 
 export default db;

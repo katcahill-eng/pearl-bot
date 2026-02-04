@@ -29,7 +29,7 @@ export function registerMessageHandler(app: App): void {
         return;
       }
       const status = existingConvo.getStatus();
-      if (status !== 'gathering' && status !== 'confirming') {
+      if (status !== 'gathering' && status !== 'confirming' && status !== 'pending_approval' && status !== 'complete') {
         console.log(`[messages] Conversation in thread ${thread_ts} has status ${status}, ignoring`);
         return;
       }
@@ -66,7 +66,7 @@ export function registerMessageHandler(app: App): void {
       const existingConvo = ConversationManager.load(userId, thread_ts);
       if (existingConvo) {
         const status = existingConvo.getStatus();
-        if (status === 'gathering' || status === 'confirming') {
+        if (status === 'gathering' || status === 'confirming' || status === 'pending_approval' || status === 'complete') {
           await handleIntakeMessage({
             userId,
             userName: userId,

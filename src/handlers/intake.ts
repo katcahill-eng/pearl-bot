@@ -1,10 +1,12 @@
-import type { SayFn } from '@slack/bolt';
+import type { App, SayFn } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
 import { ConversationManager, type CollectedData } from '../lib/conversation';
-import { interpretMessage, classifyRequest, type ExtractedFields } from '../lib/claude';
+import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
 import { sendApprovalRequest } from './approval';
-import { getActiveConversationForUser, cancelConversation } from '../lib/db';
+import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo } from '../lib/db';
+import { createMondayItemForReview } from '../lib/workflow';
+import { addMondayItemUpdate, updateMondayItemStatus } from '../lib/monday';
 
 // --- Confirmation keywords ---
 
@@ -14,6 +16,9 @@ const RESET_PATTERNS = [/^start\s*over$/i, /^reset$/i, /^restart$/i, /^from\s*sc
 const CONTINUE_PATTERNS = [/^continue$/i, /^resume$/i, /^pick\s*up$/i, /^keep\s*going$/i];
 const CONTINUE_THERE_PATTERNS = [/^continue\s*there$/i, /^go\s*there$/i, /^that\s*one$/i, /^use\s*that$/i];
 const START_FRESH_PATTERNS = [/^start\s*fresh$/i, /^new\s*one$/i, /^start\s*(a\s*)?new$/i, /^fresh$/i];
+const SUBMIT_AS_IS_PATTERNS = [/^submit\s*as[\s-]*is$/i, /^just\s*submit$/i, /^submit\s*now$/i];
+const SKIP_PATTERNS = [/^skip$/i, /^skip\s*this$/i, /^pass$/i, /^next$/i];
+const DONE_PATTERNS = [/^done$/i, /^that'?s?\s*all$/i, /^no\s*more$/i, /^nothing\s*(else)?$/i];
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   const trimmed = text.trim();
@@ -73,8 +78,7 @@ async function handleIntakeMessageInner(opts: {
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
-  const { userId, userName, channelId, text, say, client } = opts;
-  let threadTs = opts.threadTs;
+  const { userId, userName, channelId, threadTs, text, say, client } = opts;
 
   // --- Handle pending duplicate-check responses ---
   const pendingDup = pendingDuplicateChecks.get(userId);
@@ -103,12 +107,12 @@ async function handleIntakeMessageInner(opts: {
 
   // Load or create conversation
   let convo = ConversationManager.load(userId, threadTs);
-  console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? 'found existing' : 'no conversation'}`);
+  console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? `found existing (status=${convo.getStatus()})` : 'no conversation'}`);
 
-  // If the conversation was found via userId fallback, use its stored threadTs for replies
-  if (convo && convo.getThreadTs() !== threadTs) {
-    console.log(`[intake] Using conversation's stored threadTs ${convo.getThreadTs()} instead of ${threadTs}`);
-    threadTs = convo.getThreadTs();
+  // If the conversation in this thread is terminal, treat it as "no conversation" — user is starting fresh
+  if (convo && (convo.getStatus() === 'complete' || convo.getStatus() === 'cancelled' || convo.getStatus() === 'withdrawn')) {
+    console.log(`[intake] Conversation in thread ${threadTs} is ${convo.getStatus()}, treating as new`);
+    convo = undefined;
   }
 
   if (!convo) {
@@ -170,15 +174,16 @@ async function handleIntakeMessageInner(opts: {
 
   const status = convo.getStatus();
 
-  // --- Handle completed/cancelled conversations ---
-  if (status === 'complete') {
+  // --- Handle withdrawn conversations ---
+  if (status === 'withdrawn') {
     await say({
-      text: "This request has already been submitted. If you need something new, just start a new message thread with me!",
+      text: "This request was withdrawn. Start a new thread if you'd like to submit a new request!",
       thread_ts: threadTs,
     });
     return;
   }
 
+  // --- Handle completed/cancelled conversations ---
   if (status === 'cancelled') {
     await say({
       text: "This conversation was cancelled. Start a new thread if you'd like to submit a request!",
@@ -187,12 +192,9 @@ async function handleIntakeMessageInner(opts: {
     return;
   }
 
-  // --- Handle pending_approval state ---
-  if (status === 'pending_approval') {
-    await say({
-      text: "Your request has been submitted and is waiting for marketing team review. I'll let you know once it's been reviewed!",
-      thread_ts: threadTs,
-    });
+  // --- Handle post-submission states with buttons ---
+  if (status === 'pending_approval' || status === 'complete') {
+    await handlePostSubmissionMessage(convo, text, threadTs, say, client);
     return;
   }
 
@@ -265,7 +267,25 @@ async function handleConfirmingState(
     const collectedData = convo.getCollectedData();
     const requesterName = convo.getUserName();
 
-    // Set status to pending_approval (Monday.com item deferred until "In Progress")
+    // Create Monday.com item at submission time
+    let mondayItemId: string | null = null;
+    let mondayUrl: string | null = null;
+    try {
+      const mondayResult = await createMondayItemForReview({
+        collectedData,
+        classification: effectiveClassification,
+        requesterName,
+      });
+      if (mondayResult.success && mondayResult.itemId) {
+        mondayItemId = mondayResult.itemId;
+        mondayUrl = mondayResult.boardUrl ?? null;
+        convo.setMondayItemId(mondayResult.itemId);
+      }
+    } catch (err) {
+      console.error('[intake] Failed to create Monday.com item at submission:', err);
+    }
+
+    // Set status to pending_approval
     convo.setStatus('pending_approval');
     convo.save();
 
@@ -288,6 +308,8 @@ async function handleConfirmingState(
         classification: effectiveClassification,
         collectedData,
         requesterName,
+        mondayItemId,
+        mondayUrl,
       });
     } catch (err) {
       console.error('[intake] Failed to send approval request:', err);
@@ -355,7 +377,23 @@ async function handleGatheringState(
       text: "Great, let's pick up where we left off!",
       thread_ts: threadTs,
     });
-    await askNextQuestion(convo, threadTs, say);
+    if (convo.isInFollowUp()) {
+      const questions = getStoredFollowUpQuestions(convo);
+      const index = convo.getFollowUpIndex();
+      if (questions && index < questions.length) {
+        await askFollowUpQuestion(convo, index, questions, threadTs, say);
+      } else {
+        await transitionToConfirming(convo, threadTs, say);
+      }
+    } else {
+      await askNextQuestion(convo, threadTs, say);
+    }
+    return;
+  }
+
+  // --- Handle follow-up phase ---
+  if (convo.isInFollowUp()) {
+    await handleFollowUpAnswer(convo, text, threadTs, say);
     return;
   }
 
@@ -378,24 +416,8 @@ async function handleGatheringState(
 
     // Check if all required fields are now collected
     if (convo.isComplete()) {
-      // Classify the request
-      const classification = classifyRequest(convo.getCollectedData());
-      convo.setClassification(classification);
-      convo.setStatus('confirming');
-      convo.save();
-
-      // Show how many fields we got if user was bundled
-      if (fieldsApplied > 1) {
-        await say({
-          text: "Got most of what I need! Let me confirm the details:",
-          thread_ts: threadTs,
-        });
-      }
-
-      await say({
-        text: convo.toSummary(),
-        thread_ts: threadTs,
-      });
+      // Enter follow-up phase
+      await enterFollowUpPhase(convo, fieldsApplied, threadTs, say);
     } else {
       convo.save();
 
@@ -421,7 +443,500 @@ async function handleGatheringState(
   }
 }
 
+// --- Follow-up phase ---
+
+async function enterFollowUpPhase(
+  convo: ConversationManager,
+  fieldsApplied: number,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  // Classify the request type
+  const collectedData = convo.getCollectedData();
+
+  try {
+    const requestType = await classifyRequestType(collectedData);
+    convo.setRequestType(requestType);
+
+    // Generate follow-up questions
+    const questions = await generateFollowUpQuestions(collectedData, requestType);
+
+    if (questions.length === 0) {
+      // No follow-ups needed — go straight to confirming
+      await transitionToConfirming(convo, threadTs, say);
+      return;
+    }
+
+    // Store follow-up questions
+    storeFollowUpQuestions(convo, questions);
+    convo.setFollowUpIndex(0);
+    convo.save();
+
+    // Transition message
+    const typeLabels: Record<string, string> = {
+      conference: 'a conference request',
+      insider_dinner: 'a Pearl Insider Dinner',
+      webinar: 'a webinar request',
+      email: 'an email request',
+      graphic_design: 'a graphic design request',
+      general: 'your request',
+    };
+    const typeLabel = typeLabels[requestType] ?? 'your request';
+
+    if (fieldsApplied > 1) {
+      await say({
+        text: `Got most of what I need! Since this looks like ${typeLabel}, I have a few more questions to help the team get started faster.\n_If you'd rather just submit and let the team work out the details, say "submit as-is" anytime._`,
+        thread_ts: threadTs,
+      });
+    } else {
+      await say({
+        text: `Great, I have the basics! Since this looks like ${typeLabel}, I have a few more questions to help the team get started faster.\n_If you'd rather just submit and let the team work out the details, say "submit as-is" anytime._`,
+        thread_ts: threadTs,
+      });
+    }
+
+    // Ask the first follow-up question
+    await askFollowUpQuestion(convo, 0, questions, threadTs, say);
+  } catch (err) {
+    console.error('[intake] Follow-up generation failed, skipping to confirming:', err);
+    await transitionToConfirming(convo, threadTs, say);
+  }
+}
+
+async function handleFollowUpAnswer(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  const questions = getStoredFollowUpQuestions(convo);
+  const currentIndex = convo.getFollowUpIndex();
+
+  if (!questions || currentIndex >= questions.length) {
+    await transitionToConfirming(convo, threadTs, say);
+    return;
+  }
+
+  // Check for "submit as-is" / "done"
+  if (matchesAny(text, SUBMIT_AS_IS_PATTERNS) || matchesAny(text, DONE_PATTERNS)) {
+    await transitionToConfirming(convo, threadTs, say);
+    return;
+  }
+
+  // Check for "skip"
+  if (matchesAny(text, SKIP_PATTERNS)) {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= questions.length) {
+      await transitionToConfirming(convo, threadTs, say);
+    } else {
+      convo.setFollowUpIndex(nextIndex);
+      convo.save();
+      await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
+    }
+    return;
+  }
+
+  // Interpret the answer
+  const currentQuestion = questions[currentIndex];
+  try {
+    const result = await interpretFollowUpAnswer(text, currentQuestion, convo.getCollectedData());
+
+    // Store the answer
+    const details = convo.getCollectedData().additional_details;
+    if (result.value) {
+      details[currentQuestion.field_key] = result.value;
+    }
+
+    // Store any additional fields
+    if (result.additional_fields) {
+      for (const [key, value] of Object.entries(result.additional_fields)) {
+        details[key] = value;
+      }
+    }
+
+    convo.markFieldCollected('additional_details', details);
+  } catch (err) {
+    console.error('[intake] Follow-up interpretation failed:', err);
+    // Store raw answer as fallback
+    const details = convo.getCollectedData().additional_details;
+    details[currentQuestion.field_key] = text;
+    convo.markFieldCollected('additional_details', details);
+  }
+
+  // Advance to next unanswered question
+  const details = convo.getCollectedData().additional_details;
+  let nextIndex = currentIndex + 1;
+  while (nextIndex < questions.length && details[questions[nextIndex].field_key]) {
+    nextIndex++;
+  }
+
+  if (nextIndex >= questions.length) {
+    await transitionToConfirming(convo, threadTs, say);
+  } else {
+    convo.setFollowUpIndex(nextIndex);
+    convo.save();
+    await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
+  }
+}
+
+// --- Follow-up helpers ---
+
+function storeFollowUpQuestions(convo: ConversationManager, questions: FollowUpQuestion[]): void {
+  const details = convo.getCollectedData().additional_details;
+  details['__follow_up_questions'] = JSON.stringify(questions);
+  convo.markFieldCollected('additional_details', details);
+}
+
+function getStoredFollowUpQuestions(convo: ConversationManager): FollowUpQuestion[] | null {
+  const details = convo.getCollectedData().additional_details;
+  const raw = details['__follow_up_questions'];
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as FollowUpQuestion[];
+  } catch {
+    return null;
+  }
+}
+
+async function askFollowUpQuestion(
+  convo: ConversationManager,
+  index: number,
+  questions: FollowUpQuestion[],
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  const question = questions[index];
+  const remaining = questions.length - index;
+
+  let progressText = '';
+  if (remaining <= 3 && remaining > 1) {
+    progressText = `\n_Just ${remaining} more_`;
+  } else if (remaining === 1) {
+    progressText = `\n_Last one!_`;
+  }
+
+  await say({
+    text: `${question.question}${progressText}`,
+    thread_ts: threadTs,
+  });
+}
+
+async function transitionToConfirming(
+  convo: ConversationManager,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  // Classify the request (quick/full)
+  const classification = classifyRequest(convo.getCollectedData());
+  convo.setClassification(classification);
+  convo.setStatus('confirming');
+  convo.setCurrentStep(null);
+  convo.save();
+
+  await say({
+    text: convo.toSummary(),
+    thread_ts: threadTs,
+  });
+}
+
+// --- Post-submission handling ---
+
+async function handlePostSubmissionMessage(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+  client: WebClient,
+): Promise<void> {
+  const currentStep = convo.getCurrentStep();
+
+  // Handle sub-flow states
+  if (currentStep === 'post_sub:awaiting_info') {
+    await handlePostSubInfo(convo, text, threadTs, say, client);
+    return;
+  }
+  if (currentStep === 'post_sub:awaiting_change') {
+    await handlePostSubChange(convo, text, threadTs, say, client);
+    return;
+  }
+  if (currentStep === 'post_sub:awaiting_withdraw_confirm') {
+    await handlePostSubWithdrawConfirm(convo, text, threadTs, say, client);
+    return;
+  }
+
+  // Show post-submission action buttons
+  await say({
+    text: "Looks like you have something to share about this request. What would you like to do?",
+    thread_ts: threadTs,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: 'Looks like you have something to share about this request. What would you like to do?',
+        },
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Additional Information' },
+            action_id: 'post_sub_additional',
+            value: JSON.stringify({ conversationId: convo.getId() }),
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Change to Request' },
+            action_id: 'post_sub_change',
+            value: JSON.stringify({ conversationId: convo.getId() }),
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Withdraw Request' },
+            action_id: 'post_sub_withdraw',
+            style: 'danger',
+            value: JSON.stringify({ conversationId: convo.getId() }),
+          },
+        ],
+      },
+    ],
+  });
+}
+
+async function handlePostSubInfo(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+  client: WebClient,
+): Promise<void> {
+  // Store the additional info
+  convo.setCurrentStep(null);
+  convo.save();
+
+  await say({
+    text: "Got it! Your additional information has been forwarded to the marketing team.",
+    thread_ts: threadTs,
+  });
+
+  // Post in triage thread
+  const triageTs = convo.getTriageMessageTs();
+  const triageChannelId = convo.getTriageChannelId();
+  if (triageTs && triageChannelId) {
+    try {
+      await client.chat.postMessage({
+        channel: triageChannelId,
+        text: `The requester has added new information:\n> ${text}`,
+        thread_ts: triageTs,
+      });
+    } catch (err) {
+      console.error('[intake] Failed to post to triage thread:', err);
+    }
+  }
+
+  // Update Monday.com item
+  const mondayItemId = convo.getMondayItemId();
+  if (mondayItemId) {
+    try {
+      await addMondayItemUpdate(mondayItemId, `[Additional Information] from requester:\n${text}`);
+    } catch (err) {
+      console.error('[intake] Failed to add Monday.com update:', err);
+    }
+  }
+}
+
+async function handlePostSubChange(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+  client: WebClient,
+): Promise<void> {
+  convo.setCurrentStep(null);
+  convo.save();
+
+  await say({
+    text: "Scope change noted! The marketing team has been notified.",
+    thread_ts: threadTs,
+  });
+
+  // Post in triage thread
+  const triageTs = convo.getTriageMessageTs();
+  const triageChannelId = convo.getTriageChannelId();
+  if (triageTs && triageChannelId) {
+    try {
+      await client.chat.postMessage({
+        channel: triageChannelId,
+        text: `[Scope Change] from requester:\n> ${text}`,
+        thread_ts: triageTs,
+      });
+    } catch (err) {
+      console.error('[intake] Failed to post scope change to triage thread:', err);
+    }
+  }
+
+  // Update Monday.com item
+  const mondayItemId = convo.getMondayItemId();
+  if (mondayItemId) {
+    try {
+      await addMondayItemUpdate(mondayItemId, `[Scope Change] from requester:\n${text}`);
+    } catch (err) {
+      console.error('[intake] Failed to add Monday.com scope change update:', err);
+    }
+  }
+}
+
+async function handlePostSubWithdrawConfirm(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+  client: WebClient,
+): Promise<void> {
+  if (!matchesAny(text, CONFIRM_PATTERNS)) {
+    convo.setCurrentStep(null);
+    convo.save();
+    await say({
+      text: "Withdrawal cancelled. Your request is still active.",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  convo.setStatus('withdrawn');
+  convo.setCurrentStep(null);
+  convo.save();
+
+  await say({
+    text: "Your request has been withdrawn.",
+    thread_ts: threadTs,
+  });
+
+  // Update Monday.com
+  const mondayItemId = convo.getMondayItemId();
+  if (mondayItemId) {
+    const classification = convo.getClassification() === 'undetermined' ? 'quick' : convo.getClassification() as 'quick' | 'full';
+    const mondayBoardId = classification === 'quick' ? config.mondayQuickBoardId : config.mondayFullBoardId;
+    try {
+      await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Withdrawn');
+    } catch (err) {
+      console.error('[intake] Failed to update Monday.com to Withdrawn:', err);
+    }
+    try {
+      await addMondayItemUpdate(mondayItemId, 'Request withdrawn by requester.');
+    } catch (err) {
+      console.error('[intake] Failed to add Monday.com withdrawal update:', err);
+    }
+  }
+
+  // Update triage panel
+  const triageTs = convo.getTriageMessageTs();
+  const triageChannelId = convo.getTriageChannelId();
+  if (triageTs && triageChannelId) {
+    try {
+      await client.chat.postMessage({
+        channel: triageChannelId,
+        text: 'Request withdrawn by requester.',
+        thread_ts: triageTs,
+      });
+    } catch (err) {
+      console.error('[intake] Failed to post withdrawal to triage thread:', err);
+    }
+  }
+}
+
+// --- Action handler registration ---
+
+export function registerPostSubmissionActions(app: App): void {
+  app.action('post_sub_additional', async ({ ack, body, client }) => {
+    await ack();
+    if (body.type !== 'block_actions' || !body.actions?.[0]) return;
+    const action = body.actions[0];
+    if (!('value' in action) || !action.value) return;
+
+    const { conversationId } = JSON.parse(action.value) as { conversationId: number };
+    const convo = loadConversationById(conversationId);
+    if (!convo) return;
+
+    convo.setCurrentStep('post_sub:awaiting_info');
+    convo.save();
+
+    try {
+      await client.chat.postMessage({
+        channel: convo.getChannelId(),
+        text: "What additional information would you like to add?",
+        thread_ts: convo.getThreadTs(),
+      });
+    } catch (err) {
+      console.error('[intake] Failed to prompt for additional info:', err);
+    }
+  });
+
+  app.action('post_sub_change', async ({ ack, body, client }) => {
+    await ack();
+    if (body.type !== 'block_actions' || !body.actions?.[0]) return;
+    const action = body.actions[0];
+    if (!('value' in action) || !action.value) return;
+
+    const { conversationId } = JSON.parse(action.value) as { conversationId: number };
+    const convo = loadConversationById(conversationId);
+    if (!convo) return;
+
+    convo.setCurrentStep('post_sub:awaiting_change');
+    convo.save();
+
+    try {
+      await client.chat.postMessage({
+        channel: convo.getChannelId(),
+        text: "What would you like to change?",
+        thread_ts: convo.getThreadTs(),
+      });
+    } catch (err) {
+      console.error('[intake] Failed to prompt for change:', err);
+    }
+  });
+
+  app.action('post_sub_withdraw', async ({ ack, body, client }) => {
+    await ack();
+    if (body.type !== 'block_actions' || !body.actions?.[0]) return;
+    const action = body.actions[0];
+    if (!('value' in action) || !action.value) return;
+
+    const { conversationId } = JSON.parse(action.value) as { conversationId: number };
+    const convo = loadConversationById(conversationId);
+    if (!convo) return;
+
+    convo.setCurrentStep('post_sub:awaiting_withdraw_confirm');
+    convo.save();
+
+    try {
+      await client.chat.postMessage({
+        channel: convo.getChannelId(),
+        text: "Are you sure you want to withdraw this request? Reply *yes* to confirm.",
+        thread_ts: convo.getThreadTs(),
+      });
+    } catch (err) {
+      console.error('[intake] Failed to prompt for withdraw confirmation:', err);
+    }
+  });
+}
+
 // --- Helpers ---
+
+function loadConversationById(conversationId: number): ConversationManager | null {
+  const row = getConversationById(conversationId);
+  if (!row) {
+    console.error('[intake] Conversation not found:', conversationId);
+    return null;
+  }
+  const convo = ConversationManager.load(row.user_id, row.thread_ts);
+  if (!convo) {
+    console.error('[intake] Could not load ConversationManager for:', conversationId);
+    return null;
+  }
+  return convo;
+}
 
 async function askNextQuestion(
   convo: ConversationManager,
@@ -450,7 +965,7 @@ function applyExtractedFields(
   let count = 0;
   const current = convo.getCollectedData();
 
-  const fieldKeys: (keyof CollectedData)[] = [
+  const fieldKeys: (keyof ExtractedFields)[] = [
     'requester_name',
     'requester_department',
     'target',
@@ -470,14 +985,14 @@ function applyExtractedFields(
     if (Array.isArray(newValue) && newValue.length === 0) continue;
 
     // Check if this field is already populated with the same value
-    const currentValue = current[field];
+    const currentValue = current[field as keyof CollectedData];
     if (Array.isArray(currentValue) && Array.isArray(newValue)) {
       if (currentValue.length > 0 && JSON.stringify(currentValue) === JSON.stringify(newValue)) continue;
     } else if (currentValue !== null && currentValue !== '' && currentValue === newValue) {
       continue;
     }
 
-    convo.markFieldCollected(field, newValue as string | string[]);
+    convo.markFieldCollected(field as keyof CollectedData, newValue as string | string[]);
     count++;
   }
 

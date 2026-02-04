@@ -1,4 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
+import fs from 'fs';
+import path from 'path';
 import type { CollectedData } from './conversation';
 
 // --- Types ---
@@ -20,9 +22,22 @@ export interface ExtractedFields {
 
 export type RequestClassification = 'quick' | 'full' | 'undetermined';
 
+export interface FollowUpQuestion {
+  id: string;
+  question: string;
+  field_key: string;
+}
+
 // --- Client ---
 
 const client = new Anthropic();
+
+// --- Knowledge Base ---
+
+const KNOWLEDGE_BASE = fs.readFileSync(
+  path.join(__dirname, 'knowledge-base.md'),
+  'utf-8',
+);
 
 // --- System prompt ---
 
@@ -208,6 +223,142 @@ function buildUserPrompt(
 
   return parts.join('\n');
 }
+
+// --- Follow-up functions ---
+
+/**
+ * Classify the type of marketing request based on collected data.
+ */
+export async function classifyRequestType(
+  collectedData: Partial<CollectedData>,
+): Promise<string> {
+  const systemPrompt = `You classify marketing requests into one of these types based on the information provided:
+- conference
+- insider_dinner
+- webinar
+- email
+- graphic_design
+- general
+
+Look at the context_background, deliverables, target audience, and desired_outcomes to determine the best fit.
+If it doesn't clearly match a specific type, return "general".
+
+Respond with ONLY the type string, nothing else.`;
+
+  const userPrompt = `Classify this marketing request:
+- Context/Background: ${collectedData.context_background ?? 'Not provided'}
+- Deliverables: ${(collectedData.deliverables ?? []).join(', ') || 'Not provided'}
+- Target: ${collectedData.target ?? 'Not provided'}
+- Desired Outcomes: ${collectedData.desired_outcomes ?? 'Not provided'}`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 50,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text.trim().toLowerCase() : 'general';
+  const validTypes = ['conference', 'insider_dinner', 'webinar', 'email', 'graphic_design', 'general'];
+  return validTypes.includes(text) ? text : 'general';
+}
+
+/**
+ * Generate follow-up questions tailored to the request type using the knowledge base.
+ */
+export async function generateFollowUpQuestions(
+  collectedData: Partial<CollectedData>,
+  requestType: string,
+): Promise<FollowUpQuestion[]> {
+  const systemPrompt = `You are MarcomsBot, a Slack intake assistant for Pearl's marketing team.
+
+Using the knowledge base below, generate follow-up questions for a "${requestType}" marketing request.
+
+KNOWLEDGE BASE:
+${KNOWLEDGE_BASE}
+
+Rules:
+- Generate 3-7 conversational, friendly questions appropriate for this request type
+- Skip anything already answered in the collected data provided
+- Include expectation-setting context naturally within questions (e.g., "Just so you know, printed materials are charged back to your department — do you need anything printed?")
+- Each question should feel conversational, not like a form field
+- Return a JSON array of objects with: id (string, unique), question (string), field_key (string, snake_case key for storing the answer)
+
+Respond with ONLY a JSON array, no markdown formatting, no code blocks.`;
+
+  const collected = Object.entries(collectedData)
+    .filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0))
+    .map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+    .join('\n');
+
+  const userPrompt = `Already collected:\n${collected || 'Nothing yet'}\n\nGenerate follow-up questions for this ${requestType} request.`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '[]';
+
+  try {
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(cleaned) as FollowUpQuestion[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    console.error('[claude] Failed to parse follow-up questions:', text);
+    return [];
+  }
+}
+
+/**
+ * Interpret a user's free-text answer to a specific follow-up question.
+ * Can extract multiple fields if the user answers ahead.
+ */
+export async function interpretFollowUpAnswer(
+  message: string,
+  question: FollowUpQuestion,
+  collectedData: Partial<CollectedData>,
+): Promise<{ value: string; additional_fields?: Record<string, string> }> {
+  const systemPrompt = `You are interpreting a user's answer to a follow-up question in a marketing intake conversation.
+
+The question asked was: "${question.question}"
+The field key for this answer is: "${question.field_key}"
+
+Extract the answer to the asked question. If the user also provides information that answers other potential follow-up questions, extract those too.
+
+Return a JSON object with:
+- "value": the answer to the current question (string)
+- "additional_fields": optional object mapping field_key → value for any extra info provided
+
+If the user's message doesn't answer the question (off-topic, unclear), set value to an empty string.
+
+Respond with ONLY a JSON object, no markdown formatting, no code blocks.`;
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 512,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: `User's answer: "${message}"` }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+
+  try {
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(cleaned) as { value: string; additional_fields?: Record<string, string> };
+    return {
+      value: parsed.value ?? '',
+      additional_fields: parsed.additional_fields,
+    };
+  } catch {
+    // Fallback: use the raw message as the value
+    return { value: message };
+  }
+}
+
+// --- Helpers ---
 
 function parseExtractedFields(text: string): ExtractedFields {
   try {

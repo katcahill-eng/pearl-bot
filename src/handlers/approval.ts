@@ -1,10 +1,10 @@
 import type { App } from '@slack/bolt';
 import { config } from '../lib/config';
-import { getConversationById } from '../lib/db';
+import { getConversationById, updateTriageInfo } from '../lib/db';
 import { ConversationManager, type CollectedData } from '../lib/conversation';
-import { executeApprovedWorkflow, createMondayItemForReview, buildCompletionMessage } from '../lib/workflow';
+import { executeApprovedWorkflow, buildCompletionMessage } from '../lib/workflow';
 import { buildNotificationMessage } from '../lib/notifications';
-import { updateMondayItemStatus } from '../lib/monday';
+import { updateMondayItemStatus, addMondayItemUpdate } from '../lib/monday';
 
 // --- Types ---
 
@@ -14,9 +14,11 @@ interface ApprovalRequestParams {
   classification: 'quick' | 'full';
   collectedData: CollectedData;
   requesterName: string;
+  mondayItemId?: string | null;
+  mondayUrl?: string | null;
 }
 
-type TriageStatus = 'Under Review' | 'Discussion Needed' | 'In Progress' | 'On Hold' | 'Completed' | 'Declined';
+type TriageStatus = 'Under Review' | 'Discussion Needed' | 'In Progress' | 'On Hold' | 'Completed' | 'Declined' | 'Withdrawn';
 
 // --- Helpers ---
 
@@ -44,6 +46,8 @@ function statusContextMessage(status: TriageStatus): string {
       return 'finished working on your request.';
     case 'Declined':
       return 'unable to take on this request at this time.';
+    case 'Withdrawn':
+      return 'marked your request as withdrawn.';
   }
 }
 
@@ -58,8 +62,9 @@ function buildTriageBlocks(opts: {
   requesterName: string;
   status: TriageStatus;
   lockedBy?: string;
+  mondayUrl?: string | null;
 }): any[] {
-  const { conversationId, projectName, classification, collectedData, requesterName, status, lockedBy } = opts;
+  const { conversationId, projectName, classification, collectedData, requesterName, status, lockedBy, mondayUrl } = opts;
 
   const oneLiner = collectedData.context_background
     ? (collectedData.context_background.includes('.')
@@ -88,9 +93,20 @@ function buildTriageBlocks(opts: {
     },
   ];
 
+  // Monday.com link section
+  if (mondayUrl) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:link: <${mondayUrl}|View on Monday.com>`,
+      },
+    });
+  }
+
   // Terminal states — show locked message instead of controls
-  if (status === 'Completed' || status === 'Declined') {
-    const icon = status === 'Completed' ? ':white_check_mark:' : ':no_entry_sign:';
+  if (status === 'Completed' || status === 'Declined' || status === 'Withdrawn') {
+    const icon = status === 'Completed' ? ':white_check_mark:' : status === 'Withdrawn' ? ':no_entry:' : ':no_entry_sign:';
     blocks.push({
       type: 'section',
       text: {
@@ -122,6 +138,7 @@ function buildTriageBlocks(opts: {
           { text: { type: 'plain_text', text: 'On Hold' }, value: 'On Hold' },
           { text: { type: 'plain_text', text: 'Completed' }, value: 'Completed' },
           { text: { type: 'plain_text', text: 'Declined' }, value: 'Declined' },
+          { text: { type: 'plain_text', text: 'Withdrawn' }, value: 'Withdrawn' },
         ],
       },
       {
@@ -158,7 +175,7 @@ export async function sendApprovalRequest(
   client: import('@slack/web-api').WebClient,
   params: ApprovalRequestParams,
 ): Promise<void> {
-  const { conversationId, projectName, classification, collectedData, requesterName } = params;
+  const { conversationId, projectName, classification, collectedData, requesterName, mondayItemId, mondayUrl } = params;
 
   const blocks = buildTriageBlocks({
     conversationId,
@@ -167,9 +184,10 @@ export async function sendApprovalRequest(
     collectedData,
     requesterName,
     status: 'Under Review',
+    mondayUrl,
   });
 
-  await client.chat.postMessage({
+  const result = await client.chat.postMessage({
     channel: config.slackNotificationChannelId,
     text: `New request for triage: ${projectName}`,
     metadata: {
@@ -178,6 +196,15 @@ export async function sendApprovalRequest(
     },
     blocks,
   });
+
+  // Store triage message timestamp for post-submission thread handling
+  if (result.ts) {
+    try {
+      updateTriageInfo(conversationId, result.ts, config.slackNotificationChannelId);
+    } catch (err) {
+      console.error('[approval] Failed to store triage info:', err);
+    }
+  }
 }
 
 /**
@@ -224,6 +251,11 @@ export function registerApprovalHandler(app: App): void {
       collectedData.deliverables[0] ??
       'Untitled Request';
 
+    // Build Monday URL from existing item
+    const mondayItemId = convo.getMondayItemId();
+    const mondayBoardId = classification === 'quick' ? config.mondayQuickBoardId : config.mondayFullBoardId;
+    const mondayUrl = mondayItemId ? `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${mondayItemId}` : null;
+
     // --- Handle each status ---
 
     if (newStatus === 'Discussion Needed') {
@@ -259,30 +291,25 @@ export function registerApprovalHandler(app: App): void {
     }
 
     if (newStatus === 'In Progress') {
-      // First time: create Monday.com item + run approval workflow
-      // Returning to In Progress from On Hold: just update Monday status
-      if (!convo.getMondayItemId()) {
-        // First approval — create Monday item and run workflow
-        const mondayResult = await createMondayItemForReview({
-          collectedData,
-          classification,
-          requesterName,
-        });
-
-        if (mondayResult.success && mondayResult.itemId) {
-          convo.setMondayItemId(mondayResult.itemId);
+      // Monday item already exists (created at submission). Run approval workflow.
+      if (!mondayItemId) {
+        console.error('[approval] No Monday item found for conversation', conversationId, '— cannot run In Progress workflow');
+        // Post warning to triage thread
+        if (body.message && body.channel?.id) {
+          await client.chat.postMessage({
+            channel: body.channel.id,
+            text: ':warning: No Monday.com item found for this request. The item may not have been created at submission time.',
+            thread_ts: body.message.ts,
+          });
         }
-
-        const mondayBoardId = classification === 'quick'
-          ? config.mondayQuickBoardId
-          : config.mondayFullBoardId;
-
+      } else {
+        // Run the approval workflow (brief/Drive for full, status update for both)
         const result = await executeApprovedWorkflow({
           collectedData,
           classification,
           requesterName,
           requesterSlackId: convo.getUserId(),
-          mondayItemId: mondayResult.itemId ?? '',
+          mondayItemId,
           mondayBoardId,
           source: 'conversation',
         });
@@ -317,16 +344,6 @@ export function registerApprovalHandler(app: App): void {
         } catch (err) {
           console.error('[approval] Failed to notify requester:', err);
         }
-      } else {
-        // Returning to In Progress — update Monday status
-        try {
-          const mondayBoardId = classification === 'quick'
-            ? config.mondayQuickBoardId
-            : config.mondayFullBoardId;
-          await updateMondayItemStatus(convo.getMondayItemId()!, mondayBoardId, 'Working on it');
-        } catch (err) {
-          console.error('[approval] Failed to update Monday.com status:', err);
-        }
       }
 
       convo.setStatus('complete');
@@ -335,12 +352,8 @@ export function registerApprovalHandler(app: App): void {
 
     if (newStatus === 'On Hold') {
       // Update Monday.com status if item exists
-      const mondayItemId = convo.getMondayItemId();
       if (mondayItemId) {
         try {
-          const mondayBoardId = classification === 'quick'
-            ? config.mondayQuickBoardId
-            : config.mondayFullBoardId;
           await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Stuck');
         } catch (err) {
           console.error('[approval] Failed to update Monday.com status to On Hold:', err);
@@ -350,12 +363,8 @@ export function registerApprovalHandler(app: App): void {
 
     if (newStatus === 'Completed') {
       // Update Monday.com status if item exists
-      const mondayItemId = convo.getMondayItemId();
       if (mondayItemId) {
         try {
-          const mondayBoardId = classification === 'quick'
-            ? config.mondayQuickBoardId
-            : config.mondayFullBoardId;
           await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Done');
         } catch (err) {
           console.error('[approval] Failed to update Monday.com status to Completed:', err);
@@ -367,7 +376,6 @@ export function registerApprovalHandler(app: App): void {
     }
 
     if (newStatus === 'Declined') {
-      // No Monday item cleanup needed if never approved
       convo.setStatus('cancelled');
       convo.save();
 
@@ -383,9 +391,39 @@ export function registerApprovalHandler(app: App): void {
       }
     }
 
+    if (newStatus === 'Withdrawn') {
+      convo.setStatus('withdrawn');
+      convo.save();
+
+      // Update Monday.com
+      if (mondayItemId) {
+        try {
+          await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Withdrawn');
+        } catch (err) {
+          console.error('[approval] Failed to update Monday.com to Withdrawn:', err);
+        }
+        try {
+          await addMondayItemUpdate(mondayItemId, `Request withdrawn by ${actorName}.`);
+        } catch (err) {
+          console.error('[approval] Failed to add Monday.com withdrawal update:', err);
+        }
+      }
+
+      // Notify requester
+      try {
+        await client.chat.postMessage({
+          channel: convo.getChannelId(),
+          text: 'Your request has been withdrawn by the marketing team.',
+          thread_ts: convo.getThreadTs(),
+        });
+      } catch (err) {
+        console.error('[approval] Failed to notify requester of withdrawal:', err);
+      }
+    }
+
     // Update the triage message with new status
     if (body.message && body.channel?.id) {
-      const isLocked = newStatus === 'Completed' || newStatus === 'Declined';
+      const isLocked = newStatus === 'Completed' || newStatus === 'Declined' || newStatus === 'Withdrawn';
       const blocks = buildTriageBlocks({
         conversationId,
         projectName,
@@ -394,6 +432,7 @@ export function registerApprovalHandler(app: App): void {
         requesterName,
         status: newStatus,
         lockedBy: isLocked ? actorName : undefined,
+        mondayUrl,
       });
 
       await client.chat.update({
@@ -448,6 +487,11 @@ export function registerApprovalHandler(app: App): void {
     // Determine current status from the status dropdown in the message
     const currentStatus = extractCurrentStatus(body) ?? 'Under Review';
 
+    // Build Monday URL
+    const mondayItemId = convo.getMondayItemId();
+    const mondayBoardId = newClassification === 'quick' ? config.mondayQuickBoardId : config.mondayFullBoardId;
+    const mondayUrl = mondayItemId ? `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${mondayItemId}` : null;
+
     // Refresh the triage message
     if (body.message && body.channel?.id) {
       const blocks = buildTriageBlocks({
@@ -457,6 +501,7 @@ export function registerApprovalHandler(app: App): void {
         collectedData,
         requesterName,
         status: currentStatus,
+        mondayUrl,
       });
 
       await client.chat.update({

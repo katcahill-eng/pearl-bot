@@ -110,6 +110,12 @@ async function handleIntakeWebhook(
     approvals: formData.approvals ?? null,
     constraints: formData.constraints ?? null,
     supporting_links: normalizeArray(formData.supporting_links),
+    request_type: null,
+    additional_details: {},
+    conference_start_date: null,
+    conference_end_date: null,
+    presenter_names: null,
+    outside_presenters: null,
   };
 
   // Classify the request using the same logic as conversation flow

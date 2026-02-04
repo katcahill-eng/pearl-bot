@@ -10,7 +10,7 @@ export function registerMentionHandler(app: App): void {
     const thread_ts = event.thread_ts ?? event.ts;
     const userId = event.user ?? '';
 
-    console.log(`[mentions] Received app_mention from ${userId} in channel ${event.channel}: "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
+    console.log(`[mentions] Received app_mention from ${userId} in channel ${event.channel}: "${text.substring(0, 80)}" event.ts=${event.ts} event.thread_ts=${event.thread_ts ?? 'NONE'} → using thread_ts=${thread_ts}`);
 
     // Channel restriction — only respond in the allowed channel (if configured)
     const allowedChannel = process.env.ALLOWED_CHANNEL_ID;

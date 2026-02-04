@@ -266,6 +266,25 @@ export async function updateMondayItemColumns(
 }
 
 /**
+ * Add an update (comment) to a Monday.com item.
+ * Uses the create_update mutation to post a comment on the item's activity log.
+ */
+export async function addMondayItemUpdate(
+  itemId: string,
+  body: string,
+): Promise<void> {
+  const query = `
+    mutation ($itemId: ID!, $body: String!) {
+      create_update (item_id: $itemId, body: $body) {
+        id
+      }
+    }
+  `;
+
+  await mondayApi(query, { itemId, body });
+}
+
+/**
  * Search Monday.com boards for items matching a query string.
  */
 export async function searchItems(query: string): Promise<MondaySearchResult[]> {
