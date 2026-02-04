@@ -228,11 +228,12 @@ function buildUserPrompt(
 
 /**
  * Classify the type of marketing request based on collected data.
+ * Returns an array of types — a request can span multiple types (e.g., conference + webinar).
  */
 export async function classifyRequestType(
   collectedData: Partial<CollectedData>,
-): Promise<string> {
-  const systemPrompt = `You classify marketing requests into one of these types based on the information provided:
+): Promise<string[]> {
+  const systemPrompt = `You classify marketing requests into one or more of these types based on the information provided:
 - conference
 - insider_dinner
 - webinar
@@ -241,9 +242,11 @@ export async function classifyRequestType(
 - general
 
 Look at the context_background, deliverables, target audience, and desired_outcomes to determine the best fit.
+A request can span multiple types — for example, a conference that also includes a webinar should return "conference,webinar".
+
 If it doesn't clearly match a specific type, return "general".
 
-Respond with ONLY the type string, nothing else.`;
+Respond with ONLY the type string(s), comma-separated if multiple, nothing else. Examples: "conference", "conference,webinar", "email", "general"`;
 
   const userPrompt = `Classify this marketing request:
 - Context/Background: ${collectedData.context_background ?? 'Not provided'}
@@ -260,19 +263,22 @@ Respond with ONLY the type string, nothing else.`;
 
   const text = response.content[0].type === 'text' ? response.content[0].text.trim().toLowerCase() : 'general';
   const validTypes = ['conference', 'insider_dinner', 'webinar', 'email', 'graphic_design', 'general'];
-  return validTypes.includes(text) ? text : 'general';
+  const types = text.split(',').map((t) => t.trim()).filter((t) => validTypes.includes(t));
+  return types.length > 0 ? types : ['general'];
 }
 
 /**
- * Generate follow-up questions tailored to the request type using the knowledge base.
+ * Generate follow-up questions tailored to the request type(s) using the knowledge base.
  */
 export async function generateFollowUpQuestions(
   collectedData: Partial<CollectedData>,
-  requestType: string,
+  requestTypes: string[],
 ): Promise<FollowUpQuestion[]> {
+  const typesLabel = requestTypes.join(' + ');
   const systemPrompt = `You are MarcomsBot, a Slack intake assistant for Pearl's marketing team.
 
-Using the knowledge base below, generate follow-up questions for a "${requestType}" marketing request.
+Using the knowledge base below, generate follow-up questions for a "${typesLabel}" marketing request.
+${requestTypes.length > 1 ? `\nThis request spans multiple types (${typesLabel}). Generate questions that cover ALL applicable types — for example, conference logistics AND webinar format if both apply.` : ''}
 
 KNOWLEDGE BASE:
 ${KNOWLEDGE_BASE}
@@ -280,6 +286,7 @@ ${KNOWLEDGE_BASE}
 Rules:
 - Generate 3-7 conversational, friendly questions appropriate for this request type
 - Skip anything already answered in the collected data provided
+- If the user already provided information in their collected data that answers a potential question, do NOT generate that question
 - Include expectation-setting context naturally within questions (e.g., "Just so you know, printed materials are charged back to your department — do you need anything printed?")
 - Each question should feel conversational, not like a form field
 - Return a JSON array of objects with: id (string, unique), question (string), field_key (string, snake_case key for storing the answer)
@@ -291,7 +298,7 @@ Respond with ONLY a JSON array, no markdown formatting, no code blocks.`;
     .map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
     .join('\n');
 
-  const userPrompt = `Already collected:\n${collected || 'Nothing yet'}\n\nGenerate follow-up questions for this ${requestType} request.`;
+  const userPrompt = `Already collected:\n${collected || 'Nothing yet'}\n\nGenerate follow-up questions for this ${typesLabel} request.`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -320,13 +327,18 @@ export async function interpretFollowUpAnswer(
   message: string,
   question: FollowUpQuestion,
   collectedData: Partial<CollectedData>,
+  upcomingQuestions?: FollowUpQuestion[],
 ): Promise<{ value: string; additional_fields?: Record<string, string> }> {
+  const upcomingList = upcomingQuestions && upcomingQuestions.length > 0
+    ? `\n\nUpcoming questions the user hasn't been asked yet:\n${upcomingQuestions.map((q) => `- field_key: "${q.field_key}" — "${q.question}"`).join('\n')}\n\nIf the user's answer also addresses any of these upcoming questions, include them in additional_fields using their field_key.`
+    : '';
+
   const systemPrompt = `You are interpreting a user's answer to a follow-up question in a marketing intake conversation.
 
 The question asked was: "${question.question}"
 The field key for this answer is: "${question.field_key}"
 
-Extract the answer to the asked question. If the user also provides information that answers other potential follow-up questions, extract those too.
+Extract the answer to the asked question. If the user also provides information that answers other potential follow-up questions, extract those too.${upcomingList}
 
 Return a JSON object with:
 - "value": the answer to the current question (string)

@@ -61,6 +61,7 @@ const FIELD_PROMPTS: Record<string, { question: string; example: string }> = {
     question: 'What deliverable(s) do you need?',
     example: 'e.g., "1 one-pager (PDF), 3 social posts, 1 email template" — list as many as you need',
   },
+  // due_date is handled dynamically by getDueDatePrompt() — this is a fallback
   due_date: {
     question: 'When do you need this by?',
     example: 'e.g., "next Friday", "February 15", "end of month", "ASAP"',
@@ -250,11 +251,60 @@ export class ConversationManager {
     for (const field of REQUIRED_FIELDS) {
       if (!isFieldPopulated(this.collectedData, field)) {
         this.currentStep = field;
+
+        // Use context-aware prompt for due_date
+        if (field === 'due_date') {
+          const dueDatePrompt = this.getDueDatePrompt();
+          return { field, question: dueDatePrompt.question, example: dueDatePrompt.example };
+        }
+
         const prompt = FIELD_PROMPTS[field];
         return { field, question: prompt.question, example: prompt.example };
       }
     }
     return null;
+  }
+
+  /** Generate a context-aware due date prompt based on collected data. */
+  private getDueDatePrompt(): { question: string; example: string } {
+    const context = (this.collectedData.context_background ?? '').toLowerCase();
+    const deliverables = (this.collectedData.deliverables ?? []).join(' ').toLowerCase();
+
+    if (context.includes('conference') || context.includes('trade show') || context.includes('expo')) {
+      return {
+        question: "When is the conference? I'll work backwards to suggest when materials should be ready.",
+        example: 'e.g., "March 10-12", "AHR Expo is January 27"',
+      };
+    }
+
+    if (context.includes('webinar')) {
+      return {
+        question: "When are you planning to hold the webinar? I'll factor in time for the registration page and promo.",
+        example: 'e.g., "March 15 at 2pm ET", "sometime in April"',
+      };
+    }
+
+    if (context.includes('dinner') || context.includes('insider')) {
+      return {
+        question: "When is the dinner? I'll plan backwards for invitations and branding.",
+        example: 'e.g., "April 3", "during the conference on March 11"',
+      };
+    }
+
+    const quickAssets = ['email', 'social', 'graphic', 'one-pager', 'flyer', 'banner', 'headshot', 'photo'];
+    const isQuickAsset = quickAssets.some((a) => deliverables.includes(a) || context.includes(a));
+
+    if (isQuickAsset) {
+      return {
+        question: 'When do you need this by? For single assets, we typically need 1-2 weeks.',
+        example: 'e.g., "next Friday", "February 15", "end of month", "ASAP"',
+      };
+    }
+
+    return {
+      question: 'When do you need this by? Quick assets take 1-2 weeks; full campaigns need 4-6 weeks.',
+      example: 'e.g., "next Friday", "February 15", "end of month", "ASAP"',
+    };
   }
 
   /** True when all required fields have been populated. */

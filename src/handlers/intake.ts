@@ -3,6 +3,7 @@ import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
 import { ConversationManager, type CollectedData } from '../lib/conversation';
 import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
+import { generateFieldGuidance } from '../lib/guidance';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
@@ -19,6 +20,12 @@ const START_FRESH_PATTERNS = [/^start\s*fresh$/i, /^new\s*one$/i, /^start\s*(a\s
 const SUBMIT_AS_IS_PATTERNS = [/^submit\s*as[\s-]*is$/i, /^just\s*submit$/i, /^submit\s*now$/i];
 const SKIP_PATTERNS = [/^skip$/i, /^skip\s*this$/i, /^pass$/i, /^next$/i];
 const DONE_PATTERNS = [/^done$/i, /^that'?s?\s*all$/i, /^no\s*more$/i, /^nothing\s*(else)?$/i];
+const IDK_PATTERNS = [
+  /^i\s*don'?t\s*know$/i, /^not\s*sure$/i, /^no\s*idea$/i, /^unsure$/i,
+  /^idk$/i, /^no\s*clue$/i, /^i'?m\s*not\s*sure$/i, /^haven'?t\s*decided$/i,
+  /^good\s*question$/i, /^help\s*me\s*decide$/i, /^i\s*have\s*no\s*idea$/i,
+  /^dunno$/i, /^beats\s*me$/i, /^not\s*certain$/i,
+];
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   const trimmed = text.trim();
@@ -414,6 +421,16 @@ async function handleGatheringState(
     return;
   }
 
+  // --- IDK detection in gathering phase ---
+  if (matchesAny(text, IDK_PATTERNS)) {
+    const currentField = convo.getCurrentStep();
+    if (currentField) {
+      const guidance = await generateFieldGuidance(currentField, convo.getCollectedData());
+      await say({ text: guidance, thread_ts: threadTs });
+      return;
+    }
+  }
+
   // Interpret the message via Claude
   console.log(`[intake] Calling Claude to interpret: "${text.substring(0, 80)}" for convo threadTs=${convo.getThreadTs()}, replyThreadTs=${threadTs}`);
   try {
@@ -473,11 +490,11 @@ async function enterFollowUpPhase(
   const collectedData = convo.getCollectedData();
 
   try {
-    const requestType = await classifyRequestType(collectedData);
-    convo.setRequestType(requestType);
+    const requestTypes = await classifyRequestType(collectedData);
+    convo.setRequestType(requestTypes.join(','));
 
     // Generate follow-up questions
-    const questions = await generateFollowUpQuestions(collectedData, requestType);
+    const questions = await generateFollowUpQuestions(collectedData, requestTypes);
 
     if (questions.length === 0) {
       // No follow-ups needed — go straight to confirming
@@ -499,16 +516,23 @@ async function enterFollowUpPhase(
       graphic_design: 'a graphic design request',
       general: 'your request',
     };
-    const typeLabel = typeLabels[requestType] ?? 'your request';
+
+    let typeLabel: string;
+    if (requestTypes.length > 1) {
+      const labels = requestTypes.map((t) => typeLabels[t]?.replace(/^(a|an)\s+/i, '') ?? t);
+      typeLabel = 'a ' + labels.join(' + ') + ' request';
+    } else {
+      typeLabel = typeLabels[requestTypes[0]] ?? 'your request';
+    }
 
     if (fieldsApplied > 1) {
       await say({
-        text: `Got most of what I need! Since this looks like ${typeLabel}, I have a few more questions to help the team get started faster.\n_If you'd rather just submit and let the team work out the details, say "submit as-is" anytime._`,
+        text: `Got most of what I need! Since this looks like ${typeLabel}, I have a few more questions to help the team get started faster.`,
         thread_ts: threadTs,
       });
     } else {
       await say({
-        text: `Great, I have the basics! Since this looks like ${typeLabel}, I have a few more questions to help the team get started faster.\n_If you'd rather just submit and let the team work out the details, say "submit as-is" anytime._`,
+        text: `Great, I have the basics! Since this looks like ${typeLabel}, I have a few more questions to help the team get started faster.`,
         thread_ts: threadTs,
       });
     }
@@ -554,10 +578,20 @@ async function handleFollowUpAnswer(
     return;
   }
 
-  // Interpret the answer
+  // Check for IDK in follow-up phase
+  if (matchesAny(text, IDK_PATTERNS)) {
+    await say({
+      text: "No worries — you can say *skip* to move on, or give your best guess and the team will refine it.",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  // Interpret the answer — pass upcoming questions so Claude can detect pre-answers
   const currentQuestion = questions[currentIndex];
+  const upcomingQuestions = questions.slice(currentIndex + 1);
   try {
-    const result = await interpretFollowUpAnswer(text, currentQuestion, convo.getCollectedData());
+    const result = await interpretFollowUpAnswer(text, currentQuestion, convo.getCollectedData(), upcomingQuestions);
 
     // Store the answer
     const details = convo.getCollectedData().additional_details;

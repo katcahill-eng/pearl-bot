@@ -58,7 +58,8 @@
 
 **Types:**
 - **Live webinars:** Zoom Webinars (one-time, live presentation)
-- **Pre-recorded / recurring / evergreen:** GoTo (automated playback, recurring schedule)
+- **Pre-recorded:** GoTo (fully pre-recorded content, automated playback)
+- **Evergreen:** Recorded live via GoTo, then hosted on-demand as if live (recurring schedule, automated registration and playback)
 
 **What marketing handles:**
 - Webinar landing page copy
@@ -80,7 +81,7 @@
 **Tools:** GoTo (automated/recurring), Zoom Webinars (live), Canva, Google Slides
 
 **Follow-up questions:**
-- Is this a live, pre-recorded, or recurring/evergreen webinar?
+- Is this a live, pre-recorded, or evergreen webinar? (Evergreen = recorded live, then hosted on-demand via GoTo)
 - What is the topic and who is the presenter?
 - Are there any outside or guest presenters?
 - What date/time is the webinar (or when should recurring sessions begin)?
@@ -175,6 +176,22 @@
 - Printed materials and production costs are charged back to the requesting department
 - Marketing does NOT provide on-site conference support
 - Marketing team is 1.5 people — capacity is limited
+
+---
+
+## Multi-Type Requests
+
+Some requests span multiple types (e.g., a conference that includes a webinar, or a webinar with an email campaign). When a request covers multiple types:
+
+- Ask follow-up questions for **each applicable type** — e.g., conference logistics AND webinar format
+- Combine deliverables from both types in the final summary
+- Use the primary type for classification, but note all types in the request
+
+**Common combos:**
+- **Conference + Webinar:** Conference booth materials + a live or evergreen webinar tied to the event
+- **Conference + Email:** Conference collateral + pre/post-conference email campaigns
+- **Webinar + Email:** Webinar setup + promotional email sequence
+- **Insider Dinner + Email:** Dinner branding + invitation email campaign
 
 ---
 
