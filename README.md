@@ -101,9 +101,7 @@ Under **Event Subscriptions → Subscribe to Bot Events**, add:
 
 1. Go to **Monday.com → Profile → Developers → My Access Tokens**
 2. Generate a personal API token — this is your `MONDAY_API_TOKEN`
-3. Note the board IDs from the Monday.com board URLs:
-   - Quick requests board → `MONDAY_QUICK_BOARD_ID`
-   - Full projects board → `MONDAY_FULL_BOARD_ID`
+3. Note the board ID from the Monday.com board URL → `MONDAY_BOARD_ID`
 
 ## Environment Variables
 
@@ -127,8 +125,7 @@ cp .env.example .env
 | `GOOGLE_PROJECTS_FOLDER_ID` | Google Drive folder ID for full projects (`1nUtz1xcr8tkmr_dvQ3HM6U64FxOCHNnH`) |
 | `GOOGLE_QUICK_REQUESTS_FOLDER_ID` | Google Drive folder ID for quick requests |
 | `MONDAY_API_TOKEN` | Monday.com personal API token |
-| `MONDAY_QUICK_BOARD_ID` | Monday.com quick requests board ID |
-| `MONDAY_FULL_BOARD_ID` | Monday.com full projects board ID |
+| `MONDAY_BOARD_ID` | Monday.com board ID for all requests (`18385936612`) |
 
 ### Optional
 

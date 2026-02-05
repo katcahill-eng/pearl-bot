@@ -12,12 +12,16 @@ const REQUIRED_VARS = [
   'GOOGLE_SERVICE_ACCOUNT_JSON',
   'GOOGLE_PROJECTS_FOLDER_ID',
   'MONDAY_API_TOKEN',
-  'MONDAY_BOARD_ID',
   'MARKETING_LEAD_SLACK_ID',
 ] as const;
 
 function validateEnv(): void {
   const missing = REQUIRED_VARS.filter((key) => !process.env[key]);
+  // Monday board ID can come from either the new or legacy env var names
+  const hasMondayBoard = process.env.MONDAY_BOARD_ID || process.env.MONDAY_QUICK_BOARD_ID;
+  if (!hasMondayBoard) {
+    missing.push('MONDAY_BOARD_ID' as any);
+  }
   if (missing.length > 0) {
     console.error('❌ Missing required environment variables:');
     for (const key of missing) {
@@ -50,9 +54,9 @@ export const config = {
   googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON!,
   googleProjectsFolderId: process.env.GOOGLE_PROJECTS_FOLDER_ID!,
 
-  // Monday.com
+  // Monday.com — accepts MONDAY_BOARD_ID or legacy MONDAY_QUICK_BOARD_ID
   mondayApiToken: process.env.MONDAY_API_TOKEN!,
-  mondayBoardId: process.env.MONDAY_BOARD_ID!,
+  mondayBoardId: (process.env.MONDAY_BOARD_ID || process.env.MONDAY_QUICK_BOARD_ID)!,
 
   // Optional
   intakeFormUrl: process.env.INTAKE_FORM_URL ?? '',
