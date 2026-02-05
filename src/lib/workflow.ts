@@ -1,5 +1,5 @@
 import { config } from './config';
-import type { CollectedData } from './conversation';
+import { generateProjectName, type CollectedData } from './conversation';
 import type { RequestClassification } from './claude';
 import { generateBrief } from './brief-generator';
 import { createFullProjectDrive, type DriveResult } from './google-drive';
@@ -28,13 +28,17 @@ export async function createMondayItemForReview(opts: {
   collectedData: CollectedData;
   classification: 'quick' | 'full';
   requesterName: string;
+  channelId: string;
+  threadTs: string;
 }): Promise<MondayResult> {
-  const { collectedData, requesterName } = opts;
+  const { collectedData, requesterName, channelId, threadTs } = opts;
 
-  const projectName =
-    collectedData.context_background?.slice(0, 80) ??
-    collectedData.deliverables[0] ??
-    'Untitled Request';
+  const projectName = generateProjectName(collectedData);
+
+  // Build Slack deep link to the originating thread (empty for form submissions)
+  const slackThreadLink = channelId && threadTs
+    ? `https://slack.com/archives/${channelId}/p${threadTs.replace('.', '')}`
+    : null;
 
   // Gather supporting links from existing assets
   let supportingLinks: string | undefined;
@@ -58,6 +62,7 @@ export async function createMondayItemForReview(opts: {
     desiredOutcomes: collectedData.desired_outcomes ?? undefined,
     deliverables: collectedData.deliverables.length > 0 ? collectedData.deliverables : undefined,
     supportingLinks,
+    submissionLink: slackThreadLink,
   });
 }
 
@@ -78,10 +83,7 @@ export async function executeApprovedWorkflow(opts: {
   const { collectedData, classification, requesterName, requesterSlackId, mondayItemId, source } = opts;
   const errors: string[] = [];
 
-  const projectName =
-    collectedData.context_background?.slice(0, 80) ??
-    collectedData.deliverables[0] ??
-    'Untitled Request';
+  const projectName = generateProjectName(collectedData);
 
   let briefDocUrl: string | undefined;
   let folderUrl: string | undefined;

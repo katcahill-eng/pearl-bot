@@ -331,6 +331,8 @@ async function handleConfirmingState(
         collectedData,
         classification: effectiveClassification,
         requesterName,
+        channelId: convo.getChannelId(),
+        threadTs: convo.getThreadTs(),
       });
       if (mondayResult.success && mondayResult.itemId) {
         mondayItemId = mondayResult.itemId;

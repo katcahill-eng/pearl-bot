@@ -17,6 +17,7 @@ const COL = {
   deliverables: 'long_textljfnnagq',      // "Deliverable(s)"
   supportingLinks: 'long_textfktkwj3y',   // "Supporting Links"
   approvalsConstraints: 'long_text8tv0hcfw', // "Approvals and Constraints"
+  submissionLink: 'wf_edit_link_seldq',   // "Submission link" — link to originating Slack thread
 } as const;
 
 // --- Types ---
@@ -98,6 +99,7 @@ export async function createRequestItem(params: {
   desiredOutcomes?: string | null;
   deliverables?: string[] | null;
   supportingLinks?: string | null;
+  submissionLink?: string | null;
 }): Promise<MondayResult> {
   try {
     const boardId = config.mondayBoardId;
@@ -126,6 +128,9 @@ export async function createRequestItem(params: {
     }
     if (params.supportingLinks) {
       columnValues[COL.supportingLinks] = { text: params.supportingLinks };
+    }
+    if (params.submissionLink) {
+      columnValues[COL.submissionLink] = { url: params.submissionLink, text: 'Slack thread' };
     }
 
     const query = `

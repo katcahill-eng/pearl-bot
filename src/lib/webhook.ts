@@ -1,7 +1,7 @@
 import http from 'http';
 import type { WebClient } from '@slack/web-api';
 import { config } from './config';
-import type { CollectedData } from './conversation';
+import { generateProjectName, type CollectedData } from './conversation';
 import { classifyRequest, type RequestClassification } from './claude';
 import { createMondayItemForReview } from './workflow';
 import { buildNotificationMessage } from './notifications';
@@ -135,6 +135,8 @@ async function handleIntakeWebhook(
       collectedData,
       classification: effectiveClassification,
       requesterName,
+      channelId: '',
+      threadTs: '',
     });
   } catch (err) {
     console.error('[webhook] Monday.com item creation failed:', err);
@@ -147,10 +149,7 @@ async function handleIntakeWebhook(
   const marketingChannelId = config.slackMarketingChannelId;
   if (marketingChannelId && mondayResult.success) {
     try {
-      const projectName =
-        collectedData.context_background?.slice(0, 80) ??
-        collectedData.deliverables[0] ??
-        'Untitled Request';
+      const projectName = generateProjectName(collectedData);
       const result = {
         success: true,
         mondayUrl: mondayResult.boardUrl,
