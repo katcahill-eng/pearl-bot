@@ -187,14 +187,50 @@ async function handleIntakeMessageInner(opts: {
       return;
     }
 
-    // Look up the user's real name from Slack for the requester field
+    // Look up the user's profile from Slack — name, title, department
     let realName = 'Unknown';
+    let jobTitle: string | null = null;
+    let department: string | null = null;
     try {
       const userInfo = await client.users.info({ user: userId });
-      realName = userInfo.user?.real_name ?? userInfo.user?.name ?? 'Unknown';
-      console.log(`[intake] Resolved user name: ${realName}`);
+      const profile = userInfo.user?.profile;
+      realName = profile?.real_name ?? userInfo.user?.real_name ?? userInfo.user?.name ?? 'Unknown';
+      jobTitle = profile?.title ?? null;
+
+      // Log profile to help debug what fields are available
+      console.log(`[intake] Slack profile for ${userId}:`, JSON.stringify({
+        real_name: profile?.real_name,
+        display_name: profile?.display_name,
+        title: profile?.title,
+      }));
+
+      // Try to infer department from job title if it contains common patterns
+      if (jobTitle) {
+        const titleLower = jobTitle.toLowerCase();
+        if (titleLower.includes('marketing') || titleLower.includes('marcom')) {
+          department = 'Marketing';
+        } else if (titleLower.includes('business development') || titleLower.includes(' bd') || titleLower.startsWith('bd ')) {
+          department = 'Business Development';
+        } else if (titleLower.includes('customer') || titleLower.includes(' cx') || titleLower.startsWith('cx ')) {
+          department = 'Customer Experience';
+        } else if (titleLower.includes('product')) {
+          department = 'Product';
+        } else if (titleLower.includes('engineering') || titleLower.includes('developer') || titleLower.includes('engineer')) {
+          department = 'Engineering';
+        } else if (titleLower.includes('sales')) {
+          department = 'Sales';
+        } else if (titleLower.includes('finance') || titleLower.includes('accounting')) {
+          department = 'Finance';
+        } else if (titleLower.includes('hr') || titleLower.includes('people') || titleLower.includes('human resources')) {
+          department = 'People/HR';
+        } else if (titleLower.includes('executive') || titleLower.includes('ceo') || titleLower.includes('coo') || titleLower.includes('cfo')) {
+          department = 'Executive';
+        }
+      }
+
+      console.log(`[intake] Resolved user: name="${realName}", title="${jobTitle}", inferred department="${department}"`);
     } catch (err) {
-      console.error('[intake] Failed to look up user name for', userId, '— bot may need users:read scope. Error:', err);
+      console.error('[intake] Failed to look up user profile for', userId, '— bot may need users:read scope. Error:', err);
     }
 
     convo = new ConversationManager({
@@ -203,9 +239,13 @@ async function handleIntakeMessageInner(opts: {
       channelId,
       threadTs,
     });
-    // Auto-fill requester name from Slack — only if we actually got a real name
+
+    // Auto-fill fields from Slack profile
     if (realName !== 'Unknown') {
       convo.markFieldCollected('requester_name', realName);
+    }
+    if (department) {
+      convo.markFieldCollected('requester_department', department);
     }
     await convo.save();
 
