@@ -3,7 +3,7 @@ import type { CollectedData } from './conversation';
 import type { RequestClassification } from './claude';
 import { generateBrief } from './brief-generator';
 import { createFullProjectDrive, type DriveResult } from './google-drive';
-import { createQuickRequestItem, createFullProjectItem, updateMondayItemStatus, updateMondayItemColumns, FULL_BOARD_STATUS_COLUMN, FULL_BOARD_FOLDER_LINK_COLUMN, type MondayResult } from './monday';
+import { createRequestItem, updateMondayItemStatus, updateMondayItemColumns, buildMondayUrl, MONDAY_COLUMNS, type MondayResult } from './monday';
 import { createProject } from './db';
 
 // --- Types ---
@@ -22,42 +22,43 @@ export interface WorkflowResult {
 
 /**
  * Create a Monday.com item immediately at submission time (before approval).
- * Item is created with "Under Review" status on the correct board/group.
+ * Item is created with "Under Review" status.
  */
 export async function createMondayItemForReview(opts: {
   collectedData: CollectedData;
   classification: 'quick' | 'full';
   requesterName: string;
 }): Promise<MondayResult> {
-  const { collectedData, classification, requesterName } = opts;
+  const { collectedData, requesterName } = opts;
 
   const projectName =
     collectedData.context_background?.slice(0, 80) ??
     collectedData.deliverables[0] ??
     'Untitled Request';
 
-  if (classification === 'quick') {
-    return createQuickRequestItem({
-      name: projectName,
-      dueDate: collectedData.due_date_parsed ?? undefined,
-      requester: requesterName,
-      department: collectedData.requester_department ?? undefined,
-      target: collectedData.target ?? undefined,
-      contextBackground: collectedData.context_background ?? undefined,
-      desiredOutcomes: collectedData.desired_outcomes ?? undefined,
-    });
-  } else {
-    return createFullProjectItem({
-      name: projectName,
-      deliverables: collectedData.deliverables,
-      dueDate: collectedData.due_date_parsed ?? undefined,
-      requester: requesterName,
-      department: collectedData.requester_department ?? undefined,
-      target: collectedData.target ?? undefined,
-      contextBackground: collectedData.context_background ?? undefined,
-      desiredOutcomes: collectedData.desired_outcomes ?? undefined,
-    });
-  }
+  // Gather supporting links from existing assets
+  let supportingLinks: string | undefined;
+  try {
+    const assetsRaw = collectedData.additional_details?.['__existing_assets'];
+    if (assetsRaw) {
+      const assets = JSON.parse(assetsRaw) as { link: string; status: string }[];
+      if (assets.length > 0) {
+        supportingLinks = assets.map((a) => `${a.link} (${a.status})`).join('\n');
+      }
+    }
+  } catch { /* ignore */ }
+
+  return createRequestItem({
+    name: projectName,
+    dueDate: collectedData.due_date_parsed ?? undefined,
+    requester: requesterName,
+    department: collectedData.requester_department ?? undefined,
+    target: collectedData.target ?? undefined,
+    contextBackground: collectedData.context_background ?? undefined,
+    desiredOutcomes: collectedData.desired_outcomes ?? undefined,
+    deliverables: collectedData.deliverables.length > 0 ? collectedData.deliverables : undefined,
+    supportingLinks,
+  });
 }
 
 /**
@@ -72,10 +73,9 @@ export async function executeApprovedWorkflow(opts: {
   requesterName: string;
   requesterSlackId: string;
   mondayItemId: string;
-  mondayBoardId: string;
   source?: 'conversation' | 'form';
 }): Promise<WorkflowResult> {
-  const { collectedData, classification, requesterName, requesterSlackId, mondayItemId, mondayBoardId, source } = opts;
+  const { collectedData, classification, requesterName, requesterSlackId, mondayItemId, source } = opts;
   const errors: string[] = [];
 
   const projectName =
@@ -115,15 +115,16 @@ export async function executeApprovedWorkflow(opts: {
       }
     }
 
-    // Step 3: Update Monday.com item — status + links (full board column IDs)
+    // Step 3: Update Monday.com item — status + supporting links with Drive folder URL
     try {
       const columnUpdates: Record<string, unknown> = {
-        [FULL_BOARD_STATUS_COLUMN]: { label: 'Working on it' },
+        [MONDAY_COLUMNS.status]: { label: 'Working on it' },
       };
       if (folderUrl) {
-        columnUpdates[FULL_BOARD_FOLDER_LINK_COLUMN] = { url: folderUrl, text: 'Drive Folder' };
+        // Append Drive folder link to supporting links column
+        columnUpdates[MONDAY_COLUMNS.supportingLinks] = { text: `Project folder: ${folderUrl}` };
       }
-      await updateMondayItemColumns(mondayItemId, mondayBoardId, columnUpdates);
+      await updateMondayItemColumns(mondayItemId, columnUpdates);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('[workflow] Monday.com update failed:', message);
@@ -132,7 +133,7 @@ export async function executeApprovedWorkflow(opts: {
   } else {
     // Quick request — just update status
     try {
-      await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Working on it');
+      await updateMondayItemStatus(mondayItemId, 'Working on it');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('[workflow] Monday.com status update failed:', message);
@@ -142,7 +143,7 @@ export async function executeApprovedWorkflow(opts: {
 
   // Step 4: Save project record to DB
   let projectId: number | undefined;
-  const mondayUrl = `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${mondayItemId}`;
+  const mondayUrl = buildMondayUrl(mondayItemId);
   try {
     projectId = await createProject({
       name: projectName,

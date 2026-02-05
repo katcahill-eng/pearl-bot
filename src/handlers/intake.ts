@@ -8,7 +8,7 @@ import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
-import { addMondayItemUpdate, updateMondayItemStatus } from '../lib/monday';
+import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl } from '../lib/monday';
 
 // --- Confirmation keywords ---
 
@@ -1029,10 +1029,8 @@ async function handlePostSubWithdrawConfirm(
   // Update Monday.com
   const mondayItemId = convo.getMondayItemId();
   if (mondayItemId) {
-    const classification = convo.getClassification() === 'undetermined' ? 'quick' : convo.getClassification() as 'quick' | 'full';
-    const mondayBoardId = classification === 'quick' ? config.mondayQuickBoardId : config.mondayFullBoardId;
     try {
-      await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Withdrawn');
+      await updateMondayItemStatus(mondayItemId, 'Withdrawn');
     } catch (err) {
       console.error('[intake] Failed to update Monday.com to Withdrawn:', err);
     }

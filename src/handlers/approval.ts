@@ -4,7 +4,7 @@ import { getConversationById, updateTriageInfo } from '../lib/db';
 import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
 import { executeApprovedWorkflow, buildCompletionMessage } from '../lib/workflow';
 import { buildNotificationMessage } from '../lib/notifications';
-import { updateMondayItemStatus, addMondayItemUpdate } from '../lib/monday';
+import { updateMondayItemStatus, addMondayItemUpdate, buildMondayUrl } from '../lib/monday';
 
 // --- Types ---
 
@@ -360,8 +360,7 @@ export function registerApprovalHandler(app: App): void {
 
     // Build Monday URL from existing item
     const mondayItemId = convo.getMondayItemId();
-    const mondayBoardId = classification === 'quick' ? config.mondayQuickBoardId : config.mondayFullBoardId;
-    const mondayUrl = mondayItemId ? `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${mondayItemId}` : null;
+    const mondayUrl = mondayItemId ? buildMondayUrl(mondayItemId) : null;
 
     // --- Handle each status ---
 
@@ -417,7 +416,6 @@ export function registerApprovalHandler(app: App): void {
           requesterName,
           requesterSlackId: convo.getUserId(),
           mondayItemId,
-          mondayBoardId,
           source: 'conversation',
         });
 
@@ -461,7 +459,7 @@ export function registerApprovalHandler(app: App): void {
       // Update Monday.com status if item exists
       if (mondayItemId) {
         try {
-          await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Stuck');
+          await updateMondayItemStatus(mondayItemId, 'Stuck');
         } catch (err) {
           console.error('[approval] Failed to update Monday.com status to On Hold:', err);
         }
@@ -472,7 +470,7 @@ export function registerApprovalHandler(app: App): void {
       // Update Monday.com status if item exists
       if (mondayItemId) {
         try {
-          await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Done');
+          await updateMondayItemStatus(mondayItemId, 'Completed/Live');
         } catch (err) {
           console.error('[approval] Failed to update Monday.com status to Completed:', err);
         }
@@ -505,7 +503,7 @@ export function registerApprovalHandler(app: App): void {
       // Update Monday.com
       if (mondayItemId) {
         try {
-          await updateMondayItemStatus(mondayItemId, mondayBoardId, 'Withdrawn');
+          await updateMondayItemStatus(mondayItemId, 'Withdrawn');
         } catch (err) {
           console.error('[approval] Failed to update Monday.com to Withdrawn:', err);
         }
@@ -593,8 +591,7 @@ export function registerApprovalHandler(app: App): void {
 
     // Build Monday URL
     const mondayItemId = convo.getMondayItemId();
-    const mondayBoardId = newClassification === 'quick' ? config.mondayQuickBoardId : config.mondayFullBoardId;
-    const mondayUrl = mondayItemId ? `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${mondayItemId}` : null;
+    const mondayUrl = mondayItemId ? buildMondayUrl(mondayItemId) : null;
 
     // Refresh the triage message
     if (body.message && body.channel?.id) {

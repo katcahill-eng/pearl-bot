@@ -12,8 +12,7 @@ const REQUIRED_VARS = [
   'GOOGLE_SERVICE_ACCOUNT_JSON',
   'GOOGLE_PROJECTS_FOLDER_ID',
   'MONDAY_API_TOKEN',
-  'MONDAY_QUICK_BOARD_ID',
-  'MONDAY_FULL_BOARD_ID',
+  'MONDAY_BOARD_ID',
   'MARKETING_LEAD_SLACK_ID',
 ] as const;
 
@@ -53,8 +52,7 @@ export const config = {
 
   // Monday.com
   mondayApiToken: process.env.MONDAY_API_TOKEN!,
-  mondayQuickBoardId: process.env.MONDAY_QUICK_BOARD_ID!,
-  mondayFullBoardId: process.env.MONDAY_FULL_BOARD_ID!,
+  mondayBoardId: process.env.MONDAY_BOARD_ID!,
 
   // Optional
   intakeFormUrl: process.env.INTAKE_FORM_URL ?? '',

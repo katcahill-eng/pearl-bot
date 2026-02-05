@@ -1,5 +1,24 @@
 import { config } from './config';
 
+// --- Constants ---
+
+const MONDAY_DOMAIN = 'pearlcertification-team.monday.com';
+const BOARD_GROUP_ID = 'topics'; // "Incoming Requests" group
+const STATUS_COLUMN_ID = 'status';
+
+// Column IDs on the "Marketing Department Requests" board
+const COL = {
+  status: 'status',
+  dueDate: 'date',
+  requester: 'short_textzhli70zj',       // "Requesting Person and Department"
+  target: 'short_text850qt5t1',           // "Target"
+  context: 'long_textcrvijt4x',          // "Context & Background"
+  desiredOutcomes: 'long_textrywmn305',   // "Desired Outcomes"
+  deliverables: 'long_textljfnnagq',      // "Deliverable(s)"
+  supportingLinks: 'long_textfktkwj3y',   // "Supporting Links"
+  approvalsConstraints: 'long_text8tv0hcfw', // "Approvals and Constraints"
+} as const;
+
 // --- Types ---
 
 export interface MondayResult {
@@ -56,20 +75,20 @@ async function mondayApi<T = unknown>(
   return json.data;
 }
 
-// --- Group IDs (discovered from Monday.com API) ---
-
-// Quick requests board ("Marketing Department Requests") → "Incoming Requests" group
-const QUICK_BOARD_GROUP_ID = 'topics';
-// Full projects board ("Active Marketing Projects WIP") → "Requested" group
-const FULL_BOARD_GROUP_ID = 'group_mkw4sqp7';
-
 // --- Public API ---
 
 /**
- * Create a single item on the quick requests board in the "Incoming Requests" group.
- * Item is created with status "Under Review".
+ * Build a Monday.com URL for a board item.
  */
-export async function createQuickRequestItem(params: {
+export function buildMondayUrl(itemId: string): string {
+  return `https://${MONDAY_DOMAIN}/boards/${config.mondayBoardId}/pulses/${itemId}`;
+}
+
+/**
+ * Create an item on the Marketing Department Requests board.
+ * All requests (quick and full) go to the same board.
+ */
+export async function createRequestItem(params: {
   name: string;
   dueDate?: string | null;
   requester: string;
@@ -77,36 +96,36 @@ export async function createQuickRequestItem(params: {
   target?: string | null;
   contextBackground?: string | null;
   desiredOutcomes?: string | null;
+  deliverables?: string[] | null;
+  supportingLinks?: string | null;
 }): Promise<MondayResult> {
   try {
-    const boardId = config.mondayQuickBoardId;
-
+    const boardId = config.mondayBoardId;
     const columnValues: Record<string, unknown> = {};
 
-    // Column IDs from Monday.com API:
-    // status → Status, short_textzhli70zj → Requesting Person and Department,
-    // short_text850qt5t1 → Target, long_textcrvijt4x → Context & Background,
-    // long_textrywmn305 → Desired Outcomes, long_textljfnnagq → Deliverable(s),
-    // date → Due Date, long_text8tv0hcfw → Approvals and Constraints,
-    // long_textfktkwj3y → Supporting Links
-
-    columnValues['status'] = { label: 'Under Review' };
+    columnValues[COL.status] = { label: 'Under Review' };
 
     if (params.dueDate) {
-      columnValues['date'] = { date: params.dueDate };
+      columnValues[COL.dueDate] = { date: params.dueDate };
     }
     if (params.requester || params.department) {
       const parts = [params.requester, params.department].filter(Boolean);
-      columnValues['short_textzhli70zj'] = parts.join(' — ');
+      columnValues[COL.requester] = parts.join(' — ');
     }
     if (params.target) {
-      columnValues['short_text850qt5t1'] = params.target;
+      columnValues[COL.target] = params.target;
     }
     if (params.contextBackground) {
-      columnValues['long_textcrvijt4x'] = { text: params.contextBackground };
+      columnValues[COL.context] = { text: params.contextBackground };
     }
     if (params.desiredOutcomes) {
-      columnValues['long_textrywmn305'] = { text: params.desiredOutcomes };
+      columnValues[COL.desiredOutcomes] = { text: params.desiredOutcomes };
+    }
+    if (params.deliverables && params.deliverables.length > 0) {
+      columnValues[COL.deliverables] = { text: params.deliverables.join(', ') };
+    }
+    if (params.supportingLinks) {
+      columnValues[COL.supportingLinks] = { text: params.supportingLinks };
     }
 
     const query = `
@@ -124,106 +143,32 @@ export async function createQuickRequestItem(params: {
       create_item: { id: string; board: { id: string } };
     }>(query, {
       boardId,
-      groupId: QUICK_BOARD_GROUP_ID,
+      groupId: BOARD_GROUP_ID,
       itemName: params.name,
       columnValues: JSON.stringify(columnValues),
     });
 
     const itemId = data.create_item.id;
-    const mondayBoardId = data.create_item.board.id;
 
     return {
       success: true,
       itemId,
-      boardUrl: `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${itemId}`,
+      boardUrl: buildMondayUrl(itemId),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown Monday.com error';
-    console.error('[monday] createQuickRequestItem failed:', message);
+    console.error('[monday] createRequestItem failed:', message);
     return { success: false, error: `Monday.com error: ${message}` };
   }
 }
-
-/**
- * Create an item on the full projects board in the "Requested" group.
- * Item is created with status "Under Review".
- */
-export async function createFullProjectItem(params: {
-  name: string;
-  deliverables: string[];
-  dueDate?: string | null;
-  requester: string;
-  department?: string | null;
-  target?: string | null;
-  contextBackground?: string | null;
-  desiredOutcomes?: string | null;
-}): Promise<MondayResult> {
-  try {
-    const boardId = config.mondayFullBoardId;
-
-    const columnValues: Record<string, unknown> = {};
-
-    // Column IDs from Monday.com API:
-    // color_mkwrswkb → Status, link_mkx795n7 → Project Folder
-
-    columnValues['color_mkwrswkb'] = { label: 'Under Review' };
-
-    const query = `
-      mutation ($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON!) {
-        create_item (board_id: $boardId, group_id: $groupId, item_name: $itemName, column_values: $columnValues) {
-          id
-          board {
-            id
-          }
-        }
-      }
-    `;
-
-    const data = await mondayApi<{
-      create_item: { id: string; board: { id: string } };
-    }>(query, {
-      boardId,
-      groupId: FULL_BOARD_GROUP_ID,
-      itemName: params.name,
-      columnValues: JSON.stringify(columnValues),
-    });
-
-    const itemId = data.create_item.id;
-    const mondayBoardId = data.create_item.board.id;
-
-    return {
-      success: true,
-      itemId,
-      boardUrl: `https://pearl-certification.monday.com/boards/${mondayBoardId}/pulses/${itemId}`,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown Monday.com error';
-    console.error('[monday] createFullProjectItem failed:', message);
-    return { success: false, error: `Monday.com error: ${message}` };
-  }
-}
-
-// Status column IDs per board (discovered from Monday.com API)
-// Quick board: "status", Full board: "color_mkwrswkb"
-export const QUICK_BOARD_STATUS_COLUMN = 'status';
-export const FULL_BOARD_STATUS_COLUMN = 'color_mkwrswkb';
-// Full board: link column for Project Folder
-export const FULL_BOARD_FOLDER_LINK_COLUMN = 'link_mkx795n7';
 
 /**
  * Update the status column of a Monday.com item.
- * Used by the approval handler to move items from "Under Review" to active.
  */
 export async function updateMondayItemStatus(
   itemId: string,
-  boardId: string,
   newStatusLabel: string,
 ): Promise<void> {
-  // Pick the correct status column ID based on which board
-  const statusColumnId = boardId === config.mondayFullBoardId
-    ? FULL_BOARD_STATUS_COLUMN
-    : QUICK_BOARD_STATUS_COLUMN;
-
   const query = `
     mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
       change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $columnValues) {
@@ -233,10 +178,10 @@ export async function updateMondayItemStatus(
   `;
 
   await mondayApi(query, {
-    boardId,
+    boardId: config.mondayBoardId,
     itemId,
     columnValues: JSON.stringify({
-      [statusColumnId]: { label: newStatusLabel },
+      [STATUS_COLUMN_ID]: { label: newStatusLabel },
     }),
   });
 }
@@ -247,7 +192,6 @@ export async function updateMondayItemStatus(
  */
 export async function updateMondayItemColumns(
   itemId: string,
-  boardId: string,
   columnValues: Record<string, unknown>,
 ): Promise<void> {
   const query = `
@@ -259,7 +203,7 @@ export async function updateMondayItemColumns(
   `;
 
   await mondayApi(query, {
-    boardId,
+    boardId: config.mondayBoardId,
     itemId,
     columnValues: JSON.stringify(columnValues),
   });
@@ -267,7 +211,6 @@ export async function updateMondayItemColumns(
 
 /**
  * Add an update (comment) to a Monday.com item.
- * Uses the create_update mutation to post a comment on the item's activity log.
  */
 export async function addMondayItemUpdate(
   itemId: string,
@@ -285,83 +228,72 @@ export async function addMondayItemUpdate(
 }
 
 /**
- * Search Monday.com boards for items matching a query string.
+ * Search Monday.com board for items matching a query string.
  */
 export async function searchItems(query: string): Promise<MondaySearchResult[]> {
   try {
-    const boardIds = [
-      config.mondayQuickBoardId,
-      config.mondayFullBoardId,
-    ];
-
+    const boardId = config.mondayBoardId;
     const results: MondaySearchResult[] = [];
 
-    for (const boardId of boardIds) {
-      try {
-        const boardQuery = `
-          query ($boardId: [ID!]!, $query: String!) {
-            boards (ids: $boardId) {
-              items_page (limit: 10, query_params: { rules: [{ column_id: "name", compare_value: [$query] }] }) {
-                items {
-                  id
-                  name
-                  board {
-                    id
-                  }
-                  column_values {
-                    id
-                    text
-                  }
-                  updated_at
-                }
+    const boardQuery = `
+      query ($boardId: [ID!]!, $query: String!) {
+        boards (ids: $boardId) {
+          items_page (limit: 10, query_params: { rules: [{ column_id: "name", compare_value: [$query] }] }) {
+            items {
+              id
+              name
+              board {
+                id
               }
+              column_values {
+                id
+                text
+              }
+              updated_at
             }
           }
-        `;
-
-        const data = await mondayApi<{
-          boards: Array<{
-            items_page: {
-              items: Array<{
-                id: string;
-                name: string;
-                board: { id: string };
-                column_values: Array<{ id: string; text: string }>;
-                updated_at: string;
-              }>;
-            };
-          }>;
-        }>(boardQuery, {
-          boardId: [boardId],
-          query: query,
-        });
-
-        for (const board of data.boards) {
-          for (const item of board.items_page.items) {
-            const statusCol = item.column_values.find(
-              (c) => c.id === 'status' || c.id === 'status4',
-            );
-            const dateCol = item.column_values.find(
-              (c) => c.id === 'date' || c.id === 'date4',
-            );
-            const personCol = item.column_values.find(
-              (c) => c.id === 'person' || c.id === 'people',
-            );
-
-            results.push({
-              id: item.id,
-              name: item.name,
-              status: statusCol?.text ?? undefined,
-              dueDate: dateCol?.text ?? undefined,
-              assignee: personCol?.text ?? undefined,
-              boardUrl: `https://pearl-certification.monday.com/boards/${item.board.id}/pulses/${item.id}`,
-              updatedAt: item.updated_at,
-            });
-          }
         }
-      } catch {
-        // Skip boards that fail — partial search is better than no search
-        continue;
+      }
+    `;
+
+    const data = await mondayApi<{
+      boards: Array<{
+        items_page: {
+          items: Array<{
+            id: string;
+            name: string;
+            board: { id: string };
+            column_values: Array<{ id: string; text: string }>;
+            updated_at: string;
+          }>;
+        };
+      }>;
+    }>(boardQuery, {
+      boardId: [boardId],
+      query: query,
+    });
+
+    for (const board of data.boards) {
+      for (const item of board.items_page.items) {
+        const statusCol = item.column_values.find(
+          (c) => c.id === 'status' || c.id === 'status4',
+        );
+        const dateCol = item.column_values.find(
+          (c) => c.id === 'date' || c.id === 'date4',
+        );
+        const personCol = item.column_values.find(
+          (c) => c.id === 'person' || c.id === 'people',
+        );
+
+        results.push({
+          id: item.id,
+          name: item.name,
+          status: statusCol?.text ?? undefined,
+          dueDate: dateCol?.text ?? undefined,
+          assignee: personCol?.text ?? undefined,
+          boardUrl: buildMondayUrl(item.id),
+          updatedAt: item.updated_at,
+        });
       }
     }
 
@@ -372,3 +304,6 @@ export async function searchItems(query: string): Promise<MondaySearchResult[]> 
     return [];
   }
 }
+
+// Re-export column IDs for use by workflow.ts
+export { COL as MONDAY_COLUMNS };
