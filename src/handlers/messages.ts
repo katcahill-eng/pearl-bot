@@ -39,7 +39,17 @@ export function registerMessageHandler(app: App): void {
 
         const existingConvo = await ConversationManager.load(userId, thread_ts);
         if (!existingConvo) {
-          console.log(`[messages] No active conversation in thread ${thread_ts}, ignoring channel message`);
+          console.log(`[messages] No active conversation in thread ${thread_ts}, recovering — routing to intake to create one`);
+          await handleIntakeMessage({
+            userId,
+            userName: userId,
+            channelId: event.channel,
+            threadTs: thread_ts,
+            messageTs,
+            text,
+            say,
+            client,
+          });
           return;
         }
         console.log(`[messages] Loaded conversation id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`);
