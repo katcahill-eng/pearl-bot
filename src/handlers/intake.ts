@@ -231,7 +231,8 @@ async function handleIntakeMessageInner(opts: {
     });
 
     // Auto-fill fields from Slack profile
-    if (realName !== 'Unknown') {
+    const nameFromSlack = realName !== 'Unknown';
+    if (nameFromSlack) {
       convo.markFieldCollected('requester_name', realName);
     }
     if (department) {
@@ -252,7 +253,22 @@ async function handleIntakeMessageInner(opts: {
       thread_ts: threadTs,
     });
 
-    // Ask the first question and return — don't try to interpret the initial message as an answer
+    // If we pre-filled name/department from Slack, confirm with the user before moving on
+    if (nameFromSlack || department) {
+      const namePart = nameFromSlack ? realName : null;
+      const deptPart = department ?? null;
+      let confirmMsg: string;
+      if (namePart && deptPart) {
+        confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      } else if (namePart) {
+        confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      } else {
+        confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      }
+      await say({ text: confirmMsg, thread_ts: threadTs });
+    }
+
+    // Ask the first unanswered question and return — don't try to interpret the initial message as an answer
     await askNextQuestion(convo, threadTs, say);
     return;
   }
@@ -490,6 +506,23 @@ async function handleDuplicateCheckResponse(
     text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
     thread_ts: threadTs,
   });
+
+  // If name/department were pre-filled from Slack, confirm with the user
+  const dupData = convo.getCollectedData();
+  if (dupData.requester_name || dupData.requester_department) {
+    const namePart = dupData.requester_name;
+    const deptPart = dupData.requester_department;
+    let confirmMsg: string;
+    if (namePart && deptPart) {
+      confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+    } else if (namePart) {
+      confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+    } else {
+      confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+    }
+    await say({ text: confirmMsg, thread_ts: threadTs });
+  }
+
   await askNextQuestion(convo, threadTs, say);
 }
 
@@ -1557,18 +1590,8 @@ function buildFieldAcknowledgment(
     parts.push('Got it, thanks for sharing that.');
   }
 
-  // Mention pre-filled fields the user can skip — only if the user's message
-  // answered something OTHER than the pre-filled field
-  const namePreFilled = data.requester_name && !extracted.requester_name;
-  const deptPreFilled = data.requester_department && !extracted.requester_department;
-
-  if (namePreFilled && deptPreFilled) {
-    parts.push(`I already have your name and department from your Slack profile, so we're good there.`);
-  } else if (namePreFilled) {
-    parts.push(`I have your name from your Slack profile, so we know who's requesting.`);
-  } else if (deptPreFilled) {
-    parts.push(`I have your department from your Slack profile.`);
-  }
+  // Pre-filled info is now confirmed upfront in the welcome flow,
+  // so we don't need to mention it again during gathering.
 
   return parts.join(' ');
 }
