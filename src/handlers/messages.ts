@@ -1,6 +1,6 @@
 import type { App } from '@slack/bolt';
 import { detectIntent, getHelpMessage } from './intent';
-import { handleIntakeMessage, hasPendingDuplicateCheck } from './intake';
+import { handleIntakeMessage } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { ConversationManager } from '../lib/conversation';
@@ -8,6 +8,7 @@ import { ConversationManager } from '../lib/conversation';
 export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
     if (event.subtype) return; // Skip edits, deletes, bot messages, etc.
+    if ('bot_id' in event && event.bot_id) return; // Skip bot messages without subtype
 
     const isDM = event.channel_type === 'im';
     const isThreadReply = 'thread_ts' in event && event.thread_ts !== undefined;
@@ -22,26 +23,16 @@ export function registerMessageHandler(app: App): void {
 
     console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
 
-    // For channel thread replies, only handle if there's an active conversation or pending duplicate check
+    // For channel thread replies, only handle if there's an active conversation owned by this user
     if (!isDM) {
-      // Check for pending duplicate-check prompt (user replying "start fresh" or "continue there")
-      if (hasPendingDuplicateCheck(userId, thread_ts)) {
-        await handleIntakeMessage({
-          userId,
-          userName: userId,
-          channelId: event.channel,
-          threadTs: thread_ts,
-          messageTs,
-          text,
-          say,
-          client,
-        });
-        return;
-      }
-
       const existingConvo = await ConversationManager.load(userId, thread_ts);
       if (!existingConvo) {
         console.log(`[messages] No active conversation in thread ${thread_ts}, ignoring channel message`);
+        return;
+      }
+      // Ignore messages from users who don't own this conversation
+      if (existingConvo.getUserId() !== userId) {
+        console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
         return;
       }
       const status = existingConvo.getStatus();
@@ -65,21 +56,6 @@ export function registerMessageHandler(app: App): void {
 
     // --- DM handling below ---
     try {
-      // Check if there's a pending duplicate-thread prompt — route to intake to handle the response
-      if (hasPendingDuplicateCheck(userId, thread_ts)) {
-        await handleIntakeMessage({
-          userId,
-          userName: userId,
-          channelId: event.channel,
-          threadTs: thread_ts,
-          messageTs,
-          text,
-          say,
-          client,
-        });
-        return;
-      }
-
       // Check if there's an active conversation in this thread — if so, route directly to intake
       const existingConvo = await ConversationManager.load(userId, thread_ts);
       if (existingConvo) {

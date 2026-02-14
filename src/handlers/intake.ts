@@ -59,22 +59,11 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
 }
 
 /**
- * Tracks users who were asked about a duplicate active conversation.
- * Maps userId → the existing conversation's thread_ts, channel_id, and the thread where the prompt was shown.
- */
-const pendingDuplicateChecks = new Map<string, { existingThreadTs: string; existingChannelId: string; existingConvoId: number; promptThreadTs: string }>();
-
-/**
  * Deduplication: tracks recently processed message timestamps to prevent
  * double-processing when both app_mention and message events fire for the same message.
  */
 const recentlyProcessed = new Set<string>();
 const DEDUP_TTL_MS = 30_000; // 30 seconds
-
-/** Check if a user has a pending duplicate-conversation prompt. */
-export function hasPendingDuplicateCheck(userId: string, _threadTs: string): boolean {
-  return pendingDuplicateChecks.has(userId);
-}
 
 // --- Public handler ---
 
@@ -133,31 +122,6 @@ async function handleIntakeMessageInner(opts: {
   // Strip bot mentions (e.g., "<@U123ABC>") so pattern matching works on the actual message
   const text = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
 
-  // --- Handle pending duplicate-check responses ---
-  const pendingDup = pendingDuplicateChecks.get(userId);
-  if (pendingDup) {
-    const replyThreadTs = pendingDup.promptThreadTs;
-    if (matchesAny(text, CONTINUE_THERE_PATTERNS)) {
-      pendingDuplicateChecks.delete(userId);
-      // Build a Slack deep link to the original thread
-      const tsNoDot = pendingDup.existingThreadTs.replace('.', '');
-      await say({
-        text: `No problem! Here's your open conversation: https://slack.com/archives/${pendingDup.existingChannelId}/p${tsNoDot}\nJust reply there to pick up where you left off.`,
-        thread_ts: replyThreadTs,
-      });
-      return;
-    }
-    if (matchesAny(text, START_FRESH_PATTERNS)) {
-      pendingDuplicateChecks.delete(userId);
-      // Cancel the old conversation and start a new one — fall through to create new conversation below
-      await cancelConversation(pendingDup.existingConvoId);
-    } else {
-      pendingDuplicateChecks.delete(userId);
-      // Unrecognized response — treat as "start fresh" since user is clearly trying to interact
-      await cancelConversation(pendingDup.existingConvoId);
-    }
-  }
-
   // Load or create conversation
   let convo = await ConversationManager.load(userId, threadTs);
   console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? `found existing (status=${convo.getStatus()})` : 'no conversation'}`);
@@ -168,25 +132,13 @@ async function handleIntakeMessageInner(opts: {
     convo = undefined;
   }
 
-  if (!convo) {
-    // Check for active conversation in another thread
-    const existingConvo = await getActiveConversationForUser(userId, threadTs);
-    console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
-    if (existingConvo) {
-      // Store pending duplicate check and prompt user
-      pendingDuplicateChecks.set(userId, {
-        existingThreadTs: existingConvo.thread_ts,
-        existingChannelId: existingConvo.channel_id,
-        existingConvoId: existingConvo.id,
-        promptThreadTs: threadTs,
-      });
-      await say({
-        text: "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
-        thread_ts: threadTs,
-      });
-      return;
-    }
+  // Handle pending duplicate-check responses (DB-persisted, survives restarts)
+  if (convo && convo.getCurrentStep()?.startsWith('dup_check:')) {
+    await handleDuplicateCheckResponse(convo, text, threadTs, say);
+    return;
+  }
 
+  if (!convo) {
     // Look up the user's profile from Slack — name, title, department
     let realName = 'Unknown';
     let jobTitle: string | null = null;
@@ -231,6 +183,36 @@ async function handleIntakeMessageInner(opts: {
       console.log(`[intake] Resolved user: name="${realName}", title="${jobTitle}", inferred department="${department}"`);
     } catch (err) {
       console.error('[intake] Failed to look up user profile for', userId, '— bot may need users:read scope. Error:', err);
+    }
+
+    // Check for active conversation in another thread
+    const existingConvo = await getActiveConversationForUser(userId, threadTs);
+    console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
+    if (existingConvo) {
+      // Create a placeholder conversation to persist the duplicate check (survives restarts)
+      const dupConvo = new ConversationManager({
+        userId,
+        userName: realName,
+        channelId,
+        threadTs,
+      });
+      if (realName !== 'Unknown') {
+        dupConvo.markFieldCollected('requester_name', realName);
+      }
+      if (department) {
+        dupConvo.markFieldCollected('requester_department', department);
+      }
+      dupConvo.setCurrentStep(`dup_check:${existingConvo.id}`);
+      dupConvo.markFieldCollected('additional_details', {
+        '__dup_existing_channel': existingConvo.channel_id,
+        '__dup_existing_thread': existingConvo.thread_ts,
+      } as unknown as Record<string, string>);
+      await dupConvo.save();
+      await say({
+        text: "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
+        thread_ts: threadTs,
+      });
+      return;
     }
 
     convo = new ConversationManager({
@@ -444,6 +426,50 @@ async function handleConfirmingState(
       thread_ts: threadTs,
     });
   }
+}
+
+async function handleDuplicateCheckResponse(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  const step = convo.getCurrentStep()!;
+  const existingConvoId = parseInt(step.split(':')[1], 10);
+  const details = convo.getCollectedData().additional_details;
+  const existingChannelId = details['__dup_existing_channel'] ?? '';
+  const existingThreadTs = details['__dup_existing_thread'] ?? '';
+
+  if (matchesAny(text, CONTINUE_THERE_PATTERNS)) {
+    // Cancel this placeholder, link to existing thread
+    convo.setStatus('cancelled');
+    await convo.save();
+    const tsNoDot = existingThreadTs.replace('.', '');
+    await say({
+      text: `No problem! Here's your open conversation: https://slack.com/archives/${existingChannelId}/p${tsNoDot}\nJust reply there to pick up where you left off.`,
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  // "Start fresh" or unrecognized → cancel old convo, repurpose this one for new intake
+  await cancelConversation(existingConvoId);
+  convo.setCurrentStep(null);
+  convo.markFieldCollected('additional_details', {});
+  await convo.save();
+
+  // Send welcome and start intake
+  const welcomeMessages = [
+    "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.",
+    "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.",
+    "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.",
+    "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.",
+  ];
+  await say({
+    text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
+    thread_ts: threadTs,
+  });
+  await askNextQuestion(convo, threadTs, say);
 }
 
 async function handleGatheringState(

@@ -1,8 +1,9 @@
 import type { App } from '@slack/bolt';
 import { detectIntent, getHelpMessage } from './intent';
-import { handleIntakeMessage, hasPendingDuplicateCheck } from './intake';
+import { handleIntakeMessage } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
+import { ConversationManager } from '../lib/conversation';
 
 export function registerMentionHandler(app: App): void {
   app.event('app_mention', async ({ event, say, client }) => {
@@ -20,19 +21,13 @@ export function registerMentionHandler(app: App): void {
     }
 
     try {
-      // Check if there's a pending duplicate-thread prompt — route to intake to handle the response
-      if (userId && hasPendingDuplicateCheck(userId, thread_ts)) {
-        await handleIntakeMessage({
-          userId,
-          userName: userId,
-          channelId: event.channel,
-          threadTs: thread_ts,
-          messageTs: event.ts,
-          text,
-          say,
-          client,
-        });
-        return;
+      // For threaded mentions, check if the thread already has a conversation owned by another user
+      if (event.thread_ts && userId) {
+        const existingConvo = await ConversationManager.load(userId, thread_ts);
+        if (existingConvo && existingConvo.getUserId() !== userId) {
+          console.log(`[mentions] Ignoring mention from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
+          return;
+        }
       }
 
       const intent = detectIntent(text);
