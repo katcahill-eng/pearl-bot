@@ -331,17 +331,23 @@ export class ConversationManager {
   /** Generate a Slack mrkdwn summary for user confirmation. */
   toSummary(): string {
     const d = this.collectedData;
+    const linkedProjectName = d.additional_details['__linked_project_name'];
     const lines: string[] = [
       ":white_check_mark: *Here's what I've got:*",
       '',
       `• *Requester:* ${d.requester_name ?? '_not provided_'}`,
       `• *Department:* ${d.requester_department ?? '_not provided_'}`,
+    ];
+    if (linkedProjectName) {
+      lines.push(`• *Related to:* ${linkedProjectName}`);
+    }
+    lines.push(
       `• *Target audience:* ${d.target ?? '_not provided_'}`,
       `• *Context & background:* ${d.context_background ?? '_not provided_'}`,
       `• *Desired outcomes:* ${d.desired_outcomes ?? '_not provided_'}`,
       `• *Deliverables:* ${d.deliverables.length > 0 ? d.deliverables.join(', ') : '_not provided_'}`,
       `• *Due date:* ${d.due_date ?? '_not provided_'}`,
-    ];
+    );
 
     if (d.approvals) {
       lines.push(`• *Approvals:* ${d.approvals}`);

@@ -8,7 +8,8 @@ import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
-import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl } from '../lib/monday';
+import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
+import { searchProjects } from '../lib/db';
 
 // --- Confirmation keywords ---
 
@@ -43,6 +44,46 @@ const NUDGE_PATTERNS = [
   /^come\s*back/i, /^wake\s*up/i, /^bot\??$/i, /^help\s*me$/i,
   /^\?\??$/i,
 ];
+
+const NEW_PROJECT_PATTERNS = [/^new\s*(project|one|request)?$/i, /^(it'?s?\s*)?not\s*(related|any)/i, /^(this\s*is\s*)?different/i, /^none/i];
+const ANOTHER_PROJECT_PATTERNS = [/^another/i, /^different\s*project/i, /^not\s*(these|those|any\s*of)/i];
+
+// --- Project match search ---
+
+interface ProjectMatch {
+  name: string;
+  mondayUrl?: string;
+  source: 'db' | 'monday';
+}
+
+async function searchForProjectMatches(keywords: string[]): Promise<ProjectMatch[]> {
+  const seen = new Set<string>();
+  const matches: ProjectMatch[] = [];
+
+  // Search all keywords in parallel across both DB and Monday.com
+  const searchPromises = keywords.flatMap((keyword) => [
+    searchProjects(keyword).then((results) =>
+      results.map((r) => ({ name: r.name, mondayUrl: r.monday_url ?? undefined, source: 'db' as const }))
+    ),
+    searchItems(keyword).then((results) =>
+      results.map((r) => ({ name: r.name, mondayUrl: r.boardUrl, source: 'monday' as const }))
+    ),
+  ]);
+
+  const allResults = await Promise.all(searchPromises);
+
+  for (const resultSet of allResults) {
+    for (const match of resultSet) {
+      const key = match.name.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        matches.push(match);
+      }
+    }
+  }
+
+  return matches;
+}
 
 /** Detect mentions of existing content/drafts in user messages. */
 function mentionsExistingContent(text: string): boolean {
@@ -400,7 +441,10 @@ async function handleConfirmingState(
     });
 
     // Post approval request to #mktg-triage
-    const projectName = generateProjectName(collectedData);
+    const linkedProjectName = collectedData.additional_details['__linked_project_name'];
+    const projectName = linkedProjectName
+      ? `Supplemental: ${linkedProjectName}`
+      : generateProjectName(collectedData);
 
     try {
       await sendApprovalRequest(client, {
@@ -575,8 +619,18 @@ async function handleGatheringState(
     return;
   }
 
-  // --- Handle draft collection sub-flow ---
+  // --- Handle project match sub-flow ---
   const currentStep = convo.getCurrentStep();
+  if (currentStep === 'project_match:awaiting_selection') {
+    await handleProjectMatchSelection(convo, text, threadTs, say);
+    return;
+  }
+  if (currentStep === 'project_match:awaiting_name') {
+    await handleProjectMatchName(convo, text, threadTs, say);
+    return;
+  }
+
+  // --- Handle draft collection sub-flow ---
   if (currentStep === 'draft:awaiting_link') {
     await handleDraftLink(convo, text, threadTs, say);
     return;
@@ -695,8 +749,29 @@ async function handleGatheringState(
       }
     }
 
-    // Detect mentions of existing content — start draft collection mini-flow
+    // Detect project keywords — check for matching existing projects
     const details = convo.getCollectedData().additional_details;
+    if (extracted.project_keywords && extracted.project_keywords.length > 0 && !details['__project_match_asked']) {
+      const projectMatches = await searchForProjectMatches(extracted.project_keywords);
+      if (projectMatches.length > 0) {
+        details['__project_matches'] = JSON.stringify(projectMatches);
+        details['__project_match_asked'] = 'true';
+        details['__pre_project_match_step'] = convo.getCurrentStep() ?? '';
+        convo.markFieldCollected('additional_details', details);
+        convo.setCurrentStep('project_match:awaiting_selection');
+        await convo.save();
+
+        const matchList = projectMatches.map((m, i) => `${i + 1}. *${m.name}*`).join('\n');
+        const plural = projectMatches.length > 1 ? 'some projects that might be related' : 'a project that might be related';
+        await say({
+          text: `I found ${plural}:\n\n${matchList}\n\nIs this connected to one of these, another existing project, or is this a brand new request?`,
+          thread_ts: threadTs,
+        });
+        return;
+      }
+    }
+
+    // Detect mentions of existing content — start draft collection mini-flow
     if (mentionsExistingContent(text) && !details['draft_link'] && !details['__draft_asked']) {
       // Mark that we've asked so we don't re-trigger, and save current step to resume
       details['__draft_asked'] = 'true';
@@ -1271,6 +1346,161 @@ export function registerPostSubmissionActions(app: App): void {
       console.error('[intake] Failed to prompt for withdraw confirmation:', err);
     }
   });
+}
+
+// --- Project match sub-flow ---
+
+async function handleProjectMatchSelection(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  const details = convo.getCollectedData().additional_details;
+  let matches: ProjectMatch[] = [];
+  try {
+    matches = JSON.parse(details['__project_matches'] ?? '[]') as ProjectMatch[];
+  } catch { /* ignore */ }
+
+  // User says "new project" — continue normal flow
+  if (matchesAny(text, NEW_PROJECT_PATTERNS)) {
+    restoreStepAfterProjectMatch(convo);
+    await convo.save();
+    await say({
+      text: "No problem — let's set this up as a new project.",
+      thread_ts: threadTs,
+    });
+    await resumeAfterProjectMatch(convo, threadTs, say);
+    return;
+  }
+
+  // User says "another project" — ask for name
+  if (matchesAny(text, ANOTHER_PROJECT_PATTERNS)) {
+    convo.setCurrentStep('project_match:awaiting_name');
+    await convo.save();
+    await say({
+      text: "What's the project called? I'll try to find it.",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  // Check for numbered selection (e.g., "1", "2")
+  const numberMatch = text.trim().match(/^(\d+)$/);
+  if (numberMatch) {
+    const index = parseInt(numberMatch[1], 10) - 1;
+    if (index >= 0 && index < matches.length) {
+      linkProject(convo, matches[index]);
+      await convo.save();
+      await say({
+        text: `Got it — I'll add this as support for *${matches[index].name}*. Let me grab a few more details.`,
+        thread_ts: threadTs,
+      });
+      await resumeAfterProjectMatch(convo, threadTs, say);
+      return;
+    }
+  }
+
+  // Fuzzy match against presented options by name
+  const lower = text.toLowerCase().trim();
+  const fuzzyMatch = matches.find((m) => m.name.toLowerCase().includes(lower) || lower.includes(m.name.toLowerCase()));
+  if (fuzzyMatch) {
+    linkProject(convo, fuzzyMatch);
+    await convo.save();
+    await say({
+      text: `Got it — I'll add this as support for *${fuzzyMatch.name}*. Let me grab a few more details.`,
+      thread_ts: threadTs,
+    });
+    await resumeAfterProjectMatch(convo, threadTs, say);
+    return;
+  }
+
+  // Unrecognized — re-prompt
+  await say({
+    text: "I didn't catch that — you can reply with a number, the project name, say *another* for a different project, or *new* if this isn't related to an existing one.",
+    thread_ts: threadTs,
+  });
+}
+
+async function handleProjectMatchName(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  // Search with the user's input
+  const projectMatches = await searchForProjectMatches([text.trim()]);
+
+  if (projectMatches.length > 0) {
+    // Store matches and go back to selection
+    const details = convo.getCollectedData().additional_details;
+    details['__project_matches'] = JSON.stringify(projectMatches);
+    convo.markFieldCollected('additional_details', details);
+    convo.setCurrentStep('project_match:awaiting_selection');
+    await convo.save();
+
+    const matchList = projectMatches.map((m, i) => `${i + 1}. *${m.name}*`).join('\n');
+    await say({
+      text: `I found these:\n\n${matchList}\n\nIs it one of these, or is this a brand new request?`,
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  // No matches — store the name they mentioned and continue
+  const details = convo.getCollectedData().additional_details;
+  details['__linked_project_name'] = text.trim();
+  convo.markFieldCollected('additional_details', details);
+  restoreStepAfterProjectMatch(convo);
+  await convo.save();
+
+  await say({
+    text: "I couldn't find that one, but no worries — I'll include the project name you mentioned so the team can connect the dots.",
+    thread_ts: threadTs,
+  });
+  await resumeAfterProjectMatch(convo, threadTs, say);
+}
+
+function linkProject(convo: ConversationManager, match: ProjectMatch): void {
+  const details = convo.getCollectedData().additional_details;
+  details['__linked_project_name'] = match.name;
+  if (match.mondayUrl) {
+    details['__linked_project_url'] = match.mondayUrl;
+  }
+  convo.markFieldCollected('additional_details', details);
+  restoreStepAfterProjectMatch(convo);
+}
+
+function restoreStepAfterProjectMatch(convo: ConversationManager): void {
+  const details = convo.getCollectedData().additional_details;
+  const savedStep = details['__pre_project_match_step'];
+  if (savedStep) {
+    convo.setCurrentStep(savedStep || null);
+    delete details['__pre_project_match_step'];
+    convo.markFieldCollected('additional_details', details);
+  } else {
+    convo.setCurrentStep(null);
+  }
+}
+
+async function resumeAfterProjectMatch(
+  convo: ConversationManager,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  if (convo.isInFollowUp()) {
+    const questions = getStoredFollowUpQuestions(convo);
+    const index = convo.getFollowUpIndex();
+    if (questions && index < questions.length) {
+      await askFollowUpQuestion(convo, index, questions, threadTs, say);
+    } else {
+      await transitionToConfirming(convo, threadTs, say);
+    }
+  } else if (convo.isComplete()) {
+    await enterFollowUpPhase(convo, 1, threadTs, say);
+  } else {
+    await askNextQuestion(convo, threadTs, say);
+  }
 }
 
 // --- Draft/existing content collection mini-flow ---

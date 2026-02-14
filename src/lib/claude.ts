@@ -17,6 +17,7 @@ export interface ExtractedFields {
   approvals: string | null;
   constraints: string | null;
   supporting_links: string[] | null;
+  project_keywords: string[] | null;
   confidence: number;
   acknowledgment: string | null;
 }
@@ -63,6 +64,7 @@ Fields:
 - approvals: Any specific approval requirements (e.g., "VP of Sales sign-off", "Legal review required")
 - constraints: Any constraints or limitations (e.g., "must follow new brand guidelines", "budget cap of $5K")
 - supporting_links: An array of any URLs or links the user mentions (e.g., ["https://docs.google.com/...", "https://competitor.com/page"])
+- project_keywords: An array of short phrases (1-3 words each) from the user's message that could be names of or keywords for existing marketing projects or campaigns. Only include distinctive phrases, not generic words like "marketing" or "support". Examples: ["early access"], ["Q2 newsletter", "partner program"], ["AHR Expo"]
 
 Additional field:
 - acknowledgment: A brief, natural one-sentence confirmation of what you extracted. This will be shown to the user as a conversational reply. Write it as if you're a friendly coworker confirming what they said.
@@ -406,6 +408,7 @@ function parseExtractedFields(text: string): ExtractedFields {
       approvals: parsed.approvals ?? null,
       constraints: parsed.constraints ?? null,
       supporting_links: parsed.supporting_links ?? null,
+      project_keywords: parsed.project_keywords ?? null,
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
       acknowledgment: parsed.acknowledgment ?? null,
     };
@@ -423,6 +426,7 @@ function parseExtractedFields(text: string): ExtractedFields {
       approvals: null,
       constraints: null,
       supporting_links: null,
+      project_keywords: null,
       confidence: 0,
       acknowledgment: null,
     };
