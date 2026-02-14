@@ -4,6 +4,7 @@ import { handleIntakeMessage } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { ConversationManager } from '../lib/conversation';
+import { config } from '../lib/config';
 
 export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
@@ -27,12 +28,30 @@ export function registerMessageHandler(app: App): void {
     if (!isDM) {
       try {
         console.log(`[messages] Channel thread reply: loading conversation for userId=${userId}, thread_ts=${thread_ts}`);
+
+        // DEBUG: Send DM to marketing lead confirming event receipt (temporary diagnostic)
+        try {
+          await client.chat.postMessage({
+            channel: config.marketingLeadSlackId,
+            text: `[DEBUG] Channel thread reply received:\nuser=${userId} thread=${thread_ts}\ntext="${text.substring(0, 80)}"`,
+          });
+        } catch { /* ignore debug DM failures */ }
+
         const existingConvo = await ConversationManager.load(userId, thread_ts);
         if (!existingConvo) {
           console.log(`[messages] No active conversation in thread ${thread_ts}, ignoring channel message`);
           return;
         }
         console.log(`[messages] Loaded conversation id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`);
+
+        // DEBUG: confirm convo loaded
+        try {
+          await client.chat.postMessage({
+            channel: config.marketingLeadSlackId,
+            text: `[DEBUG] Convo loaded: id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`,
+          });
+        } catch { /* ignore debug DM failures */ }
+
         // Ignore messages from users who don't own this conversation
         if (existingConvo.getUserId() !== userId) {
           console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
@@ -56,6 +75,15 @@ export function registerMessageHandler(app: App): void {
         });
       } catch (err) {
         console.error(`[messages] Error handling channel thread reply in ${thread_ts}:`, err);
+
+        // DEBUG: send error details to marketing lead DM
+        try {
+          await client.chat.postMessage({
+            channel: config.marketingLeadSlackId,
+            text: `[DEBUG] ERROR in channel thread reply handler:\n${err instanceof Error ? err.message : String(err)}`,
+          });
+        } catch { /* ignore debug DM failures */ }
+
         try {
           await say({
             text: "Something went wrong on my end. Your info hasn't been lost — you can try again, use the intake form, or tag someone from the marketing team in #marcoms-requests for help.",

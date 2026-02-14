@@ -30,7 +30,9 @@ export interface FollowUpQuestion {
 
 // --- Client ---
 
-const client = new Anthropic();
+const client = new Anthropic({
+  timeout: 30_000, // 30s timeout — prevents silent hangs from stalling the bot
+});
 
 // --- Knowledge Base ---
 

@@ -17,6 +17,11 @@ const app = new App({
   logLevel: LogLevel.INFO,
 });
 
+// Global error handler — catches any unhandled errors from Bolt event processing
+app.error(async (error) => {
+  console.error('[bolt] Unhandled error in Bolt event processing:', error);
+});
+
 registerMentionHandler(app);
 registerMessageHandler(app);
 registerApprovalHandler(app);
