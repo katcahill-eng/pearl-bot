@@ -18,6 +18,7 @@ export interface ExtractedFields {
   constraints: string | null;
   supporting_links: string[] | null;
   confidence: number;
+  acknowledgment: string | null;
 }
 
 export type RequestClassification = 'quick' | 'full' | 'undetermined';
@@ -62,6 +63,15 @@ Fields:
 - approvals: Any specific approval requirements (e.g., "VP of Sales sign-off", "Legal review required")
 - constraints: Any constraints or limitations (e.g., "must follow new brand guidelines", "budget cap of $5K")
 - supporting_links: An array of any URLs or links the user mentions (e.g., ["https://docs.google.com/...", "https://competitor.com/page"])
+
+Additional field:
+- acknowledgment: A brief, natural one-sentence confirmation of what you extracted. This will be shown to the user as a conversational reply. Write it as if you're a friendly coworker confirming what they said.
+  Examples:
+  - "Got it — you have a webinar series coming up and need marketing support." (if context_background was extracted)
+  - "Thanks, Kat!" (if only requester_name was extracted)
+  - "Noted — you need a one-pager and 3 social posts." (if deliverables were extracted)
+  - "Got it — targeting real estate agents in the Southeast." (if target was extracted)
+  Keep it short (one sentence), natural, and accurate to what the user actually said.
 
 Rules:
 - Handle bundled responses: if a user provides multiple fields in one message, extract ALL of them
@@ -397,6 +407,7 @@ function parseExtractedFields(text: string): ExtractedFields {
       constraints: parsed.constraints ?? null,
       supporting_links: parsed.supporting_links ?? null,
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
+      acknowledgment: parsed.acknowledgment ?? null,
     };
   } catch {
     // If Claude returns unparseable text, return empty with zero confidence
@@ -413,6 +424,7 @@ function parseExtractedFields(text: string): ExtractedFields {
       constraints: null,
       supporting_links: null,
       confidence: 0,
+      acknowledgment: null,
     };
   }
 }

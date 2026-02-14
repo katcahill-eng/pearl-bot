@@ -1538,7 +1538,8 @@ function formatFieldLabel(field: string): string {
 
 /**
  * Build a contextual acknowledgment message after extracting fields from a user's message.
- * Reflects what was captured and mentions any pre-filled fields the user didn't have to provide.
+ * Uses Claude's generated acknowledgment when available, with template fallback.
+ * Appends info about pre-filled fields the user didn't need to provide.
  */
 function buildFieldAcknowledgment(
   convo: ConversationManager,
@@ -1547,23 +1548,11 @@ function buildFieldAcknowledgment(
   const parts: string[] = [];
   const data = convo.getCollectedData();
 
-  // Describe the most significant field that was just captured
-  if (extracted.context_background) {
-    const ctx = extracted.context_background;
-    const brief = ctx.length > 100 ? ctx.substring(0, 90).trim() + '...' : ctx;
-    parts.push(`Okay, thanks. Sounds like you're looking for support with ${brief.toLowerCase().replace(/^(we |i |our )/i, '')}`);
-  } else if (extracted.deliverables && extracted.deliverables.length > 0) {
-    parts.push(`Got it — you need ${extracted.deliverables.join(', ')}.`);
-  } else if (extracted.target) {
-    parts.push(`Got it — targeting ${extracted.target}.`);
-  } else if (extracted.desired_outcomes) {
-    parts.push(`Noted — ${extracted.desired_outcomes}.`);
-  } else if (extracted.due_date) {
-    parts.push(`Got it — targeting ${extracted.due_date} for the deadline.`);
+  // Use Claude's acknowledgment if available — it's always grammatically correct
+  if (extracted.acknowledgment) {
+    parts.push(extracted.acknowledgment);
   } else if (extracted.requester_name) {
     parts.push(`Thanks, ${extracted.requester_name}!`);
-  } else if (extracted.requester_department) {
-    parts.push(`Got it — ${extracted.requester_department} team.`);
   } else {
     parts.push('Got it, thanks for sharing that.');
   }
