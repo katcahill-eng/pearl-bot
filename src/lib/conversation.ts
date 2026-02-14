@@ -43,7 +43,7 @@ const REQUIRED_FIELDS: (keyof CollectedData)[] = [
 /** Prompts and examples for each intake field. */
 const FIELD_PROMPTS: Record<string, { question: string; example: string }> = {
   requester_name: {
-    question: "First things first — what's your name?",
+    question: "What's your name?",
     example: 'e.g., "Jane Smith", "Alex from BD"',
   },
   requester_department: {

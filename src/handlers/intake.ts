@@ -648,6 +648,12 @@ async function handleGatheringState(
       return;
     }
 
+    // Build a contextual acknowledgment of what was just captured
+    const ack = buildFieldAcknowledgment(convo, extracted);
+    if (ack) {
+      await say({ text: ack, thread_ts: threadTs });
+    }
+
     // Show production timeline if we just captured a due date
     if (extracted.due_date_parsed) {
       const timeline = generateProductionTimeline(convo.getCollectedData());
@@ -678,14 +684,6 @@ async function handleGatheringState(
       await enterFollowUpPhase(convo, fieldsApplied, threadTs, say);
     } else {
       await convo.save();
-
-      // Acknowledge what we captured if multiple fields came in
-      if (fieldsApplied > 1) {
-        await say({
-          text: `Got it — captured ${fieldsApplied} details from that. Just a few more questions:`,
-          thread_ts: threadTs,
-        });
-      }
 
       // Ask the next question
       await askNextQuestion(convo, threadTs, say);
@@ -1536,4 +1534,52 @@ function flagForDiscussion(convo: ConversationManager, fieldKey: string, label: 
 /** Format a snake_case field key as a readable label. */
 function formatFieldLabel(field: string): string {
   return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Build a contextual acknowledgment message after extracting fields from a user's message.
+ * Reflects what was captured and mentions any pre-filled fields the user didn't have to provide.
+ */
+function buildFieldAcknowledgment(
+  convo: ConversationManager,
+  extracted: ExtractedFields,
+): string | null {
+  const parts: string[] = [];
+  const data = convo.getCollectedData();
+
+  // Describe the most significant field that was just captured
+  if (extracted.context_background) {
+    const ctx = extracted.context_background;
+    const brief = ctx.length > 100 ? ctx.substring(0, 90).trim() + '...' : ctx;
+    parts.push(`Okay, thanks. Sounds like you're looking for support with ${brief.toLowerCase().replace(/^(we |i |our )/i, '')}`);
+  } else if (extracted.deliverables && extracted.deliverables.length > 0) {
+    parts.push(`Got it — you need ${extracted.deliverables.join(', ')}.`);
+  } else if (extracted.target) {
+    parts.push(`Got it — targeting ${extracted.target}.`);
+  } else if (extracted.desired_outcomes) {
+    parts.push(`Noted — ${extracted.desired_outcomes}.`);
+  } else if (extracted.due_date) {
+    parts.push(`Got it — targeting ${extracted.due_date} for the deadline.`);
+  } else if (extracted.requester_name) {
+    parts.push(`Thanks, ${extracted.requester_name}!`);
+  } else if (extracted.requester_department) {
+    parts.push(`Got it — ${extracted.requester_department} team.`);
+  } else {
+    parts.push('Got it, thanks for sharing that.');
+  }
+
+  // Mention pre-filled fields the user can skip — only if the user's message
+  // answered something OTHER than the pre-filled field
+  const namePreFilled = data.requester_name && !extracted.requester_name;
+  const deptPreFilled = data.requester_department && !extracted.requester_department;
+
+  if (namePreFilled && deptPreFilled) {
+    parts.push(`I already have your name and department from your Slack profile, so we're good there.`);
+  } else if (namePreFilled) {
+    parts.push(`I have your name from your Slack profile, so we know who's requesting.`);
+  } else if (deptPreFilled) {
+    parts.push(`I have your department from your Slack profile.`);
+  }
+
+  return parts.join(' ');
 }
