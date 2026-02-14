@@ -580,7 +580,7 @@ export function registerApprovalHandler(app: App): void {
 
     // Update classification
     convo.setClassification(newClassification);
-    convo.save();
+    await convo.save();
 
     const collectedData = convo.getCollectedData();
     const requesterName = collectedData.requester_name ?? convo.getUserName();

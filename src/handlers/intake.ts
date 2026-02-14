@@ -886,7 +886,7 @@ async function transitionToConfirming(
   convo.setClassification(classification);
   convo.setStatus('confirming');
   convo.setCurrentStep(null);
-  convo.save();
+  await convo.save();
 
   await say({
     text: convo.toSummary(),
@@ -968,7 +968,7 @@ async function handlePostSubInfo(
 ): Promise<void> {
   // Store the additional info
   convo.setCurrentStep(null);
-  convo.save();
+  await convo.save();
 
   await say({
     text: "Got it! Your additional information has been forwarded to the marketing team.",
@@ -1009,7 +1009,7 @@ async function handlePostSubChange(
   client: WebClient,
 ): Promise<void> {
   convo.setCurrentStep(null);
-  convo.save();
+  await convo.save();
 
   await say({
     text: "Scope change noted! The marketing team has been notified.",
@@ -1061,7 +1061,7 @@ async function handlePostSubWithdrawConfirm(
 
   convo.setStatus('withdrawn');
   convo.setCurrentStep(null);
-  convo.save();
+  await convo.save();
 
   await say({
     text: "Your request has been withdrawn.",
@@ -1396,7 +1396,7 @@ async function askNextQuestion(
   const next = convo.getNextQuestion();
   if (!next) return;
 
-  convo.save();
+  await convo.save();
 
   await say({
     text: `${next.question}\n_${next.example}_`,
