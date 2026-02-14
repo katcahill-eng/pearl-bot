@@ -25,32 +25,46 @@ export function registerMessageHandler(app: App): void {
 
     // For channel thread replies, only handle if there's an active conversation owned by this user
     if (!isDM) {
-      const existingConvo = await ConversationManager.load(userId, thread_ts);
-      if (!existingConvo) {
-        console.log(`[messages] No active conversation in thread ${thread_ts}, ignoring channel message`);
-        return;
+      try {
+        console.log(`[messages] Channel thread reply: loading conversation for userId=${userId}, thread_ts=${thread_ts}`);
+        const existingConvo = await ConversationManager.load(userId, thread_ts);
+        if (!existingConvo) {
+          console.log(`[messages] No active conversation in thread ${thread_ts}, ignoring channel message`);
+          return;
+        }
+        console.log(`[messages] Loaded conversation id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`);
+        // Ignore messages from users who don't own this conversation
+        if (existingConvo.getUserId() !== userId) {
+          console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
+          return;
+        }
+        const status = existingConvo.getStatus();
+        if (status !== 'gathering' && status !== 'confirming' && status !== 'pending_approval' && status !== 'complete') {
+          console.log(`[messages] Conversation in thread ${thread_ts} has status ${status}, ignoring`);
+          return;
+        }
+        console.log(`[messages] Found active conversation in thread ${thread_ts}, routing to intake`);
+        await handleIntakeMessage({
+          userId,
+          userName: userId,
+          channelId: event.channel,
+          threadTs: thread_ts,
+          messageTs,
+          text,
+          say,
+          client,
+        });
+      } catch (err) {
+        console.error(`[messages] Error handling channel thread reply in ${thread_ts}:`, err);
+        try {
+          await say({
+            text: "Something went wrong on my end. Your info hasn't been lost — you can try again, use the intake form, or tag someone from the marketing team in #marcoms-requests for help.",
+            thread_ts,
+          });
+        } catch (sayErr) {
+          console.error('[messages] Failed to send error message to user:', sayErr);
+        }
       }
-      // Ignore messages from users who don't own this conversation
-      if (existingConvo.getUserId() !== userId) {
-        console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
-        return;
-      }
-      const status = existingConvo.getStatus();
-      if (status !== 'gathering' && status !== 'confirming' && status !== 'pending_approval' && status !== 'complete') {
-        console.log(`[messages] Conversation in thread ${thread_ts} has status ${status}, ignoring`);
-        return;
-      }
-      console.log(`[messages] Found active conversation in thread ${thread_ts}, routing to intake`);
-      await handleIntakeMessage({
-        userId,
-        userName: userId,
-        channelId: event.channel,
-        threadTs: thread_ts,
-        messageTs,
-        text,
-        say,
-        client,
-      });
       return;
     }
 
