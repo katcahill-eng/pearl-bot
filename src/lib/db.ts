@@ -55,7 +55,15 @@ export async function initDb(): Promise<void> {
       name TEXT NOT NULL UNIQUE,
       slack_channel TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS message_dedup (
+      message_ts TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
+
+  // Clean up old dedup entries (older than 1 hour)
+  await pool.query(`DELETE FROM message_dedup WHERE created_at < NOW() - INTERVAL '1 hour'`);
 
   // Clean up stale conversations on startup — cancel any that are expired or
   // have been stuck in active states for over 24 hours (covers deploy gaps)
@@ -292,4 +300,14 @@ export async function updateTriageInfo(conversationId: number, messageTs: string
     `UPDATE conversations SET triage_message_ts = $1, triage_channel_id = $2, updated_at = NOW() WHERE id = $3`,
     [messageTs, channelId, conversationId]
   );
+}
+
+/** Returns true if this message was already processed (by another container). */
+export async function isMessageProcessed(messageTs: string): Promise<boolean> {
+  const result = await pool.query(
+    `INSERT INTO message_dedup (message_ts) VALUES ($1) ON CONFLICT DO NOTHING RETURNING message_ts`,
+    [messageTs]
+  );
+  // If INSERT returned a row, we claimed it (not processed before). If 0 rows, already exists.
+  return result.rowCount === 0;
 }

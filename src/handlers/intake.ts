@@ -6,7 +6,7 @@ import { interpretMessage, classifyRequest, classifyRequestType, generateFollowU
 import { generateFieldGuidance } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
-import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo } from '../lib/db';
+import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
 import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
 import { searchProjects } from '../lib/db';
@@ -128,11 +128,10 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
 }
 
 /**
- * Deduplication: tracks recently processed message timestamps to prevent
- * double-processing when both app_mention and message events fire for the same message.
+ * Deduplication: uses a DB-backed table (message_dedup) to prevent
+ * double-processing across containers during rolling deploys,
+ * and when both app_mention and message events fire for the same message.
  */
-const recentlyProcessed = new Set<string>();
-const DEDUP_TTL_MS = 30_000; // 30 seconds
 
 // --- Recovery from lost conversations ---
 
@@ -288,14 +287,12 @@ export async function handleIntakeMessage(opts: {
 }): Promise<void> {
   const { userId, userName, channelId, threadTs, messageTs, text, say, client } = opts;
 
-  // Deduplicate: skip if this exact message was already processed
-  // (happens when both app_mention and message events fire for the same @mention in a thread)
-  if (recentlyProcessed.has(messageTs)) {
-    console.log(`[intake] Skipping duplicate message ${messageTs}`);
+  // Deduplicate: skip if this exact message was already processed by another container
+  // (happens during rolling deploys and when both app_mention and message events fire)
+  if (await isMessageProcessed(messageTs)) {
+    console.log(`[intake] Skipping duplicate message ${messageTs} (already processed by another container)`);
     return;
   }
-  recentlyProcessed.add(messageTs);
-  setTimeout(() => recentlyProcessed.delete(messageTs), DEDUP_TTL_MS);
 
   try {
     await handleIntakeMessageInner({ userId, userName, channelId, threadTs, text, say, client });
