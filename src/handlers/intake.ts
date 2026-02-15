@@ -99,9 +99,15 @@ function mentionsExistingContent(text: string): boolean {
   return patterns.some((p) => p.test(lower));
 }
 
+const CONVERSATIONAL_PREFIX = /^(let['']?s\s+|let\s+us\s+|i['']?d\s+like\s+to\s+|i\s+want\s+to\s+|can\s+we\s+|please\s+|i\s+want\s+|we\s+should\s+|we\s+can\s+)/i;
+
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   const trimmed = text.trim();
-  return patterns.some((p) => p.test(trimmed));
+  if (patterns.some((p) => p.test(trimmed))) return true;
+  // Also try after stripping common conversational prefixes like "let's", "I want to", etc.
+  const stripped = trimmed.replace(CONVERSATIONAL_PREFIX, '').trim();
+  if (stripped !== trimmed && patterns.some((p) => p.test(stripped))) return true;
+  return false;
 }
 
 /**
