@@ -13,15 +13,32 @@ import { searchProjects } from '../lib/db';
 
 // --- Confirmation keywords ---
 
-const CONFIRM_PATTERNS = [/^y(es)?$/i, /^confirm$/i, /^submit$/i, /^looks?\s*good$/i, /^correct$/i, /^that'?s?\s*right$/i, /^yep$/i, /^yeah$/i];
-const CANCEL_PATTERNS = [/^cancel$/i, /^nevermind$/i, /^never\s*mind$/i, /^forget\s*it$/i, /^nvm$/i];
-const RESET_PATTERNS = [/^start\s*over$/i, /^reset$/i, /^restart$/i, /^from\s*scratch$/i];
-const CONTINUE_PATTERNS = [/^continue$/i, /^resume$/i, /^pick\s*up$/i, /^keep\s*going$/i];
-const CONTINUE_THERE_PATTERNS = [/^continue\s*there$/i, /^go\s*there$/i, /^that\s*one$/i, /^use\s*that$/i];
-const START_FRESH_PATTERNS = [/^start\s*fresh$/i, /^new\s*one$/i, /^start\s*(a\s*)?new$/i, /^fresh$/i, /^continue\s*here$/i, /^(start|stay)\s*here$/i, /^here$/i];
+const CONFIRM_PATTERNS = [
+  /^y(es)?$/i, /^confirm$/i, /^submit$/i, /^looks?\s*good/i, /^correct$/i,
+  /^that'?s?\s*right/i, /^yep$/i, /^yeah/i, /^yup$/i, /^ok(ay)?$/i,
+  /^sure/i, /^sounds?\s*good/i, /^go\s*ahead/i, /^perfect$/i, /^all\s*good/i,
+  /^go\s*for\s*it/i, /^alright$/i, /^right$/i, /^absolutely$/i, /^for\s*sure$/i,
+];
+const CANCEL_PATTERNS = [
+  /^cancel$/i, /^nevermind$/i, /^never\s*mind/i, /^forget\s*(about\s*)?it$/i,
+  /^nvm$/i, /^stop$/i, /^abort$/i, /^quit$/i, /^scratch\s*that$/i,
+  /^no\s*thanks/i, /^nope$/i,
+];
+const RESET_PATTERNS = [/^start\s*over$/i, /^reset$/i, /^restart$/i, /^from\s*(the\s*)?scratch$/i, /^redo$/i, /^from\s*the\s*beginning$/i];
+const CONTINUE_PATTERNS = [/^continue$/i, /^resume$/i, /^pick\s*up$/i, /^keep\s*going$/i, /^go\s*on$/i];
+const CONTINUE_THERE_PATTERNS = [
+  /^continue\s*there$/i, /^go\s*(back\s*)?there$/i, /^that\s*(one|thread|conversation)$/i,
+  /^use\s*that(\s*one)?$/i, /^(the\s*)?other\s*(one|thread)$/i, /^(i'?ll?\s*)?(go|continue)\s*there$/i,
+  /^back\s*there$/i, /^(yeah?|ok|yes)\s*(go|continue)\s*there$/i,
+];
+const START_FRESH_PATTERNS = [
+  /^start\s*fresh/i, /^new\s*(one|request)$/i, /^start\s*(a\s*)?new/i,
+  /^fresh$/i, /^continue\s*here$/i, /^(start|stay)\s*here$/i, /^here$/i,
+  /^new\s*here$/i, /^brand\s*new$/i,
+];
 const SUBMIT_AS_IS_PATTERNS = [/^submit\s*as[\s-]*is$/i, /^just\s*submit$/i, /^submit\s*now$/i];
-const SKIP_PATTERNS = [/^skip$/i, /^skip\s*this$/i, /^pass$/i, /^next$/i];
-const DONE_PATTERNS = [/^done$/i, /^that'?s?\s*all$/i, /^no\s*more$/i, /^nothing\s*(else)?$/i];
+const SKIP_PATTERNS = [/^skip$/i, /^skip\s*(this|it|that)$/i, /^pass$/i, /^next$/i, /^move\s*on$/i, /^n\/?a$/i];
+const DONE_PATTERNS = [/^done$/i, /^that'?s?\s*(all|it|everything)/i, /^no\s*more/i, /^nothing\s*(else)?$/i, /^all\s*set$/i, /^we'?re?\s*(done|all\s*set)/i];
 const IDK_PATTERNS = [
   /^i\s*don['\u2019]?t\s*know/i, /^not\s*sure/i, /^no\s*idea/i, /^unsure$/i,
   /^idk$/i, /^no\s*clue/i, /^i['\u2019]?m\s*not\s*sure/i, /^haven['\u2019]?t\s*decided/i,
@@ -682,8 +699,8 @@ async function handleDuplicateCheckResponse(
   const existingChannelId = details['__dup_existing_channel'] ?? '';
   const existingThreadTs = details['__dup_existing_thread'] ?? '';
 
+  // User wants to continue in the other thread
   if (matchesAny(text, CONTINUE_THERE_PATTERNS)) {
-    // Cancel this placeholder, link to existing thread
     convo.setStatus('cancelled');
     await convo.save();
     const tsNoDot = existingThreadTs.replace('.', '');
@@ -694,7 +711,33 @@ async function handleDuplicateCheckResponse(
     return;
   }
 
-  // "Start fresh" or unrecognized → cancel old convo, repurpose this one for new intake
+  // User explicitly wants to start fresh here
+  if (matchesAny(text, START_FRESH_PATTERNS) || matchesAny(text, RESET_PATTERNS)) {
+    await startFreshFromDupCheck(convo, existingConvoId, threadTs, say);
+    return;
+  }
+
+  // User typed something that looks like an actual request (long enough to be content, not a command)
+  // — start fresh and process their message as the first intake input
+  if (text.length > 20) {
+    await startFreshFromDupCheck(convo, existingConvoId, threadTs, say, text);
+    return;
+  }
+
+  // Unrecognized short response — re-ask instead of silently cancelling
+  await say({
+    text: "Just checking — would you like to *continue there* (your open request) or *start fresh* here?",
+    thread_ts: threadTs,
+  });
+}
+
+async function startFreshFromDupCheck(
+  convo: ConversationManager,
+  existingConvoId: number,
+  threadTs: string,
+  say: SayFn,
+  initialMessage?: string,
+): Promise<void> {
   await cancelConversation(existingConvoId);
   convo.setCurrentStep(null);
   convo.markFieldCollected('additional_details', {});
@@ -712,7 +755,7 @@ async function handleDuplicateCheckResponse(
     thread_ts: threadTs,
   });
 
-  // If name/department were pre-filled from Slack, confirm with the user
+  // Confirm pre-filled name/department
   const dupData = convo.getCollectedData();
   if (dupData.requester_name || dupData.requester_department) {
     const namePart = dupData.requester_name;
@@ -726,6 +769,12 @@ async function handleDuplicateCheckResponse(
       confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
     }
     await say({ text: confirmMsg, thread_ts: threadTs });
+  }
+
+  // If the user typed their actual request, process it now instead of losing it
+  if (initialMessage) {
+    await handleGatheringState(convo, initialMessage, threadTs, say);
+    return;
   }
 
   await askNextQuestion(convo, threadTs, say);
@@ -819,6 +868,7 @@ async function handleGatheringState(
         text: "No worries — just tell me a bit about what you need and I'll help figure out the rest!",
         thread_ts: threadTs,
       });
+      await askNextQuestion(convo, threadTs, say);
     }
     return;
   }
