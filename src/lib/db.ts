@@ -250,6 +250,14 @@ export async function cancelConversation(id: number): Promise<void> {
   );
 }
 
+export async function cancelStaleConversationsForUser(userId: string, excludeThreadTs: string): Promise<number> {
+  const result = await pool.query(
+    `UPDATE conversations SET status = 'cancelled', updated_at = NOW() WHERE user_id = $1 AND status IN ('gathering', 'confirming') AND thread_ts != $2`,
+    [userId, excludeThreadTs]
+  );
+  return result.rowCount ?? 0;
+}
+
 export async function getActiveConversationForUser(userId: string, excludeThreadTs: string): Promise<Conversation | undefined> {
   const result = await pool.query(
     `SELECT * FROM conversations WHERE user_id = $1 AND status IN ('gathering', 'confirming', 'pending_approval') AND thread_ts != $2 ORDER BY updated_at DESC LIMIT 1`,

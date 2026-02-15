@@ -4,6 +4,7 @@ import { handleIntakeMessage } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { ConversationManager } from '../lib/conversation';
+import { cancelStaleConversationsForUser } from '../lib/db';
 import { config } from '../lib/config';
 
 export function registerMessageHandler(app: App): void {
@@ -39,7 +40,14 @@ export function registerMessageHandler(app: App): void {
 
         const existingConvo = await ConversationManager.load(userId, thread_ts);
         if (!existingConvo) {
-          console.log(`[messages] No active conversation in thread ${thread_ts}, recovering — routing to intake to create one`);
+          // Conversation lost (e.g., deploy killed the container mid-flow).
+          // Cancel any stale conversations for this user so the new intake
+          // doesn't trigger a duplicate-check loop, then route to intake.
+          const cancelled = await cancelStaleConversationsForUser(userId, thread_ts);
+          if (cancelled > 0) {
+            console.log(`[messages] Cancelled ${cancelled} stale conversation(s) for user ${userId} before recovery`);
+          }
+          console.log(`[messages] No conversation in thread ${thread_ts}, recovering — routing to intake`);
           await handleIntakeMessage({
             userId,
             userName: userId,
