@@ -8,14 +8,6 @@ import { cancelStaleConversationsForUser } from '../lib/db';
 
 export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
-    // Debug: log every raw message event to diagnose routing issues
-    const rawText = 'text' in event ? (event.text ?? '') : '';
-    const rawUser = 'user' in event ? event.user : 'no-user';
-    const rawThreadTs = 'thread_ts' in event ? event.thread_ts : undefined;
-    const rawSubtype = 'subtype' in event ? event.subtype : undefined;
-    const rawChannelType = 'channel_type' in event ? event.channel_type : undefined;
-    console.log(`[messages:raw] event: text="${rawText.substring(0, 40)}" user=${rawUser} thread_ts=${rawThreadTs ?? 'NONE'} subtype=${rawSubtype ?? 'NONE'} channel_type=${rawChannelType ?? 'NONE'} channel=${'channel' in event ? event.channel : 'NONE'}`);
-
     if (event.subtype) return; // Skip edits, deletes, bot messages, etc.
     if ('bot_id' in event && event.bot_id) return; // Skip bot messages without subtype
 
@@ -39,16 +31,22 @@ export function registerMessageHandler(app: App): void {
 
         let existingConvo = await ConversationManager.load(userId, thread_ts);
 
-        // Retry after a short delay — handles race conditions during rolling deploys
-        // where the @mention handler on the old container just saved the conversation
+        // Race condition fix: when user @mentions the bot, Slack fires both app_mention
+        // and message events. The app_mention handler creates the conversation (dup-check,
+        // welcome, etc.) but may not have finished saving to DB yet when the message event
+        // for the user's NEXT reply arrives. Retry with increasing delays (total ~6s) to
+        // give the mention handler time to complete its DB writes + Slack API calls.
         if (!existingConvo) {
-          console.log(`[messages] No conversation found for thread ${thread_ts}, retrying in 1s...`);
-          await new Promise((r) => setTimeout(r, 1000));
-          existingConvo = await ConversationManager.load(userId, thread_ts);
+          for (const delayMs of [1500, 2500, 3000]) {
+            console.log(`[messages] No conversation found for thread ${thread_ts}, retrying in ${delayMs}ms...`);
+            await new Promise((r) => setTimeout(r, delayMs));
+            existingConvo = await ConversationManager.load(userId, thread_ts);
+            if (existingConvo) break;
+          }
         }
 
         if (!existingConvo) {
-          // Conversation truly not found — cancel stale conversations, then try recovery
+          // Conversation truly not found after ~7s of retries — try recovery
           const cancelled = await cancelStaleConversationsForUser(userId, thread_ts);
           if (cancelled > 0) {
             console.log(`[messages] Cancelled ${cancelled} stale conversation(s) for user ${userId} before recovery`);
@@ -132,10 +130,13 @@ export function registerMessageHandler(app: App): void {
       // Check if there's an active conversation in this thread — if so, route directly to intake
       let existingConvo = await ConversationManager.load(userId, thread_ts);
 
-      // Retry after a short delay for thread replies — handles race conditions during deploys
+      // Retry with increasing delays for thread replies — handles race conditions
       if (!existingConvo && isThreadReply) {
-        await new Promise((r) => setTimeout(r, 1000));
-        existingConvo = await ConversationManager.load(userId, thread_ts);
+        for (const delayMs of [1500, 2500, 3000]) {
+          await new Promise((r) => setTimeout(r, delayMs));
+          existingConvo = await ConversationManager.load(userId, thread_ts);
+          if (existingConvo) break;
+        }
       }
 
       if (existingConvo) {
