@@ -758,7 +758,9 @@ async function handleDuplicateCheckResponse(
   }
 
   // User explicitly wants to start fresh here
-  if (matchesAny(text, START_FRESH_PATTERNS) || matchesAny(text, RESET_PATTERNS)) {
+  // In dup-check context, "here" unambiguously means "start fresh here"
+  const DUP_CHECK_HERE_PATTERNS = [/^here$/i, /^this\s*(one|thread)$/i, /^right\s*here$/i, /^over\s*here$/i, /^in\s*here$/i];
+  if (matchesAny(text, START_FRESH_PATTERNS) || matchesAny(text, RESET_PATTERNS) || matchesAny(text, DUP_CHECK_HERE_PATTERNS)) {
     await startFreshFromDupCheck(convo, existingConvoId, threadTs, say);
     return;
   }
