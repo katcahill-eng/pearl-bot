@@ -528,8 +528,8 @@ async function handleConfirmingState(
     return;
   }
 
-  // Check for start over
-  if (matchesAny(text, RESET_PATTERNS)) {
+  // Check for start over / start fresh
+  if (matchesAny(text, RESET_PATTERNS) || matchesAny(text, START_FRESH_PATTERNS)) {
     convo.reset();
     await convo.save();
     await say({
@@ -742,8 +742,8 @@ async function handleGatheringState(
     return;
   }
 
-  // Check for start over
-  if (matchesAny(text, RESET_PATTERNS)) {
+  // Check for start over / start fresh
+  if (matchesAny(text, RESET_PATTERNS) || matchesAny(text, START_FRESH_PATTERNS)) {
     convo.reset();
     await convo.save();
     await say({
