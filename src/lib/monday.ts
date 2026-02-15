@@ -240,10 +240,12 @@ export async function searchItems(query: string): Promise<MondaySearchResult[]> 
     const boardId = config.mondayBoardId;
     const results: MondaySearchResult[] = [];
 
+    // compare_value requires inline values (not GraphQL variables) in Monday.com's API
+    const escapedQuery = query.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const boardQuery = `
-      query ($boardId: [ID!]!, $query: String!) {
+      query ($boardId: [ID!]!) {
         boards (ids: $boardId) {
-          items_page (limit: 10, query_params: { rules: [{ column_id: "name", compare_value: [$query] }] }) {
+          items_page (limit: 10, query_params: { rules: [{ column_id: "name", compare_value: ["${escapedQuery}"], operator: contains_text }] }) {
             items {
               id
               name
@@ -275,7 +277,6 @@ export async function searchItems(query: string): Promise<MondaySearchResult[]> 
       }>;
     }>(boardQuery, {
       boardId: [boardId],
-      query: query,
     });
 
     for (const board of data.boards) {

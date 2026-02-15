@@ -5,7 +5,6 @@ import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { ConversationManager } from '../lib/conversation';
 import { cancelStaleConversationsForUser } from '../lib/db';
-import { config } from '../lib/config';
 
 export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
@@ -29,14 +28,6 @@ export function registerMessageHandler(app: App): void {
     if (!isDM) {
       try {
         console.log(`[messages] Channel thread reply: loading conversation for userId=${userId}, thread_ts=${thread_ts}`);
-
-        // DEBUG: Send DM to marketing lead confirming event receipt (temporary diagnostic)
-        try {
-          await client.chat.postMessage({
-            channel: config.marketingLeadSlackId,
-            text: `[DEBUG] Channel thread reply received:\nuser=${userId} thread=${thread_ts}\ntext="${text.substring(0, 80)}"`,
-          });
-        } catch { /* ignore debug DM failures */ }
 
         let existingConvo = await ConversationManager.load(userId, thread_ts);
 
@@ -81,14 +72,6 @@ export function registerMessageHandler(app: App): void {
         }
         console.log(`[messages] Loaded conversation id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`);
 
-        // DEBUG: confirm convo loaded
-        try {
-          await client.chat.postMessage({
-            channel: config.marketingLeadSlackId,
-            text: `[DEBUG] Convo loaded: id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`,
-          });
-        } catch { /* ignore debug DM failures */ }
-
         // Ignore messages from users who don't own this conversation
         if (existingConvo.getUserId() !== userId) {
           console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
@@ -112,14 +95,6 @@ export function registerMessageHandler(app: App): void {
         });
       } catch (err) {
         console.error(`[messages] Error handling channel thread reply in ${thread_ts}:`, err);
-
-        // DEBUG: send error details to marketing lead DM
-        try {
-          await client.chat.postMessage({
-            channel: config.marketingLeadSlackId,
-            text: `[DEBUG] ERROR in channel thread reply handler:\n${err instanceof Error ? err.message : String(err)}`,
-          });
-        } catch { /* ignore debug DM failures */ }
 
         try {
           await say({

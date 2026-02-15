@@ -888,7 +888,12 @@ async function handleGatheringState(
     // Detect project keywords — check for matching existing projects
     const details = convo.getCollectedData().additional_details;
     if (extracted.project_keywords && extracted.project_keywords.length > 0 && !details['__project_match_asked']) {
-      const projectMatches = await searchForProjectMatches(extracted.project_keywords);
+      let projectMatches: ProjectMatch[] = [];
+      try {
+        projectMatches = await searchForProjectMatches(extracted.project_keywords);
+      } catch (searchErr) {
+        console.error('[intake] Project match search failed (non-fatal):', searchErr);
+      }
       if (projectMatches.length > 0) {
         details['__project_matches'] = JSON.stringify(projectMatches);
         details['__project_match_asked'] = 'true';

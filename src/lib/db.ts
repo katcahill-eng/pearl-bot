@@ -129,7 +129,10 @@ function normalizeConversationRow(row: any): Conversation {
 
 export async function getConversation(userId: string, threadTs: string): Promise<Conversation | undefined> {
   const result = await pool.query(
-    `SELECT * FROM conversations WHERE thread_ts = $1 LIMIT 1`,
+    `SELECT * FROM conversations WHERE thread_ts = $1
+     ORDER BY CASE WHEN status IN ('gathering','confirming','pending_approval') THEN 0 ELSE 1 END,
+              updated_at DESC
+     LIMIT 1`,
     [threadTs]
   );
   return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
