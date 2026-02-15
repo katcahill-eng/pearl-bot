@@ -14,15 +14,17 @@ import { searchProjects } from '../lib/db';
 // --- Confirmation keywords ---
 
 const CONFIRM_PATTERNS = [
-  /^y(es)?$/i, /^confirm$/i, /^submit$/i, /^looks?\s*good/i, /^correct$/i,
-  /^that'?s?\s*right/i, /^yep$/i, /^yeah/i, /^yup$/i, /^ok(ay)?$/i,
-  /^sure/i, /^sounds?\s*good/i, /^go\s*ahead/i, /^perfect$/i, /^all\s*good/i,
-  /^go\s*for\s*it/i, /^alright$/i, /^right$/i, /^absolutely$/i, /^for\s*sure$/i,
+  /^y(es)?(\s|!|$)/i, /^confirm/i, /^submit/i, /^looks?\s*good/i, /^correct/i,
+  /^that'?s?\s*right/i, /^yep(\s|!|$)/i, /^yeah/i, /^yup(\s|!|$)/i, /^ok(ay)?/i,
+  /^sure/i, /^sounds?\s*good/i, /^go\s*ahead/i, /^perfect/i, /^all\s*good/i,
+  /^go\s*for\s*it/i, /^alright/i, /^right(\s|!|$)/i, /^absolutely/i, /^for\s*sure/i,
+  /^(yes|yeah|yep|sure|ok)\s*(please|thanks|submit|do\s*it|go)/i,
+  /^(lgtm|ship\s*it)/i, /^approved/i, /^send\s*it/i,
 ];
 const CANCEL_PATTERNS = [
   /^cancel$/i, /^nevermind$/i, /^never\s*mind/i, /^forget\s*(about\s*)?it$/i,
   /^nvm$/i, /^stop$/i, /^abort$/i, /^quit$/i, /^scratch\s*that$/i,
-  /^no\s*thanks/i, /^nope$/i,
+  /^no\s*thanks/i,
 ];
 const RESET_PATTERNS = [/^start\s*over$/i, /^reset$/i, /^restart$/i, /^from\s*(the\s*)?scratch$/i, /^redo$/i, /^from\s*the\s*beginning$/i];
 const CONTINUE_PATTERNS = [/^continue$/i, /^resume$/i, /^pick\s*up$/i, /^keep\s*going$/i, /^go\s*on$/i];
@@ -33,7 +35,7 @@ const CONTINUE_THERE_PATTERNS = [
 ];
 const START_FRESH_PATTERNS = [
   /^start\s*fresh/i, /^new\s*(one|request)$/i, /^start\s*(a\s*)?new/i,
-  /^fresh$/i, /^continue\s*here$/i, /^(start|stay)\s*here$/i, /^here$/i,
+  /^fresh$/i, /^(start|stay)\s*here$/i,
   /^new\s*here$/i, /^brand\s*new$/i,
 ];
 const SUBMIT_AS_IS_PATTERNS = [/^submit\s*as[\s-]*is$/i, /^just\s*submit$/i, /^submit\s*now$/i];
@@ -152,10 +154,10 @@ export async function recoverConversationFromHistory(opts: {
 }): Promise<boolean> {
   const { userId, channelId, threadTs, say, client } = opts;
 
-  // 0. Skip recovery for very recent threads — these aren't lost conversations,
-  // they're timing issues (e.g., rolling deploys where both containers are briefly active)
+  // 0. Skip recovery for very recent threads (< 30s) — these are likely timing issues,
+  // not lost conversations. The botWasActive path handles the deploy case with history extraction.
   const threadAgeSeconds = Date.now() / 1000 - parseFloat(threadTs);
-  if (threadAgeSeconds < 300) {
+  if (threadAgeSeconds < 30) {
     console.log(`[intake] Recovery: thread is only ${threadAgeSeconds.toFixed(0)}s old, skipping recovery`);
     return false;
   }
@@ -324,6 +326,12 @@ async function handleIntakeMessageInner(opts: {
   // Strip bot mentions (e.g., "<@U123ABC>") so pattern matching works on the actual message
   const text = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
 
+  // Ignore empty messages (accidental @mention with no text)
+  if (text === '') {
+    console.log(`[intake] Ignoring empty message in thread ${threadTs}`);
+    return;
+  }
+
   // Load or create conversation
   let convo = await ConversationManager.load(userId, threadTs);
   console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? `found existing (status=${convo.getStatus()})` : 'no conversation'}`);
@@ -404,12 +412,34 @@ async function handleIntakeMessageInner(opts: {
     }
 
     if (botWasActive) {
-      console.log(`[intake] Bot was already active in thread ${threadTs} — recreating conversation silently`);
+      console.log(`[intake] Bot was already active in thread ${threadTs} — recreating conversation from thread history`);
+      // Extract fields from all prior user messages in the thread
       convo = new ConversationManager({ userId, userName: realName, channelId, threadTs });
       if (realName !== 'Unknown') convo.markFieldCollected('requester_name', realName);
       if (department) convo.markFieldCollected('requester_department', department);
+      try {
+        const historyReplies = await client.conversations.replies({
+          channel: channelId, ts: threadTs, limit: 200,
+        });
+        const userTexts = (historyReplies.messages ?? [])
+          .filter((m: any) => !m.bot_id && !('subtype' in m && m.subtype) && m.user === userId)
+          .map((m: any) => (m.text ?? '').replace(/<@[A-Z0-9]+>/g, '').trim())
+          .filter((t: string) => t.length > 0);
+        if (userTexts.length > 0) {
+          // Don't include the current message — it will be processed normally below
+          const priorTexts = userTexts.slice(0, -1);
+          if (priorTexts.length > 0) {
+            const combined = priorTexts.join('\n\n');
+            console.log(`[intake] Extracting fields from ${priorTexts.length} prior message(s)`);
+            const historyExtracted = await interpretMessage(combined, {});
+            applyExtractedFields(convo, historyExtracted);
+          }
+        }
+      } catch (err) {
+        console.error('[intake] Failed to extract fields from thread history:', err);
+      }
       await convo.save();
-      // Fall through to status handling below — process the message normally
+      // Fall through to status handling below — process the current message normally
     } else {
       // Check for active conversation in another thread
       const existingConvo = await getActiveConversationForUser(userId, threadTs);
@@ -663,17 +693,25 @@ async function handleConfirmingState(
   // User is describing changes — re-interpret and update
   try {
     const extracted = await interpretMessage(text, convo.getCollectedData());
-    applyExtractedFields(convo, extracted);
+    const changed = applyExtractedFields(convo, extracted);
     await convo.save();
 
-    await say({
-      text: "Got it, I've updated the request. Here's the revised summary:",
-      thread_ts: threadTs,
-    });
-    await say({
-      text: convo.toSummary(),
-      thread_ts: threadTs,
-    });
+    if (changed > 0) {
+      await say({
+        text: "Got it, I've updated the request. Here's the revised summary:",
+        thread_ts: threadTs,
+      });
+      await say({
+        text: convo.toSummary(),
+        thread_ts: threadTs,
+      });
+    } else {
+      // No fields were changed — user likely said "no" or something non-descriptive
+      await say({
+        text: "What would you like to change? Just describe the update (e.g., \"change the due date to March 15\") — or reply *yes* to submit, *start over* to redo, or *cancel* to scrap it.",
+        thread_ts: threadTs,
+      });
+    }
   } catch (error) {
     console.error('[intake] Claude interpretation error during confirmation:', error);
     const formFallback = config.intakeFormUrl ? `\nOr you can fill out the form instead: ${config.intakeFormUrl}` : '';
@@ -845,32 +883,7 @@ async function handleGatheringState(
     return;
   }
 
-  // --- Handle follow-up phase ---
-  if (convo.isInFollowUp()) {
-    await handleFollowUpAnswer(convo, text, threadTs, say);
-    return;
-  }
-
-  // --- IDK detection in gathering phase ---
-  if (matchesAny(text, IDK_PATTERNS)) {
-    const currentField = convo.getCurrentStep();
-    if (currentField) {
-      const guidance = await generateFieldGuidance(currentField, convo.getCollectedData());
-      const calendarNote = config.marketingLeadCalendarUrl
-        ? `\n\n_Or if you'd like to talk it through, <${config.marketingLeadCalendarUrl}|schedule time with marketing>._`
-        : '';
-      await say({ text: guidance + calendarNote, thread_ts: threadTs });
-    } else {
-      await say({
-        text: "No worries — just tell me a bit about what you need and I'll help figure out the rest!",
-        thread_ts: threadTs,
-      });
-      await askNextQuestion(convo, threadTs, say);
-    }
-    return;
-  }
-
-  // --- Nudge/greeting detection — resume the conversation ---
+  // --- Nudge/greeting detection — resume the conversation (checked before follow-up so "hello" isn't stored as an answer) ---
   if (matchesAny(text, NUDGE_PATTERNS)) {
     await say({
       text: "I'm here! Let me pick up where we left off.",
@@ -890,28 +903,95 @@ async function handleGatheringState(
     return;
   }
 
-  // --- "Needs discussion" flag in gathering phase ---
-  if (matchesAny(text, DISCUSS_PATTERNS)) {
-    const currentField = convo.getCurrentStep();
-    if (currentField) {
-      flagForDiscussion(convo, currentField, currentField);
-      // Set a placeholder so the field counts as "answered" and we move on
-      convo.markFieldCollected(currentField as keyof CollectedData, '_needs discussion_');
-      await convo.save();
-      const calendarLink = config.marketingLeadCalendarUrl
-        ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
+  // --- IDK detection (works in both gathering and follow-up) ---
+  if (matchesAny(text, IDK_PATTERNS)) {
+    if (convo.isInFollowUp()) {
+      const calendarNote = config.marketingLeadCalendarUrl
+        ? ` Or <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
         : '';
       await say({
-        text: `:speech_balloon: Flagged *${formatFieldLabel(currentField)}* for discussion — we'll make sure to cover it.${calendarLink} Let's keep going!`,
+        text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation, or give your best guess and the team will refine it.${calendarNote}`,
         thread_ts: threadTs,
       });
-      // Ask the next question or transition
-      if (convo.isComplete()) {
-        await enterFollowUpPhase(convo, 1, threadTs, say);
+    } else {
+      const currentField = convo.getCurrentStep();
+      if (currentField) {
+        const guidance = await generateFieldGuidance(currentField, convo.getCollectedData());
+        const calendarNote = config.marketingLeadCalendarUrl
+          ? `\n\n_Or if you'd like to talk it through, <${config.marketingLeadCalendarUrl}|schedule time with marketing>._`
+          : '';
+        await say({ text: guidance + calendarNote, thread_ts: threadTs });
       } else {
+        await say({
+          text: "No worries — just tell me a bit about what you need and I'll help figure out the rest!",
+          thread_ts: threadTs,
+        });
         await askNextQuestion(convo, threadTs, say);
       }
     }
+    return;
+  }
+
+  // --- "Needs discussion" flag (works in both gathering and follow-up) ---
+  if (matchesAny(text, DISCUSS_PATTERNS)) {
+    if (convo.isInFollowUp()) {
+      const questions = getStoredFollowUpQuestions(convo);
+      const idx = convo.getFollowUpIndex();
+      if (questions && idx < questions.length) {
+        const currentQuestion = questions[idx];
+        flagForDiscussion(convo, currentQuestion.field_key, currentQuestion.question);
+        const details = convo.getCollectedData().additional_details;
+        details[currentQuestion.field_key] = '_needs discussion_';
+        convo.markFieldCollected('additional_details', details);
+        const calendarLink = config.marketingLeadCalendarUrl
+          ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing>.`
+          : '';
+        await say({
+          text: `:speech_balloon: Flagged for discussion — we'll cover this when we meet.${calendarLink}`,
+          thread_ts: threadTs,
+        });
+        const nextIndex = idx + 1;
+        if (nextIndex >= questions.length) {
+          await transitionToConfirming(convo, threadTs, say);
+        } else {
+          convo.setFollowUpIndex(nextIndex);
+          await convo.save();
+          await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
+        }
+      } else {
+        await transitionToConfirming(convo, threadTs, say);
+      }
+    } else {
+      const currentField = convo.getCurrentStep();
+      if (currentField) {
+        flagForDiscussion(convo, currentField, currentField);
+        convo.markFieldCollected(currentField as keyof CollectedData, '_needs discussion_');
+        await convo.save();
+        const calendarLink = config.marketingLeadCalendarUrl
+          ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
+          : '';
+        await say({
+          text: `:speech_balloon: Flagged *${formatFieldLabel(currentField)}* for discussion — we'll make sure to cover it.${calendarLink} Let's keep going!`,
+          thread_ts: threadTs,
+        });
+        if (convo.isComplete()) {
+          await enterFollowUpPhase(convo, 1, threadTs, say);
+        } else {
+          await askNextQuestion(convo, threadTs, say);
+        }
+      } else {
+        await say({
+          text: "I'd be happy to flag something for discussion — which part of the request would you like to talk through?",
+          thread_ts: threadTs,
+        });
+      }
+    }
+    return;
+  }
+
+  // --- Handle follow-up phase ---
+  if (convo.isInFollowUp()) {
+    await handleFollowUpAnswer(convo, text, threadTs, say);
     return;
   }
 
@@ -980,11 +1060,11 @@ async function handleGatheringState(
     }
 
     // Check if all required fields are now collected
+    await convo.save();
     if (convo.isComplete()) {
       // Enter follow-up phase
       await enterFollowUpPhase(convo, fieldsApplied, threadTs, say);
     } else {
-      await convo.save();
 
       // Ask the next question
       await askNextQuestion(convo, threadTs, say);

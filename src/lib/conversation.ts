@@ -165,7 +165,7 @@ export class ConversationManager {
   }
 
   getCollectedData(): CollectedData {
-    return { ...this.collectedData };
+    return JSON.parse(JSON.stringify(this.collectedData));
   }
 
   getCurrentStep(): string | null {
@@ -444,9 +444,14 @@ export class ConversationManager {
     return rowId;
   }
 
-  /** Reset all collected data and return to gathering state. */
+  /** Reset all collected data and return to gathering state.
+   *  Preserves requester_name and requester_department so the user isn't re-asked. */
   reset(): void {
+    const name = this.collectedData.requester_name;
+    const dept = this.collectedData.requester_department;
     this.collectedData = emptyCollectedData();
+    this.collectedData.requester_name = name;
+    this.collectedData.requester_department = dept;
     this.status = 'gathering';
     this.currentStep = null;
     this.classification = 'undetermined';
