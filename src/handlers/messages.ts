@@ -6,6 +6,40 @@ import { handleSearchRequest } from './search';
 import { ConversationManager } from '../lib/conversation';
 import { cancelStaleConversationsForUser } from '../lib/db';
 
+// --- Per-thread message debounce ---
+// When users send multiple messages quickly ("Yeah" + "here"), only process
+// the last one. Each new message cancels the previous pending message for
+// the same thread+user, ensuring only the final message gets processed.
+const pendingDebounce = new Map<string, () => void>();
+const DEBOUNCE_MS = 1500;
+
+function debounceMessage(threadTs: string, userId: string): Promise<boolean> {
+  const key = `${threadTs}:${userId}`;
+
+  // Cancel the previously pending message for this thread+user
+  const cancelPrevious = pendingDebounce.get(key);
+  if (cancelPrevious) {
+    console.log(`[messages] Debounce: newer message arrived for thread ${threadTs}, superseding previous`);
+    cancelPrevious();
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const cancel = () => {
+      pendingDebounce.delete(key);
+      resolve(false); // Skip — a newer message superseded this one
+    };
+    pendingDebounce.set(key, cancel);
+
+    setTimeout(() => {
+      // If still pending (not cancelled by a newer message), process this one
+      if (pendingDebounce.get(key) === cancel) {
+        pendingDebounce.delete(key);
+        resolve(true); // Process this message
+      }
+    }, DEBOUNCE_MS);
+  });
+}
+
 export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
     if (event.subtype) return; // Skip edits, deletes, bot messages, etc.
@@ -23,6 +57,17 @@ export function registerMessageHandler(app: App): void {
     const userId = 'user' in event ? (event.user as string) : '';
 
     console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
+
+    // Debounce: if the user sends multiple messages quickly, only process the last one.
+    // This prevents double-processing when users split their response across messages
+    // (e.g., "Yeah" + "here" should only process "here").
+    if (isThreadReply) {
+      const shouldProcess = await debounceMessage(thread_ts, userId);
+      if (!shouldProcess) {
+        console.log(`[messages] Skipping superseded message "${text.substring(0, 40)}" in thread ${thread_ts}`);
+        return;
+      }
+    }
 
     // For channel thread replies, only handle if there's an active conversation owned by this user
     if (!isDM) {
