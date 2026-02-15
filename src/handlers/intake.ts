@@ -6,7 +6,7 @@ import { interpretMessage, classifyRequest, classifyRequestType, generateFollowU
 import { generateFieldGuidance } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
-import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed } from '../lib/db';
+import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
 import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
 import { searchProjects } from '../lib/db';
@@ -397,18 +397,28 @@ async function handleIntakeMessageInner(opts: {
 
     // Check if the bot was already active in this thread (conversation lost during deploy)
     // If so, recreate silently and process the message — no welcome, no dup-check
+    // Uses two signals: (1) bot messages in Slack thread, (2) any DB conversation for this thread
     let botWasActive = false;
     try {
       const replies = await client.conversations.replies({
         channel: channelId,
         ts: threadTs,
-        limit: 10,
+        limit: 50,
       });
       botWasActive = replies.messages?.some((m) =>
         (('bot_id' in m && m.bot_id) || ('subtype' in m && m.subtype === 'bot_message')) && m.ts !== threadTs
       ) ?? false;
     } catch (err) {
-      console.error('[intake] Failed to check thread history:', err);
+      console.error('[intake] Failed to check thread history via Slack API:', err);
+    }
+    // Fallback: check DB for any prior conversation in this thread (even cancelled/completed)
+    if (!botWasActive) {
+      try {
+        botWasActive = await hasConversationInThread(threadTs);
+        if (botWasActive) console.log(`[intake] DB shows prior conversation in thread ${threadTs}`);
+      } catch (err) {
+        console.error('[intake] Failed to check DB for prior conversation:', err);
+      }
     }
 
     if (botWasActive) {

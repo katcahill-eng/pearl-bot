@@ -146,6 +146,15 @@ export async function getConversation(userId: string, threadTs: string): Promise
   return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
 }
 
+/** Check if any conversation (any status) has ever existed in this thread. */
+export async function hasConversationInThread(threadTs: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM conversations WHERE thread_ts = $1 LIMIT 1`,
+    [threadTs]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function getConversationById(id: number): Promise<Conversation | undefined> {
   const result = await pool.query(
     `SELECT * FROM conversations WHERE id = $1`,

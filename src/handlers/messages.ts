@@ -79,7 +79,18 @@ export function registerMessageHandler(app: App): void {
         }
         const status = existingConvo.getStatus();
         if (status !== 'gathering' && status !== 'confirming' && status !== 'pending_approval' && status !== 'complete') {
-          console.log(`[messages] Conversation in thread ${thread_ts} has status ${status}, ignoring`);
+          // Cancelled/withdrawn — route to intake so botWasActive recovery can handle it
+          console.log(`[messages] Conversation in thread ${thread_ts} has status ${status}, routing to intake for possible recovery`);
+          await handleIntakeMessage({
+            userId,
+            userName: userId,
+            channelId: event.channel,
+            threadTs: thread_ts,
+            messageTs,
+            text,
+            say,
+            client,
+          });
           return;
         }
         console.log(`[messages] Found active conversation in thread ${thread_ts}, routing to intake`);
