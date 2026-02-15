@@ -1,6 +1,6 @@
 import type { App } from '@slack/bolt';
 import { detectIntent, getHelpMessage } from './intent';
-import { handleIntakeMessage } from './intake';
+import { handleIntakeMessage, recoverConversationFromHistory } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { ConversationManager } from '../lib/conversation';
@@ -41,23 +41,35 @@ export function registerMessageHandler(app: App): void {
         const existingConvo = await ConversationManager.load(userId, thread_ts);
         if (!existingConvo) {
           // Conversation lost (e.g., deploy killed the container mid-flow).
-          // Cancel any stale conversations for this user so the new intake
-          // doesn't trigger a duplicate-check loop, then route to intake.
+          // Cancel any stale conversations for this user so recovery
+          // doesn't trigger a duplicate-check loop.
           const cancelled = await cancelStaleConversationsForUser(userId, thread_ts);
           if (cancelled > 0) {
             console.log(`[messages] Cancelled ${cancelled} stale conversation(s) for user ${userId} before recovery`);
           }
-          console.log(`[messages] No conversation in thread ${thread_ts}, recovering — routing to intake`);
-          await handleIntakeMessage({
+
+          // Try to recover from thread history — reads past messages, extracts fields, continues
+          const recovered = await recoverConversationFromHistory({
             userId,
-            userName: userId,
             channelId: event.channel,
             threadTs: thread_ts,
-            messageTs,
-            text,
             say,
             client,
           });
+          if (!recovered) {
+            // No prior bot interaction found — route to intake normally
+            console.log(`[messages] No conversation in thread ${thread_ts}, no prior history — routing to intake`);
+            await handleIntakeMessage({
+              userId,
+              userName: userId,
+              channelId: event.channel,
+              threadTs: thread_ts,
+              messageTs,
+              text,
+              say,
+              client,
+            });
+          }
           return;
         }
         console.log(`[messages] Loaded conversation id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`);
@@ -133,6 +145,22 @@ export function registerMessageHandler(app: App): void {
           });
           return;
         }
+      }
+
+      // If this is a DM thread reply with no DB conversation, try to recover from history
+      if (!existingConvo && isThreadReply) {
+        const cancelled = await cancelStaleConversationsForUser(userId, thread_ts);
+        if (cancelled > 0) {
+          console.log(`[messages] Cancelled ${cancelled} stale DM conversation(s) for user ${userId} before recovery`);
+        }
+        const recovered = await recoverConversationFromHistory({
+          userId,
+          channelId: event.channel,
+          threadTs: thread_ts,
+          say,
+          client,
+        });
+        if (recovered) return;
       }
 
       // No active conversation — use intent detection

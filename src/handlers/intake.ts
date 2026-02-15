@@ -114,6 +114,134 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
 const recentlyProcessed = new Set<string>();
 const DEDUP_TTL_MS = 30_000; // 30 seconds
 
+// --- Recovery from lost conversations ---
+
+/**
+ * Attempt to recover a lost conversation by reading the Slack thread history.
+ * This handles the case where a deploy or crash killed the container mid-conversation,
+ * losing the DB record. We read all user messages from the thread, extract fields via Claude,
+ * and recreate the conversation — then continue from the next unanswered question.
+ *
+ * Returns true if recovery happened, false if this thread has no prior bot interaction.
+ */
+export async function recoverConversationFromHistory(opts: {
+  userId: string;
+  channelId: string;
+  threadTs: string;
+  say: SayFn;
+  client: WebClient;
+}): Promise<boolean> {
+  const { userId, channelId, threadTs, say, client } = opts;
+
+  // 1. Fetch thread history from Slack
+  let messages: any[];
+  try {
+    const replies = await client.conversations.replies({
+      channel: channelId,
+      ts: threadTs,
+      limit: 200,
+    });
+    messages = (replies.messages ?? []) as any[];
+  } catch (err) {
+    console.error('[intake] Failed to fetch thread history for recovery:', err);
+    return false;
+  }
+
+  // 2. Check if the bot previously sent messages in this thread
+  const hasBotMessages = messages.some((m: any) => m.bot_id || m.subtype === 'bot_message');
+  if (!hasBotMessages) {
+    return false;
+  }
+
+  console.log(`[intake] Recovery: found bot messages in thread ${threadTs} (${messages.length} total messages)`);
+
+  // 3. Extract user messages (strip @mentions, chronological order)
+  const userTexts = messages
+    .filter((m: any) => !m.bot_id && !m.subtype && m.user === userId)
+    .map((m: any) => (m.text ?? '').replace(/<@[A-Z0-9]+>/g, '').trim())
+    .filter((t: string) => t.length > 0);
+
+  if (userTexts.length === 0) {
+    console.log('[intake] Recovery: no user messages found in thread');
+    return false;
+  }
+
+  // 4. Look up user profile for name and department
+  let realName = 'Unknown';
+  let department: string | null = null;
+  try {
+    const userInfo = await client.users.info({ user: userId });
+    const profile = userInfo.user?.profile;
+    realName = profile?.real_name ?? userInfo.user?.real_name ?? userInfo.user?.name ?? 'Unknown';
+    const jobTitle = profile?.title ?? null;
+
+    if (jobTitle) {
+      const titleLower = jobTitle.toLowerCase();
+      if (titleLower.includes('marketing') || titleLower.includes('marcom')) department = 'Marketing';
+      else if (titleLower.includes('business development') || titleLower.includes(' bd') || titleLower.startsWith('bd ')) department = 'Business Development';
+      else if (titleLower.includes('customer') || titleLower.includes(' cx') || titleLower.startsWith('cx ')) department = 'Customer Experience';
+      else if (titleLower.includes('product')) department = 'Product';
+      else if (titleLower.includes('engineering') || titleLower.includes('developer') || titleLower.includes('engineer')) department = 'Engineering';
+      else if (titleLower.includes('sales')) department = 'Sales';
+      else if (titleLower.includes('finance') || titleLower.includes('accounting')) department = 'Finance';
+      else if (titleLower.includes('hr') || titleLower.includes('people') || titleLower.includes('human resources')) department = 'People/HR';
+      else if (titleLower.includes('executive') || titleLower.includes('ceo') || titleLower.includes('coo') || titleLower.includes('cfo')) department = 'Executive';
+    }
+  } catch (err) {
+    console.error('[intake] Failed to look up user profile during recovery:', err);
+  }
+
+  // 5. Combine all user messages and extract fields via Claude
+  const combinedText = userTexts.join('\n\n');
+  console.log(`[intake] Recovery: extracting fields from ${userTexts.length} message(s): "${combinedText.substring(0, 120)}"`);
+
+  let extracted: ExtractedFields;
+  try {
+    extracted = await interpretMessage(combinedText, {});
+  } catch (err) {
+    console.error('[intake] Recovery: Claude extraction failed:', err);
+    return false;
+  }
+
+  // 6. Create conversation with pre-filled fields
+  const convo = new ConversationManager({
+    userId,
+    userName: realName,
+    channelId,
+    threadTs,
+  });
+
+  if (realName !== 'Unknown') {
+    convo.markFieldCollected('requester_name', realName);
+  }
+  if (department) {
+    convo.markFieldCollected('requester_department', department);
+  }
+
+  applyExtractedFields(convo, extracted);
+  await convo.save();
+
+  const collectedCount = Object.entries(convo.getCollectedData())
+    .filter(([k, v]) => k !== 'additional_details' && k !== 'request_type' && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
+    .length;
+  console.log(`[intake] Recovery: reconstructed conversation with ${collectedCount} field(s), complete=${convo.isComplete()}`);
+
+  // 7. Send recovery message and continue
+  await say({
+    text: "Sorry about that — I had a brief interruption, but I've caught up on everything you shared. Let me pick up where we left off.",
+    thread_ts: threadTs,
+  });
+
+  // 8. Continue from the right place
+  if (convo.isComplete()) {
+    await enterFollowUpPhase(convo, 1, threadTs, say);
+  } else {
+    await askNextQuestion(convo, threadTs, say);
+  }
+
+  return true;
+}
+
 // --- Public handler ---
 
 /**
