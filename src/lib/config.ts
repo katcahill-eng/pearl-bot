@@ -61,7 +61,7 @@ export const config = {
   // Optional
   intakeFormUrl: process.env.INTAKE_FORM_URL ?? '',
   marketingLeadCalendarUrl: process.env.MARKETING_LEAD_CALENDAR_URL ?? '',
-  webhookPort: parseInt(process.env.WEBHOOK_PORT ?? '3100', 10),
+  webhookPort: parseInt(process.env.PORT ?? process.env.WEBHOOK_PORT ?? '3100', 10),
 } as const;
 
 export type Config = typeof config;

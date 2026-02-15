@@ -32,7 +32,7 @@ const TIMEOUT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 (async () => {
   await initDb();
   await app.start();
-  console.log('⚡ MarcomsBot is running in socket mode (v3 — knowledge base, follow-ups, post-submission)');
+  console.log('⚡ MarcomsBot is running in socket mode (BUILD 2026-02-15T1530 — simplified-routing)');
 
   // Start periodic timeout check
   setInterval(() => {

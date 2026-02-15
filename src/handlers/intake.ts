@@ -360,7 +360,7 @@ async function handleIntakeMessageInner(opts: {
 
   // Load or create conversation
   let convo = await ConversationManager.load(userId, threadTs);
-  console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? `found existing (status=${convo.getStatus()})` : 'no conversation'}`);
+  console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? `found existing (status=${convo.getStatus()}, step=${convo.getCurrentStep()}, id=${convo.getId()})` : 'no conversation'}`);
 
   // If the conversation in this thread is terminal, treat it as "no conversation" — user is starting fresh
   if (convo && (convo.getStatus() === 'complete' || convo.getStatus() === 'cancelled' || convo.getStatus() === 'withdrawn')) {
@@ -369,7 +369,9 @@ async function handleIntakeMessageInner(opts: {
   }
 
   // Handle pending duplicate-check responses (DB-persisted, survives restarts)
+  console.log(`[intake] dup_check gate: convo=${!!convo}, step="${convo?.getCurrentStep()}", startsWith_dup_check=${convo?.getCurrentStep()?.startsWith('dup_check:')}, text="${text}"`);
   if (convo && convo.getCurrentStep()?.startsWith('dup_check:')) {
+    console.log(`[intake] → ENTERING handleDuplicateCheckResponse for text="${text}"`);
     await handleDuplicateCheckResponse(convo, text, threadTs, say);
     return;
   }
@@ -765,11 +767,14 @@ async function handleDuplicateCheckResponse(
   threadTs: string,
   say: SayFn,
 ): Promise<void> {
+  console.log(`[intake] handleDuplicateCheckResponse called with text="${text}", threadTs=${threadTs}`);
   const step = convo.getCurrentStep()!;
   const existingConvoId = parseInt(step.split(':')[1], 10);
   const details = convo.getCollectedData().additional_details;
   const existingChannelId = details['__dup_existing_channel'] ?? '';
   const existingThreadTs = details['__dup_existing_thread'] ?? '';
+
+  console.log(`[intake] dup_check: existingConvoId=${existingConvoId}, existingChannel=${existingChannelId}, existingThread=${existingThreadTs}`);
 
   // User wants to continue in the other thread
   if (matchesAny(text, CONTINUE_THERE_PATTERNS)) {
