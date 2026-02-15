@@ -67,6 +67,25 @@ export function startWebhookServer(opts: {
       } else if (req.method === 'GET' && req.url === '/debug/logs') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end(getRecentLogs().join('\n'));
+      } else if (req.method === 'GET' && req.url?.startsWith('/debug/db')) {
+        // Quick debug: dump recent conversations using raw pg
+        const pg = await import('pg');
+        const debugPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : undefined });
+        try {
+          const convos = await debugPool.query(
+            `SELECT id, user_id, thread_ts, status, current_step, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 15`
+          );
+          const dedup = await debugPool.query(
+            `SELECT message_ts FROM message_dedup ORDER BY message_ts DESC LIMIT 20`
+          );
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end(
+            '=== CONVERSATIONS (last 15) ===\n' +
+            convos.rows.map((r: any) => `id=${r.id} thread=${r.thread_ts} status=${r.status} step=${r.current_step} updated=${r.updated_at}`).join('\n') +
+            '\n\n=== MESSAGE_DEDUP (last 20) ===\n' +
+            dedup.rows.map((r: any) => r.message_ts).join('\n')
+          );
+        } finally { await debugPool.end(); }
       } else {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));
