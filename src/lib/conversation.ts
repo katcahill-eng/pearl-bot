@@ -331,15 +331,19 @@ export class ConversationManager {
   /** Generate a Slack mrkdwn summary for user confirmation. */
   toSummary(): string {
     const d = this.collectedData;
-    const linkedProjectName = d.additional_details['__linked_project_name'];
+    let relatedProjects: string[] = [];
+    try {
+      const raw = d.additional_details['__related_projects'];
+      if (raw) relatedProjects = JSON.parse(raw) as string[];
+    } catch { /* ignore */ }
     const lines: string[] = [
       ":white_check_mark: *Here's what I've got:*",
       '',
       `• *Requester:* ${d.requester_name ?? '_not provided_'}`,
       `• *Department:* ${d.requester_department ?? '_not provided_'}`,
     ];
-    if (linkedProjectName) {
-      lines.push(`• *Related to:* ${linkedProjectName}`);
+    if (relatedProjects.length > 0) {
+      lines.push(`• *May be related to:* ${relatedProjects.join(', ')}`);
     }
     lines.push(
       `• *Target audience:* ${d.target ?? '_not provided_'}`,

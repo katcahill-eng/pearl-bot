@@ -170,6 +170,28 @@ function buildTriageBlocks(opts: {
     });
   }
 
+  // Related projects (auto-detected from keywords)
+  let relatedProjectsText = '';
+  try {
+    const relatedRaw = collectedData.additional_details['__related_projects'];
+    if (relatedRaw) {
+      const names = JSON.parse(relatedRaw) as string[];
+      if (names.length > 0) {
+        relatedProjectsText = names.map((n) => `• ${n}`).join('\n');
+      }
+    }
+  } catch { /* ignore */ }
+
+  if (relatedProjectsText) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:link: *Possibly related to:*\n${relatedProjectsText}`,
+      },
+    });
+  }
+
   // Monday.com link section
   if (mondayUrl) {
     blocks.push({
