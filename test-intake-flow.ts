@@ -553,6 +553,106 @@ async function main() {
   );
 
   // ============================================================
+  // SCENARIO 7a: Simulated race — message arrives BEFORE mention handler saves
+  // This reproduces the exact production bug: @mention creates dup_check convo,
+  // but the "Here" message arrives and tries to load it before it's saved.
+  // ============================================================
+  await (async () => {
+    printSection('Scenario 7a: Race condition — "Here" arrives before dup_check saves');
+
+    if (mockPg?._reset) mockPg._reset();
+
+    const userId = 'U_TEST_USER';
+    const realName = 'Kat Cahill';
+    const title = 'Marketing Manager';
+    const threadTs = `${Date.now() / 1000}.${Math.random().toString(36).slice(2, 8)}`;
+    const channelId = 'C_TEST_CHANNEL';
+
+    // Create existing convo in another thread (triggers dup-check)
+    const existingThreadTs = `${Date.now() / 1000 - 100}.existing`;
+    const existingConvo = new ConversationManager({
+      userId, userName: realName, channelId, threadTs: existingThreadTs,
+    });
+    existingConvo.markFieldCollected('requester_name', realName);
+    await existingConvo.save();
+
+    // Step 1: Simulate what the @mention handler does — create dup_check convo
+    const mockClient = createMockClient({ realName, title, userId, threadMessages: [] });
+    const { say: say1, messages: msgs1 } = createMockSay();
+
+    printStep(1, '@mention: I need help with a project');
+    printUser('I need help with a project');
+    await handleIntakeMessage({
+      userId, userName: userId, channelId, threadTs,
+      messageTs: nextMessageTs(),
+      text: '<@U_BOT> I need help with a project',
+      say: say1, client: mockClient,
+    });
+    printBot(msgs1);
+
+    // Verify dup_check was created
+    const dupConvo = await ConversationManager.load(userId, threadTs);
+    const stepBeforeHere = dupConvo?.getCurrentStep();
+    console.log(`  ${COLORS.dim}Conversation step after @mention: ${stepBeforeHere}${COLORS.reset}`);
+
+    // Step 2: Now send "Here" — this goes through handleIntakeMessage directly
+    // (simulating what messages.ts does after finding the conversation)
+    printStep(2, '"Here" — should match dup_check handler');
+    printUser('Here');
+    const { say: say2, messages: msgs2 } = createMockSay();
+    await handleIntakeMessage({
+      userId, userName: userId, channelId, threadTs,
+      messageTs: nextMessageTs(),
+      text: 'Here',
+      say: say2, client: mockClient,
+    });
+    printBot(msgs2);
+
+    // Step 3: Send target answer to verify flow continues
+    printStep(3, 'Target answer');
+    printUser('Homeowners in the Southeast');
+    const { say: say3, messages: msgs3 } = createMockSay();
+    await handleIntakeMessage({
+      userId, userName: userId, channelId, threadTs,
+      messageTs: nextMessageTs(),
+      text: 'Homeowners in the Southeast',
+      say: say3, client: createMockClient({
+        realName, title, userId,
+        threadMessages: [
+          { user: userId, text: 'I need help with a project', ts: '1' },
+          { bot_id: 'B', text: 'Welcome back!', ts: '2' },
+          { user: userId, text: 'Here', ts: '3' },
+          { bot_id: 'B', text: msgs2[0]?.text ?? '', ts: '4' },
+          { user: userId, text: 'Homeowners in the Southeast', ts: '5' },
+        ],
+      }),
+    });
+    printBot(msgs3);
+
+    console.log(`\n${COLORS.yellow}  Checks:${COLORS.reset}`);
+    printCheck(
+      'Step 1 shows dup-check prompt',
+      msgs1.some((m) => m.text.includes('open request') || m.text.includes('continue there')),
+      msgs1[0]?.text.substring(0, 60),
+    );
+    printCheck(
+      'Conversation has dup_check step after @mention',
+      stepBeforeHere?.startsWith('dup_check:') ?? false,
+      stepBeforeHere ?? 'null',
+    );
+    printCheck(
+      'Step 2 "Here" triggers start-fresh (shows welcome)',
+      msgs2.some((m) => m.text.includes('Thanks for') || m.text.includes('Glad you') || m.text.includes('questions')),
+      msgs2[0]?.text.substring(0, 60),
+    );
+    printCheck(
+      'Step 2 "Here" does NOT show "didn\'t catch"',
+      !msgs2.some((m) => m.text.includes("didn't quite catch") || m.text.includes("didn't catch")),
+      msgs2[0]?.text.substring(0, 60),
+    );
+  })();
+
+  // ============================================================
   // SCENARIO 7: Dup-check — "Here" triggers start fresh
   // Reproduces the exact bug: user says "Here" (bare) after dup-check
   // and the bot should recognize it as "start fresh here"

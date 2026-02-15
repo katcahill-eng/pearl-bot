@@ -69,82 +69,20 @@ export function registerMessageHandler(app: App): void {
       }
     }
 
-    // For channel thread replies, only handle if there's an active conversation owned by this user
+    // --- Channel thread replies: route directly to handleIntakeMessage ---
+    // handleIntakeMessage already handles conversation loading, dup-check detection,
+    // recovery, and all state management. Duplicating that logic here caused race
+    // conditions and bugs. The only thing we check here is thread ownership.
     if (!isDM) {
       try {
-        console.log(`[messages] Channel thread reply: loading conversation for userId=${userId}, thread_ts=${thread_ts}`);
-
-        let existingConvo = await ConversationManager.load(userId, thread_ts);
-
-        // Race condition fix: when user @mentions the bot, Slack fires both app_mention
-        // and message events. The app_mention handler creates the conversation (dup-check,
-        // welcome, etc.) but may not have finished saving to DB yet when the message event
-        // for the user's NEXT reply arrives. Retry with increasing delays (total ~6s) to
-        // give the mention handler time to complete its DB writes + Slack API calls.
-        if (!existingConvo) {
-          for (const delayMs of [1500, 2500, 3000]) {
-            console.log(`[messages] No conversation found for thread ${thread_ts}, retrying in ${delayMs}ms...`);
-            await new Promise((r) => setTimeout(r, delayMs));
-            existingConvo = await ConversationManager.load(userId, thread_ts);
-            if (existingConvo) break;
-          }
-        }
-
-        if (!existingConvo) {
-          // Conversation truly not found after ~7s of retries — try recovery
-          const cancelled = await cancelStaleConversationsForUser(userId, thread_ts);
-          if (cancelled > 0) {
-            console.log(`[messages] Cancelled ${cancelled} stale conversation(s) for user ${userId} before recovery`);
-          }
-
-          // Try to recover from thread history — reads past messages, extracts fields, continues
-          const recovered = await recoverConversationFromHistory({
-            userId,
-            channelId: event.channel,
-            threadTs: thread_ts,
-            say,
-            client,
-          });
-          if (!recovered) {
-            // No prior bot interaction found — route to intake normally
-            console.log(`[messages] No conversation in thread ${thread_ts}, no prior history — routing to intake`);
-            await handleIntakeMessage({
-              userId,
-              userName: userId,
-              channelId: event.channel,
-              threadTs: thread_ts,
-              messageTs,
-              text,
-              say,
-              client,
-            });
-          }
-          return;
-        }
-        console.log(`[messages] Loaded conversation id=${existingConvo.getId()} owner=${existingConvo.getUserId()} status=${existingConvo.getStatus()} step=${existingConvo.getCurrentStep()}`);
-
-        // Ignore messages from users who don't own this conversation
-        if (existingConvo.getUserId() !== userId) {
+        // Check ownership: only respond if this thread belongs to this user
+        const existingConvo = await ConversationManager.load(userId, thread_ts);
+        if (existingConvo && existingConvo.getUserId() !== userId) {
           console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
           return;
         }
-        const status = existingConvo.getStatus();
-        if (status !== 'gathering' && status !== 'confirming' && status !== 'pending_approval' && status !== 'complete') {
-          // Cancelled/withdrawn — route to intake so botWasActive recovery can handle it
-          console.log(`[messages] Conversation in thread ${thread_ts} has status ${status}, routing to intake for possible recovery`);
-          await handleIntakeMessage({
-            userId,
-            userName: userId,
-            channelId: event.channel,
-            threadTs: thread_ts,
-            messageTs,
-            text,
-            say,
-            client,
-          });
-          return;
-        }
-        console.log(`[messages] Found active conversation in thread ${thread_ts}, routing to intake`);
+
+        console.log(`[messages] Routing channel thread reply to intake handler, thread=${thread_ts}`);
         await handleIntakeMessage({
           userId,
           userName: userId,
@@ -157,7 +95,6 @@ export function registerMessageHandler(app: App): void {
         });
       } catch (err) {
         console.error(`[messages] Error handling channel thread reply in ${thread_ts}:`, err);
-
         try {
           await say({
             text: "Something went wrong on my end. Your info hasn't been lost — you can try again, use the intake form, or tag someone from the marketing team in #marcoms-requests for help.",
