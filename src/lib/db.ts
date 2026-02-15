@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { randomUUID } from 'crypto';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -8,6 +9,11 @@ const pool = new Pool({
   min: 1,
   idleTimeoutMillis: 30000,
 });
+
+// --- Instance leader lock ---
+// During rolling deploys, two instances may run simultaneously.
+// Only the latest instance (leader) should process events.
+const INSTANCE_ID = randomUUID();
 
 // --- Schema init ---
 
@@ -60,7 +66,21 @@ export async function initDb(): Promise<void> {
       message_ts TEXT PRIMARY KEY,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS bot_instance (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      instance_id TEXT NOT NULL,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
+
+  // Register this instance as the active leader
+  await pool.query(
+    `INSERT INTO bot_instance (id, instance_id, started_at) VALUES (1, $1, NOW())
+     ON CONFLICT (id) DO UPDATE SET instance_id = $1, started_at = NOW()`,
+    [INSTANCE_ID]
+  );
+  console.log(`[db] Registered as leader instance: ${INSTANCE_ID.substring(0, 8)}`);
 
   // Clean up old dedup entries (older than 1 hour)
   await pool.query(`DELETE FROM message_dedup WHERE created_at < NOW() - INTERVAL '1 hour'`);
@@ -319,4 +339,21 @@ export async function isMessageProcessed(messageTs: string): Promise<boolean> {
   );
   // If INSERT returned a row, we claimed it (not processed before). If 0 rows, already exists.
   return result.rowCount === 0;
+}
+
+// --- Instance leader lock ---
+
+/** Returns true if this instance is the current leader (latest to start). */
+export async function isCurrentLeader(): Promise<boolean> {
+  try {
+    const result = await pool.query('SELECT instance_id FROM bot_instance WHERE id = 1');
+    return result.rows[0]?.instance_id === INSTANCE_ID;
+  } catch {
+    // Fail open — if DB check fails, assume we're leader to avoid dropping events
+    return true;
+  }
+}
+
+export function getInstanceId(): string {
+  return INSTANCE_ID;
 }
