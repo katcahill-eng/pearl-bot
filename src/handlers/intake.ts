@@ -37,6 +37,7 @@ const START_FRESH_PATTERNS = [
   /^start\s*fresh/i, /^new\s*(one|request)$/i, /^start\s*(a\s*)?new/i,
   /^fresh$/i, /^(start|stay)\s*here$/i,
   /^new\s*here$/i, /^brand\s*new$/i,
+  /^star\w?\s+fresh/i, /\bfresh\s+here\b/i,
 ];
 const SUBMIT_AS_IS_PATTERNS = [/^submit\s*as[\s-]*is$/i, /^just\s*submit$/i, /^submit\s*now$/i];
 const SKIP_PATTERNS = [/^skip$/i, /^skip\s*(this|it|that)$/i, /^pass$/i, /^next$/i, /^move\s*on$/i, /^n\/?a$/i];
