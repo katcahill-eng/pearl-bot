@@ -317,10 +317,12 @@ export async function handleIntakeMessage(opts: {
 
   // Deduplicate: skip if this exact message was already processed by another container
   // (happens during rolling deploys and when both app_mention and message events fire)
+  console.log(`[intake] handleIntakeMessage called: messageTs=${messageTs}, threadTs=${threadTs}, text="${text.substring(0, 60)}"`);
   if (await isMessageProcessed(messageTs)) {
     console.log(`[intake] Skipping duplicate message ${messageTs} (already processed by another container)`);
     return;
   }
+  console.log(`[intake] Message ${messageTs} claimed (not a duplicate), proceeding`);
 
   try {
     await handleIntakeMessageInner({ userId, userName, channelId, threadTs, text, say, client });
@@ -502,11 +504,14 @@ async function handleIntakeMessageInner(opts: {
           '__dup_existing_channel': existingConvo.channel_id,
           '__dup_existing_thread': existingConvo.thread_ts,
         } as unknown as Record<string, string>);
-        await dupConvo.save();
+        console.log(`[intake] SAVING dup_check conversation: threadTs=${threadTs}, step=dup_check:${existingConvo.id}`);
+        const savedId = await dupConvo.save();
+        console.log(`[intake] SAVED dup_check conversation: id=${savedId}, threadTs=${threadTs}`);
         await say({
           text: "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
           thread_ts: threadTs,
         });
+        console.log(`[intake] SENT dup_check prompt in thread ${threadTs}`);
         return;
       }
 

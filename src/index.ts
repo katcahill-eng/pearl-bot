@@ -22,6 +22,21 @@ app.error(async (error) => {
   console.error('[bolt] Unhandled error in Bolt event processing:', error);
 });
 
+// Global event middleware — logs ALL events before any handler runs
+app.use(async ({ body, next }) => {
+  const event = (body as any).event;
+  if (event) {
+    const type = event.type ?? 'unknown';
+    const subtype = event.subtype ?? '';
+    const user = event.user ?? '';
+    const ts = event.ts ?? '';
+    const threadTs = event.thread_ts ?? '';
+    const text = (event.text ?? '').substring(0, 60);
+    console.log(`[bolt-event] type=${type} subtype=${subtype} user=${user} ts=${ts} thread_ts=${threadTs} text="${text}"`);
+  }
+  await next();
+});
+
 registerMentionHandler(app);
 registerMessageHandler(app);
 registerApprovalHandler(app);
