@@ -65,6 +65,28 @@ const NUDGE_PATTERNS = [
   /^\?\??$/i,
 ];
 
+// --- Command-like message filter for recovery paths ---
+// Short messages that are commands/greetings/confirmations rather than actual intake content.
+// Used to filter thread history before sending to Claude for field extraction during recovery,
+// so Claude doesn't hallucinate fields from "yes", "here", "skip", etc.
+
+const COMMAND_LIKE_PATTERNS = [
+  ...CONFIRM_PATTERNS, ...CANCEL_PATTERNS, ...RESET_PATTERNS,
+  ...CONTINUE_PATTERNS, ...CONTINUE_THERE_PATTERNS, ...START_FRESH_PATTERNS,
+  ...SUBMIT_AS_IS_PATTERNS, ...SKIP_PATTERNS, ...DONE_PATTERNS,
+  ...IDK_PATTERNS, ...DISCUSS_PATTERNS, ...NUDGE_PATTERNS,
+];
+
+function isCommandLikeMessage(text: string): boolean {
+  const trimmed = text.trim();
+  // Very short messages (<=3 words) that match any command pattern
+  const wordCount = trimmed.split(/\s+/).length;
+  if (wordCount <= 4 && COMMAND_LIKE_PATTERNS.some((p) => p.test(trimmed))) {
+    return true;
+  }
+  return false;
+}
+
 // --- Project match search ---
 
 interface ProjectMatch {
@@ -186,10 +208,13 @@ export async function recoverConversationFromHistory(opts: {
   console.log(`[intake] Recovery: found bot messages in thread ${threadTs} (${messages.length} total messages)`);
 
   // 3. Extract user messages (strip @mentions, chronological order)
+  //    Filter out command-like messages (e.g. "here", "start fresh", "yes", "skip")
+  //    that aren't actual intake content — they confuse Claude's extraction.
   const userTexts = messages
     .filter((m: any) => !m.bot_id && !m.subtype && m.user === userId)
     .map((m: any) => (m.text ?? '').replace(/<@[A-Z0-9]+>/g, '').trim())
-    .filter((t: string) => t.length > 0);
+    .filter((t: string) => t.length > 0)
+    .filter((t: string) => !isCommandLikeMessage(t));
 
   if (userTexts.length === 0) {
     console.log('[intake] Recovery: no user messages found in thread');
@@ -435,7 +460,8 @@ async function handleIntakeMessageInner(opts: {
         const userTexts = (historyReplies.messages ?? [])
           .filter((m: any) => !m.bot_id && !('subtype' in m && m.subtype) && m.user === userId)
           .map((m: any) => (m.text ?? '').replace(/<@[A-Z0-9]+>/g, '').trim())
-          .filter((t: string) => t.length > 0);
+          .filter((t: string) => t.length > 0)
+          .filter((t: string) => !isCommandLikeMessage(t));
         if (userTexts.length > 0) {
           // Don't include the current message — it will be processed normally below
           const priorTexts = userTexts.slice(0, -1);
@@ -704,7 +730,7 @@ async function handleConfirmingState(
   // User is describing changes — re-interpret and update
   try {
     const extracted = await interpretMessage(text, convo.getCollectedData());
-    const changed = applyExtractedFields(convo, extracted);
+    const changed = applyExtractedFields(convo, extracted, true); // allowOverwrite — user is correcting fields
     await convo.save();
 
     if (changed > 0) {
@@ -1866,10 +1892,16 @@ async function askNextQuestion(
 /**
  * Apply extracted fields from Claude to the conversation.
  * Returns the number of fields that were newly applied.
+ *
+ * @param allowOverwrite - When false (default), already-populated fields are never
+ *   overwritten. This prevents Claude from clobbering previously-collected answers
+ *   with misinterpreted values from unrelated messages. Set to true only in the
+ *   confirming state where the user is explicitly correcting fields.
  */
 function applyExtractedFields(
   convo: ConversationManager,
   extracted: ExtractedFields,
+  allowOverwrite = false,
 ): number {
   let count = 0;
   const current = convo.getCollectedData();
@@ -1894,12 +1926,24 @@ function applyExtractedFields(
     if (Array.isArray(newValue) && newValue.length === 0) continue;
     if (typeof newValue === 'string' && newValue.trim() === '') continue;
 
-    // Check if this field is already populated with the same value
+    // Check if field is already populated
     const currentValue = current[field as keyof CollectedData];
-    if (Array.isArray(currentValue) && Array.isArray(newValue)) {
-      if (currentValue.length > 0 && JSON.stringify(currentValue) === JSON.stringify(newValue)) continue;
-    } else if (currentValue !== null && currentValue !== '' && currentValue === newValue) {
-      continue;
+    const currentlyPopulated = Array.isArray(currentValue)
+      ? currentValue.length > 0
+      : currentValue !== null && currentValue !== '';
+
+    if (currentlyPopulated) {
+      if (!allowOverwrite) {
+        // During gathering/recovery: never overwrite — prevents Claude from
+        // clobbering a real answer with a hallucinated one from a later message
+        continue;
+      }
+      // During confirming (allowOverwrite=true): skip if the value is identical
+      if (Array.isArray(currentValue) && Array.isArray(newValue)) {
+        if (JSON.stringify(currentValue) === JSON.stringify(newValue)) continue;
+      } else if (currentValue === newValue) {
+        continue;
+      }
     }
 
     convo.markFieldCollected(field as keyof CollectedData, newValue as string | string[]);
