@@ -1799,6 +1799,7 @@ function applyExtractedFields(
     const newValue = extracted[field];
     if (newValue === null || newValue === undefined) continue;
     if (Array.isArray(newValue) && newValue.length === 0) continue;
+    if (typeof newValue === 'string' && newValue.trim() === '') continue;
 
     // Check if this field is already populated with the same value
     const currentValue = current[field as keyof CollectedData];

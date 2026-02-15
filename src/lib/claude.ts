@@ -396,21 +396,27 @@ function parseExtractedFields(text: string): ExtractedFields {
 
     const parsed = JSON.parse(cleaned) as Partial<ExtractedFields>;
 
+    // Normalize empty strings to null — prevents overwriting populated fields
+    const str = (v: string | undefined | null): string | null =>
+      v != null && v.trim() !== '' ? v : null;
+    const arr = (v: string[] | undefined | null): string[] | null =>
+      Array.isArray(v) && v.length > 0 ? v : null;
+
     return {
-      requester_name: parsed.requester_name ?? null,
-      requester_department: parsed.requester_department ?? null,
-      target: parsed.target ?? null,
-      context_background: parsed.context_background ?? null,
-      desired_outcomes: parsed.desired_outcomes ?? null,
-      deliverables: parsed.deliverables ?? null,
-      due_date: parsed.due_date ?? null,
-      due_date_parsed: parsed.due_date_parsed ?? null,
-      approvals: parsed.approvals ?? null,
-      constraints: parsed.constraints ?? null,
-      supporting_links: parsed.supporting_links ?? null,
-      project_keywords: parsed.project_keywords ?? null,
+      requester_name: str(parsed.requester_name),
+      requester_department: str(parsed.requester_department),
+      target: str(parsed.target),
+      context_background: str(parsed.context_background),
+      desired_outcomes: str(parsed.desired_outcomes),
+      deliverables: arr(parsed.deliverables),
+      due_date: str(parsed.due_date),
+      due_date_parsed: str(parsed.due_date_parsed),
+      approvals: str(parsed.approvals),
+      constraints: str(parsed.constraints),
+      supporting_links: arr(parsed.supporting_links),
+      project_keywords: arr(parsed.project_keywords),
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
-      acknowledgment: parsed.acknowledgment ?? null,
+      acknowledgment: str(parsed.acknowledgment),
     };
   } catch {
     // If Claude returns unparseable text, return empty with zero confidence
