@@ -18,7 +18,7 @@ const CANCEL_PATTERNS = [/^cancel$/i, /^nevermind$/i, /^never\s*mind$/i, /^forge
 const RESET_PATTERNS = [/^start\s*over$/i, /^reset$/i, /^restart$/i, /^from\s*scratch$/i];
 const CONTINUE_PATTERNS = [/^continue$/i, /^resume$/i, /^pick\s*up$/i, /^keep\s*going$/i];
 const CONTINUE_THERE_PATTERNS = [/^continue\s*there$/i, /^go\s*there$/i, /^that\s*one$/i, /^use\s*that$/i];
-const START_FRESH_PATTERNS = [/^start\s*fresh$/i, /^new\s*one$/i, /^start\s*(a\s*)?new$/i, /^fresh$/i];
+const START_FRESH_PATTERNS = [/^start\s*fresh$/i, /^new\s*one$/i, /^start\s*(a\s*)?new$/i, /^fresh$/i, /^continue\s*here$/i, /^(start|stay)\s*here$/i, /^here$/i];
 const SUBMIT_AS_IS_PATTERNS = [/^submit\s*as[\s-]*is$/i, /^just\s*submit$/i, /^submit\s*now$/i];
 const SKIP_PATTERNS = [/^skip$/i, /^skip\s*this$/i, /^pass$/i, /^next$/i];
 const DONE_PATTERNS = [/^done$/i, /^that'?s?\s*all$/i, /^no\s*more$/i, /^nothing\s*(else)?$/i];
@@ -132,6 +132,14 @@ export async function recoverConversationFromHistory(opts: {
   client: WebClient;
 }): Promise<boolean> {
   const { userId, channelId, threadTs, say, client } = opts;
+
+  // 0. Skip recovery for very recent threads — these aren't lost conversations,
+  // they're timing issues (e.g., rolling deploys where both containers are briefly active)
+  const threadAgeSeconds = Date.now() / 1000 - parseFloat(threadTs);
+  if (threadAgeSeconds < 300) {
+    console.log(`[intake] Recovery: thread is only ${threadAgeSeconds.toFixed(0)}s old, skipping recovery`);
+    return false;
+  }
 
   // 1. Fetch thread history from Slack
   let messages: any[];

@@ -56,6 +56,17 @@ export async function initDb(): Promise<void> {
       slack_channel TEXT
     );
   `);
+
+  // Clean up stale conversations on startup — cancel any that are expired or
+  // have been stuck in active states for over 24 hours (covers deploy gaps)
+  const staleResult = await pool.query(
+    `UPDATE conversations SET status = 'cancelled', updated_at = NOW()
+     WHERE status IN ('gathering', 'confirming')
+       AND (expires_at < NOW() OR updated_at < NOW() - INTERVAL '24 hours')`
+  );
+  if (staleResult.rowCount && staleResult.rowCount > 0) {
+    console.log(`[db] Cleaned up ${staleResult.rowCount} stale conversation(s) on startup`);
+  }
 }
 
 // --- Types ---
