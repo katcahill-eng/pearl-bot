@@ -38,11 +38,18 @@ export function registerMessageHandler(app: App): void {
           });
         } catch { /* ignore debug DM failures */ }
 
-        const existingConvo = await ConversationManager.load(userId, thread_ts);
+        let existingConvo = await ConversationManager.load(userId, thread_ts);
+
+        // Retry after a short delay — handles race conditions during rolling deploys
+        // where the @mention handler on the old container just saved the conversation
         if (!existingConvo) {
-          // Conversation lost (e.g., deploy killed the container mid-flow).
-          // Cancel any stale conversations for this user so recovery
-          // doesn't trigger a duplicate-check loop.
+          console.log(`[messages] No conversation found for thread ${thread_ts}, retrying in 1s...`);
+          await new Promise((r) => setTimeout(r, 1000));
+          existingConvo = await ConversationManager.load(userId, thread_ts);
+        }
+
+        if (!existingConvo) {
+          // Conversation truly not found — cancel stale conversations, then try recovery
           const cancelled = await cancelStaleConversationsForUser(userId, thread_ts);
           if (cancelled > 0) {
             console.log(`[messages] Cancelled ${cancelled} stale conversation(s) for user ${userId} before recovery`);
@@ -129,7 +136,14 @@ export function registerMessageHandler(app: App): void {
     // --- DM handling below ---
     try {
       // Check if there's an active conversation in this thread — if so, route directly to intake
-      const existingConvo = await ConversationManager.load(userId, thread_ts);
+      let existingConvo = await ConversationManager.load(userId, thread_ts);
+
+      // Retry after a short delay for thread replies — handles race conditions during deploys
+      if (!existingConvo && isThreadReply) {
+        await new Promise((r) => setTimeout(r, 1000));
+        existingConvo = await ConversationManager.load(userId, thread_ts);
+      }
+
       if (existingConvo) {
         const status = existingConvo.getStatus();
         if (status === 'gathering' || status === 'confirming' || status === 'pending_approval' || status === 'complete') {
