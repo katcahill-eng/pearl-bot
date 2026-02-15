@@ -367,84 +367,109 @@ async function handleIntakeMessageInner(opts: {
       console.error('[intake] Failed to look up user profile for', userId, '— bot may need users:read scope. Error:', err);
     }
 
-    // Check for active conversation in another thread
-    const existingConvo = await getActiveConversationForUser(userId, threadTs);
-    console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
-    if (existingConvo) {
-      // Create a placeholder conversation to persist the duplicate check (survives restarts)
-      const dupConvo = new ConversationManager({
+    // Check if the bot was already active in this thread (conversation lost during deploy)
+    // If so, recreate silently and process the message — no welcome, no dup-check
+    let botWasActive = false;
+    try {
+      const replies = await client.conversations.replies({
+        channel: channelId,
+        ts: threadTs,
+        limit: 10,
+      });
+      botWasActive = replies.messages?.some((m) =>
+        (('bot_id' in m && m.bot_id) || ('subtype' in m && m.subtype === 'bot_message')) && m.ts !== threadTs
+      ) ?? false;
+    } catch (err) {
+      console.error('[intake] Failed to check thread history:', err);
+    }
+
+    if (botWasActive) {
+      console.log(`[intake] Bot was already active in thread ${threadTs} — recreating conversation silently`);
+      convo = new ConversationManager({ userId, userName: realName, channelId, threadTs });
+      if (realName !== 'Unknown') convo.markFieldCollected('requester_name', realName);
+      if (department) convo.markFieldCollected('requester_department', department);
+      await convo.save();
+      // Fall through to status handling below — process the message normally
+    } else {
+      // Check for active conversation in another thread
+      const existingConvo = await getActiveConversationForUser(userId, threadTs);
+      console.log(`[intake] activeConversationForUser → ${existingConvo ? `found id=${existingConvo.id} thread=${existingConvo.thread_ts}` : 'none'}`);
+      if (existingConvo) {
+        // Create a placeholder conversation to persist the duplicate check (survives restarts)
+        const dupConvo = new ConversationManager({
+          userId,
+          userName: realName,
+          channelId,
+          threadTs,
+        });
+        if (realName !== 'Unknown') {
+          dupConvo.markFieldCollected('requester_name', realName);
+        }
+        if (department) {
+          dupConvo.markFieldCollected('requester_department', department);
+        }
+        dupConvo.setCurrentStep(`dup_check:${existingConvo.id}`);
+        dupConvo.markFieldCollected('additional_details', {
+          '__dup_existing_channel': existingConvo.channel_id,
+          '__dup_existing_thread': existingConvo.thread_ts,
+        } as unknown as Record<string, string>);
+        await dupConvo.save();
+        await say({
+          text: "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
+          thread_ts: threadTs,
+        });
+        return;
+      }
+
+      convo = new ConversationManager({
         userId,
         userName: realName,
         channelId,
         threadTs,
       });
-      if (realName !== 'Unknown') {
-        dupConvo.markFieldCollected('requester_name', realName);
+
+      // Auto-fill fields from Slack profile
+      const nameFromSlack = realName !== 'Unknown';
+      if (nameFromSlack) {
+        convo.markFieldCollected('requester_name', realName);
       }
       if (department) {
-        dupConvo.markFieldCollected('requester_department', department);
+        convo.markFieldCollected('requester_department', department);
       }
-      dupConvo.setCurrentStep(`dup_check:${existingConvo.id}`);
-      dupConvo.markFieldCollected('additional_details', {
-        '__dup_existing_channel': existingConvo.channel_id,
-        '__dup_existing_thread': existingConvo.thread_ts,
-      } as unknown as Record<string, string>);
-      await dupConvo.save();
+      await convo.save();
+
+      // Send a warm welcome before processing their message (randomized)
+      console.log(`[intake] Sending welcome message in thread ${threadTs}`);
+      const welcomeMessages = [
+        "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._",
+        "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._",
+        "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._",
+        "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._",
+      ];
       await say({
-        text: "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
+        text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
         thread_ts: threadTs,
       });
+
+      // If we pre-filled name/department from Slack, confirm with the user before moving on
+      if (nameFromSlack || department) {
+        const namePart = nameFromSlack ? realName : null;
+        const deptPart = department ?? null;
+        let confirmMsg: string;
+        if (namePart && deptPart) {
+          confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+        } else if (namePart) {
+          confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+        } else {
+          confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+        }
+        await say({ text: confirmMsg, thread_ts: threadTs });
+      }
+
+      // Ask the first unanswered question and return — don't try to interpret the initial message as an answer
+      await askNextQuestion(convo, threadTs, say);
       return;
     }
-
-    convo = new ConversationManager({
-      userId,
-      userName: realName,
-      channelId,
-      threadTs,
-    });
-
-    // Auto-fill fields from Slack profile
-    const nameFromSlack = realName !== 'Unknown';
-    if (nameFromSlack) {
-      convo.markFieldCollected('requester_name', realName);
-    }
-    if (department) {
-      convo.markFieldCollected('requester_department', department);
-    }
-    await convo.save();
-
-    // Send a warm welcome before processing their message (randomized)
-    console.log(`[intake] Sending welcome message in thread ${threadTs}`);
-    const welcomeMessages = [
-      "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._",
-      "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._",
-      "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._",
-      "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._",
-    ];
-    await say({
-      text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
-      thread_ts: threadTs,
-    });
-
-    // If we pre-filled name/department from Slack, confirm with the user before moving on
-    if (nameFromSlack || department) {
-      const namePart = nameFromSlack ? realName : null;
-      const deptPart = department ?? null;
-      let confirmMsg: string;
-      if (namePart && deptPart) {
-        confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      } else if (namePart) {
-        confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      } else {
-        confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      }
-      await say({ text: confirmMsg, thread_ts: threadTs });
-    }
-
-    // Ask the first unanswered question and return — don't try to interpret the initial message as an answer
-    await askNextQuestion(convo, threadTs, say);
-    return;
   }
 
   const status = convo.getStatus();
