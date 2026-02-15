@@ -552,6 +552,94 @@ async function main() {
     },
   );
 
+  // ============================================================
+  // SCENARIO 7: Dup-check — "Here" triggers start fresh
+  // Reproduces the exact bug: user says "Here" (bare) after dup-check
+  // and the bot should recognize it as "start fresh here"
+  // ============================================================
+  await runScenario(
+    'Scenario 7: Dup-check — bare "Here" starts fresh',
+    [
+      'I need help with a project',
+      'Here',
+      'Homeowners in the Southeast',
+    ],
+    {
+      hasExistingConvo: true,
+      checks: ({ allBotMessages, convo }) => {
+        const step1 = allBotMessages[0];
+        printCheck(
+          'Step 1 shows dup-check',
+          step1.some((m) => m.text.includes('open request') || m.text.includes('continue there')),
+          step1[0]?.text.substring(0, 60),
+        );
+
+        // Step 2 ("Here"): Should trigger start-fresh, NOT "didn't catch that"
+        const step2 = allBotMessages[1];
+        printCheck(
+          'Step 2 "Here" triggers start-fresh (shows welcome)',
+          step2.some((m) => m.text.includes('Thanks for') || m.text.includes('Glad you') || m.text.includes('questions')),
+          step2[0]?.text.substring(0, 60),
+        );
+        printCheck(
+          'Step 2 "Here" does NOT show "didn\'t catch that"',
+          !step2.some((m) => m.text.includes("didn't quite catch") || m.text.includes("didn't catch")),
+          step2[0]?.text.substring(0, 60),
+        );
+        printCheck(
+          'Step 2 "Here" does NOT re-ask dup-check',
+          !step2.some((m) => m.text.includes('continue there') || m.text.includes('start fresh')),
+          step2[0]?.text.substring(0, 60),
+        );
+
+        // Step 3: Should handle the target answer normally
+        const step3 = allBotMessages[2];
+        printCheck(
+          'Step 3 processes target answer',
+          step3.length > 0 && !step3.some((m) => m.text.includes('open request')),
+          step3[0]?.text.substring(0, 60),
+        );
+
+        if (convo) {
+          const data = convo.getCollectedData();
+          printCheck(
+            'Final: target is populated',
+            data.target !== null && data.target !== '',
+            data.target ?? 'null',
+          );
+        }
+      },
+    },
+  );
+
+  // ============================================================
+  // SCENARIO 8: Dup-check — other "here" variations
+  // ============================================================
+  for (const hereVariant of ['here', 'this one', 'right here', 'in here']) {
+    await runScenario(
+      `Scenario 8: Dup-check — "${hereVariant}" starts fresh`,
+      [
+        'I need help with something',
+        hereVariant,
+      ],
+      {
+        hasExistingConvo: true,
+        checks: ({ allBotMessages }) => {
+          const step2 = allBotMessages[1];
+          printCheck(
+            `"${hereVariant}" triggers start-fresh`,
+            step2.some((m) => m.text.includes('Thanks for') || m.text.includes('Glad you') || m.text.includes('questions')),
+            step2[0]?.text.substring(0, 60),
+          );
+          printCheck(
+            `"${hereVariant}" does NOT show "didn't catch"`,
+            !step2.some((m) => m.text.includes("didn't quite catch") || m.text.includes("didn't catch")),
+          );
+        },
+      },
+    );
+  }
+
   // --- Summary ---
   console.log(`\n${COLORS.bright}${'='.repeat(60)}${COLORS.reset}`);
   console.log(`${COLORS.green}  PASSED: ${passCount.pass}${COLORS.reset}`);
