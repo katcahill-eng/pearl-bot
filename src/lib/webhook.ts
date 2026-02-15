@@ -1,4 +1,28 @@
 import http from 'http';
+
+// --- In-memory ring buffer for recent logs (readable via GET /debug/logs) ---
+const LOG_BUFFER_SIZE = 500;
+const logBuffer: string[] = [];
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = (...args: any[]) => {
+  const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+  logBuffer.push(`${new Date().toISOString()} [LOG] ${msg}`);
+  if (logBuffer.length > LOG_BUFFER_SIZE) logBuffer.shift();
+  originalConsoleLog.apply(console, args);
+};
+
+console.error = (...args: any[]) => {
+  const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+  logBuffer.push(`${new Date().toISOString()} [ERR] ${msg}`);
+  if (logBuffer.length > LOG_BUFFER_SIZE) logBuffer.shift();
+  originalConsoleError.apply(console, args);
+};
+
+export function getRecentLogs(): string[] {
+  return [...logBuffer];
+}
 import type { WebClient } from '@slack/web-api';
 import { config } from './config';
 import { generateProjectName, type CollectedData } from './conversation';
@@ -38,9 +62,11 @@ export function startWebhookServer(opts: {
 
   const server = http.createServer(async (req, res) => {
     try {
-      // Only accept POST /webhook/intake
       if (req.method === 'POST' && req.url === '/webhook/intake') {
         await handleIntakeWebhook(req, res, slackClient);
+      } else if (req.method === 'GET' && req.url === '/debug/logs') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(getRecentLogs().join('\n'));
       } else {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));
