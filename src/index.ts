@@ -44,10 +44,23 @@ registerPostSubmissionActions(app);
 
 const TIMEOUT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
+// Graceful shutdown — disconnect from Slack so events stop being routed to this instance.
+// Critical for rolling deploys: without this, Slack splits events between old and new instances.
+process.on('SIGTERM', async () => {
+  console.log('[shutdown] SIGTERM received, disconnecting from Slack...');
+  try {
+    await app.stop();
+    console.log('[shutdown] Disconnected from Slack. Exiting.');
+  } catch (err) {
+    console.error('[shutdown] Error stopping app:', err);
+  }
+  process.exit(0);
+});
+
 (async () => {
   await initDb();
   await app.start();
-  console.log('⚡ MarcomsBot is running in socket mode (BUILD 2026-02-15T1530 — simplified-routing)');
+  console.log('⚡ MarcomsBot is running in socket mode (BUILD 2026-02-15T1600 — sigterm-handler)');
 
   // Start periodic timeout check
   setInterval(() => {
