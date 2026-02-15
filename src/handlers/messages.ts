@@ -8,6 +8,14 @@ import { cancelStaleConversationsForUser } from '../lib/db';
 
 export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
+    // Debug: log every raw message event to diagnose routing issues
+    const rawText = 'text' in event ? (event.text ?? '') : '';
+    const rawUser = 'user' in event ? event.user : 'no-user';
+    const rawThreadTs = 'thread_ts' in event ? event.thread_ts : undefined;
+    const rawSubtype = 'subtype' in event ? event.subtype : undefined;
+    const rawChannelType = 'channel_type' in event ? event.channel_type : undefined;
+    console.log(`[messages:raw] event: text="${rawText.substring(0, 40)}" user=${rawUser} thread_ts=${rawThreadTs ?? 'NONE'} subtype=${rawSubtype ?? 'NONE'} channel_type=${rawChannelType ?? 'NONE'} channel=${'channel' in event ? event.channel : 'NONE'}`);
+
     if (event.subtype) return; // Skip edits, deletes, bot messages, etc.
     if ('bot_id' in event && event.bot_id) return; // Skip bot messages without subtype
 
