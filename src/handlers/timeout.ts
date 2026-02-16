@@ -4,6 +4,7 @@ import {
   getAutoCancelConversations,
   markTimeoutNotified,
   cancelConversation,
+  logConversationMetrics,
   type Conversation,
 } from '../lib/db';
 
@@ -17,6 +18,8 @@ export async function checkTimeouts(client: WebClient): Promise<void> {
     const autoCancel = await getAutoCancelConversations();
     for (const convo of autoCancel) {
       await cancelConversation(convo.id);
+      const durationSeconds = convo.created_at ? Math.round((Date.now() - new Date(convo.created_at).getTime()) / 1000) : null;
+      logConversationMetrics({ conversationId: convo.id, userId: convo.user_id, finalStatus: 'timeout', durationSeconds, classification: convo.classification }).catch(() => {});
       console.log(`[timeout] Auto-cancelled conversation ${convo.id} for user ${convo.user_id}`);
     }
   } catch (err) {

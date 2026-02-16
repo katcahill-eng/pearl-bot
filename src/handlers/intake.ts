@@ -6,7 +6,7 @@ import { interpretMessage, classifyRequest, classifyRequestType, generateFollowU
 import { generateFieldGuidance } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
-import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread } from '../lib/db';
+import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
 import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
 import { searchProjects } from '../lib/db';
@@ -615,6 +615,9 @@ async function handleConfirmingState(
   if (matchesAny(text, CANCEL_PATTERNS)) {
     convo.setStatus('cancelled');
     await convo.save();
+    if (convo.getId()) {
+      logConversationMetrics({ conversationId: convo.getId()!, userId: convo.getUserId(), finalStatus: 'cancelled', durationSeconds: convo.getDurationSeconds(), classification: convo.getClassification() }).catch(() => {});
+    }
     await say({
       text: "No problem — request cancelled. If you change your mind, just start a new conversation!",
       thread_ts: threadTs,
@@ -685,6 +688,11 @@ async function handleConfirmingState(
     // Set status to pending_approval
     convo.setStatus('pending_approval');
     await convo.save();
+
+    // Log conversation metrics
+    if (convo.getId()) {
+      logConversationMetrics({ conversationId: convo.getId()!, userId: convo.getUserId(), finalStatus: 'pending_approval', durationSeconds: convo.getDurationSeconds(), classification: convo.getClassification() }).catch(() => {});
+    }
 
     // Tell requester it's submitted for review
     await say({
@@ -799,6 +807,9 @@ async function handleDuplicateCheckResponse(
   if (matchesAny(text, CONTINUE_THERE_PATTERNS)) {
     convo.setStatus('cancelled');
     await convo.save();
+    if (convo.getId()) {
+      logConversationMetrics({ conversationId: convo.getId()!, userId: convo.getUserId(), finalStatus: 'cancelled', durationSeconds: convo.getDurationSeconds(), classification: convo.getClassification() }).catch(() => {});
+    }
     const tsNoDot = existingThreadTs.replace('.', '');
     await say({
       text: `No problem! Here's your open conversation: https://slack.com/archives/${existingChannelId}/p${tsNoDot}\nJust reply there to pick up where you left off.`,
@@ -906,6 +917,9 @@ async function handleGatheringState(
   if (matchesAny(text, CANCEL_PATTERNS)) {
     convo.setStatus('cancelled');
     await convo.save();
+    if (convo.getId()) {
+      logConversationMetrics({ conversationId: convo.getId()!, userId: convo.getUserId(), finalStatus: 'cancelled', durationSeconds: convo.getDurationSeconds(), classification: convo.getClassification() }).catch(() => {});
+    }
     await say({
       text: "No problem — request cancelled. If you change your mind, just start a new conversation!",
       thread_ts: threadTs,
@@ -1118,6 +1132,7 @@ async function handleGatheringState(
       if (isSubstantive && isRequiredField) {
         // Claude didn't extract it, but the user clearly answered — store the raw text
         console.log(`[intake] Claude returned 0 fields but message looks substantive — storing raw text for field=${step}`);
+        logUnrecognizedMessage({ conversationId: convo.getId(), userMessage: text, currentStep: step ?? null, confidence: extracted.confidence, fieldsExtracted: 0, rawFallbackUsed: true }).catch(() => {});
         if (step === 'deliverables' || step === 'supporting_links') {
           convo.markFieldCollected(step as keyof CollectedData, [text]);
         } else {
@@ -1134,6 +1149,7 @@ async function handleGatheringState(
         }
       } else {
         console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${step}, substantive=${isSubstantive})`);
+        logUnrecognizedMessage({ conversationId: convo.getId(), userMessage: text, currentStep: step ?? null, confidence: extracted.confidence, fieldsExtracted: 0, rawFallbackUsed: false }).catch(() => {});
         await say({
           text: "I didn't quite catch that. Could you rephrase?",
           thread_ts: threadTs,
@@ -1142,6 +1158,11 @@ async function handleGatheringState(
         await askNextQuestion(convo, threadTs, say);
       }
       return;
+    }
+
+    // Log low-confidence extractions for analysis
+    if (extracted.confidence < 0.3) {
+      logUnrecognizedMessage({ conversationId: convo.getId(), userMessage: text, currentStep: convo.getCurrentStep(), confidence: extracted.confidence, fieldsExtracted: fieldsApplied, rawFallbackUsed: false }).catch(() => {});
     }
 
     // Build a contextual acknowledgment of what was just captured

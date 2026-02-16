@@ -1,5 +1,5 @@
 import http from 'http';
-import { getRecentErrors } from './db';
+import { getRecentErrors, getImprovements, getRecentUnrecognizedMessages, getConversationMetricsSummary } from './db';
 
 // --- In-memory ring buffer for recent logs (readable via GET /debug/logs) ---
 const LOG_BUFFER_SIZE = 2000;
@@ -101,6 +101,55 @@ export function startWebhookServer(opts: {
           );
           res.end(`=== ERRORS (last 24h, ${errors.length} unique) ===\n\n${lines.join('\n')}`);
         }
+      } else if (req.method === 'GET' && req.url?.startsWith('/debug/improvements')) {
+        const improvements = await getImprovements();
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        if (improvements.length === 0) {
+          res.end('No improvement suggestions yet.');
+        } else {
+          const grouped: Record<string, typeof improvements> = {};
+          for (const imp of improvements) {
+            (grouped[imp.status] ??= []).push(imp);
+          }
+          const sections = Object.entries(grouped).map(([status, items]) => {
+            const lines = items.map((i) =>
+              `  [#${i.id}] [${i.category}] ${i.summary}\n    ${i.details.substring(0, 200)}${i.details.length > 200 ? '...' : ''}\n    Created: ${i.created_at}${i.applied_by ? `\n    Applied by: ${i.applied_by} at ${i.applied_at}` : ''}`
+            );
+            return `=== ${status.toUpperCase()} (${items.length}) ===\n${lines.join('\n\n')}`;
+          });
+          res.end(sections.join('\n\n'));
+        }
+      } else if (req.method === 'GET' && req.url?.startsWith('/debug/metrics')) {
+        const [metrics, unrecognized] = await Promise.all([
+          getConversationMetricsSummary(7),
+          getRecentUnrecognizedMessages(7, 50),
+        ]);
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        const lines: string[] = [
+          `=== CONVERSATION METRICS (last 7 days) ===`,
+          `Total conversations: ${metrics.total}`,
+          `Avg duration: ${metrics.avgDurationSeconds ? `${Math.round(metrics.avgDurationSeconds)}s` : 'N/A'}`,
+          `By status: ${JSON.stringify(metrics.byStatus)}`,
+          `By classification: ${JSON.stringify(metrics.byClassification)}`,
+          '',
+          `=== UNRECOGNIZED MESSAGES (last 7 days, ${unrecognized.length} total) ===`,
+        ];
+        // Group by step
+        const byStep: Record<string, number> = {};
+        for (const m of unrecognized) {
+          const step = m.current_step ?? 'unknown';
+          byStep[step] = (byStep[step] ?? 0) + 1;
+        }
+        for (const [step, count] of Object.entries(byStep)) {
+          lines.push(`  ${step}: ${count}`);
+        }
+        if (unrecognized.length > 0) {
+          lines.push('', 'Recent examples:');
+          for (const m of unrecognized.slice(0, 10)) {
+            lines.push(`  [${m.current_step ?? '?'}] "${m.user_message.substring(0, 80)}" (confidence=${m.confidence}, fallback=${m.raw_fallback_used})`);
+          }
+        }
+        res.end(lines.join('\n'));
       } else {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));

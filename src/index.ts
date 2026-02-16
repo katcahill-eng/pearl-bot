@@ -7,8 +7,9 @@ import { registerApprovalHandler } from './handlers/approval';
 import { registerPostSubmissionActions } from './handlers/intake';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
-import { initDb, getInstanceId, logError, cleanOldErrors } from './lib/db';
+import { initDb, getInstanceId, logError, cleanOldErrors, cleanOldMetrics } from './lib/db';
 import { trackError } from './lib/error-tracker';
+import { runSelfAnalysis } from './lib/self-analysis';
 
 const app = new App({
   token: config.slackBotToken,
@@ -79,6 +80,14 @@ process.on('SIGTERM', async () => {
       console.error('[error-tracker] Cleanup failed:', err);
     });
   }, ERROR_CLEANUP_INTERVAL_MS);
+
+  // Self-analysis: 5-minute delay (skip deploy churn), then every 24 hours
+  setTimeout(() => {
+    runSelfAnalysis().catch((err) => console.error('[self-analysis] Initial run failed:', err));
+    setInterval(() => {
+      runSelfAnalysis().catch((err) => console.error('[self-analysis] Scheduled run failed:', err));
+    }, 24 * 60 * 60 * 1000);
+  }, 5 * 60 * 1000);
 
   // Start webhook HTTP server for form submissions
   startWebhookServer({ port: config.webhookPort, slackClient: app.client });

@@ -87,6 +87,39 @@ export async function initDb(): Promise<void> {
       instance_id TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS unrecognized_messages (
+      id SERIAL PRIMARY KEY,
+      conversation_id INTEGER,
+      user_message TEXT NOT NULL,
+      current_step TEXT,
+      confidence REAL,
+      fields_extracted INTEGER NOT NULL DEFAULT 0,
+      raw_fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_metrics (
+      id SERIAL PRIMARY KEY,
+      conversation_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      final_status TEXT NOT NULL,
+      duration_seconds INTEGER,
+      classification TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS bot_improvements (
+      id SERIAL PRIMARY KEY,
+      category TEXT NOT NULL CHECK(category IN ('pattern','prompt','flow','bug')),
+      summary TEXT NOT NULL,
+      details TEXT NOT NULL,
+      evidence JSONB DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','applied','dismissed')),
+      applied_by TEXT,
+      applied_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   // Register this instance as the active leader
@@ -445,4 +478,182 @@ export async function cleanOldErrors(daysToKeep = 7): Promise<number> {
     `DELETE FROM error_log WHERE created_at < NOW() - INTERVAL '${daysToKeep} days'`
   );
   return result.rowCount ?? 0;
+}
+
+// --- Self-improvement tracking ---
+
+/** Log a message where Claude couldn't extract fields. */
+export async function logUnrecognizedMessage(data: {
+  conversationId?: number;
+  userMessage: string;
+  currentStep: string | null;
+  confidence: number;
+  fieldsExtracted: number;
+  rawFallbackUsed: boolean;
+}): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO unrecognized_messages (conversation_id, user_message, current_step, confidence, fields_extracted, raw_fallback_used)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [data.conversationId ?? null, data.userMessage, data.currentStep, data.confidence, data.fieldsExtracted, data.rawFallbackUsed]
+    );
+  } catch (err) {
+    console.error('[db] Failed to log unrecognized message:', err);
+  }
+}
+
+/** Log conversation outcome metrics. */
+export async function logConversationMetrics(data: {
+  conversationId: number;
+  userId: string;
+  finalStatus: string;
+  durationSeconds: number | null;
+  classification: string | null;
+}): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO conversation_metrics (conversation_id, user_id, final_status, duration_seconds, classification)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [data.conversationId, data.userId, data.finalStatus, data.durationSeconds, data.classification]
+    );
+  } catch (err) {
+    console.error('[db] Failed to log conversation metrics:', err);
+  }
+}
+
+/** Create a bot improvement suggestion. */
+export async function createImprovement(data: {
+  category: 'pattern' | 'prompt' | 'flow' | 'bug';
+  summary: string;
+  details: string;
+  evidence?: Record<string, unknown>;
+}): Promise<number> {
+  const result = await pool.query(
+    `INSERT INTO bot_improvements (category, summary, details, evidence)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id`,
+    [data.category, data.summary, data.details, JSON.stringify(data.evidence ?? {})]
+  );
+  return result.rows[0].id;
+}
+
+/** Get improvements filtered by status. */
+export async function getImprovements(status?: 'pending' | 'applied' | 'dismissed'): Promise<{
+  id: number;
+  category: string;
+  summary: string;
+  details: string;
+  evidence: Record<string, unknown>;
+  status: string;
+  applied_by: string | null;
+  applied_at: string | null;
+  created_at: string;
+}[]> {
+  const query = status
+    ? `SELECT * FROM bot_improvements WHERE status = $1 ORDER BY created_at DESC LIMIT 50`
+    : `SELECT * FROM bot_improvements ORDER BY created_at DESC LIMIT 50`;
+  const params = status ? [status] : [];
+  const result = await pool.query(query, params);
+  return result.rows.map((r: any) => ({
+    id: r.id,
+    category: r.category,
+    summary: r.summary,
+    details: r.details,
+    evidence: r.evidence ?? {},
+    status: r.status,
+    applied_by: r.applied_by,
+    applied_at: r.applied_at,
+    created_at: r.created_at,
+  }));
+}
+
+/** Update an improvement's status. */
+export async function updateImprovementStatus(
+  id: number,
+  status: 'applied' | 'dismissed',
+  appliedBy?: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE bot_improvements SET status = $1, applied_by = $2, applied_at = NOW() WHERE id = $3`,
+    [status, appliedBy ?? null, id]
+  );
+}
+
+/** Get recent unrecognized messages for analysis. */
+export async function getRecentUnrecognizedMessages(days = 7, limit = 100): Promise<{
+  user_message: string;
+  current_step: string | null;
+  confidence: number;
+  fields_extracted: number;
+  raw_fallback_used: boolean;
+  created_at: string;
+}[]> {
+  const result = await pool.query(
+    `SELECT user_message, current_step, confidence, fields_extracted, raw_fallback_used, created_at
+     FROM unrecognized_messages
+     WHERE created_at > NOW() - INTERVAL '${days} days'
+     ORDER BY created_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return result.rows;
+}
+
+/** Get conversation metrics summary for analysis. */
+export async function getConversationMetricsSummary(days = 7): Promise<{
+  total: number;
+  byStatus: Record<string, number>;
+  avgDurationSeconds: number | null;
+  byClassification: Record<string, number>;
+}> {
+  const statusResult = await pool.query(
+    `SELECT final_status, COUNT(*) as cnt
+     FROM conversation_metrics
+     WHERE created_at > NOW() - INTERVAL '${days} days'
+     GROUP BY final_status`
+  );
+  const durationResult = await pool.query(
+    `SELECT AVG(duration_seconds) as avg_dur
+     FROM conversation_metrics
+     WHERE created_at > NOW() - INTERVAL '${days} days'
+       AND duration_seconds IS NOT NULL`
+  );
+  const classResult = await pool.query(
+    `SELECT classification, COUNT(*) as cnt
+     FROM conversation_metrics
+     WHERE created_at > NOW() - INTERVAL '${days} days'
+       AND classification IS NOT NULL
+     GROUP BY classification`
+  );
+
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  for (const row of statusResult.rows) {
+    const count = parseInt(row.cnt, 10);
+    byStatus[row.final_status] = count;
+    total += count;
+  }
+
+  const byClassification: Record<string, number> = {};
+  for (const row of classResult.rows) {
+    byClassification[row.classification] = parseInt(row.cnt, 10);
+  }
+
+  return {
+    total,
+    byStatus,
+    avgDurationSeconds: durationResult.rows[0]?.avg_dur ? parseFloat(durationResult.rows[0].avg_dur) : null,
+    byClassification,
+  };
+}
+
+/** Clean up old metrics data. */
+export async function cleanOldMetrics(daysToKeep = 30): Promise<number> {
+  const r1 = await pool.query(
+    `DELETE FROM unrecognized_messages WHERE created_at < NOW() - INTERVAL '${daysToKeep} days'`
+  );
+  const r2 = await pool.query(
+    `DELETE FROM conversation_metrics WHERE created_at < NOW() - INTERVAL '${daysToKeep} days'`
+  );
+  return (r1.rowCount ?? 0) + (r2.rowCount ?? 0);
 }

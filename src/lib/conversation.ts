@@ -100,6 +100,7 @@ export class ConversationManager {
   private mondayItemId: string | null;
   private triageMessageTs: string | null;
   private triageChannelId: string | null;
+  private createdAt: string | null;
 
   constructor(opts: {
     id?: number;
@@ -114,6 +115,7 @@ export class ConversationManager {
     mondayItemId?: string | null;
     triageMessageTs?: string | null;
     triageChannelId?: string | null;
+    createdAt?: string | null;
   }) {
     this.id = opts.id;
     this.userId = opts.userId;
@@ -127,6 +129,7 @@ export class ConversationManager {
     this.mondayItemId = opts.mondayItemId ?? null;
     this.triageMessageTs = opts.triageMessageTs ?? null;
     this.triageChannelId = opts.triageChannelId ?? null;
+    this.createdAt = opts.createdAt ?? null;
   }
 
   /** Load an existing conversation from the DB, or return undefined. */
@@ -147,6 +150,7 @@ export class ConversationManager {
       mondayItemId: row.monday_item_id ?? null,
       triageMessageTs: row.triage_message_ts ?? null,
       triageChannelId: row.triage_channel_id ?? null,
+      createdAt: row.created_at ?? null,
     });
   }
 
@@ -198,6 +202,18 @@ export class ConversationManager {
 
   getTriageChannelId(): string | null {
     return this.triageChannelId;
+  }
+
+  getCreatedAt(): string | null {
+    return this.createdAt;
+  }
+
+  /** Compute duration in seconds from creation to now. */
+  getDurationSeconds(): number | null {
+    if (!this.createdAt) return null;
+    const created = new Date(this.createdAt).getTime();
+    if (isNaN(created)) return null;
+    return Math.round((Date.now() - created) / 1000);
   }
 
   // --- Follow-up helpers ---
