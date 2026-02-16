@@ -1045,11 +1045,16 @@ async function handleGatheringState(
   }
 
   // Interpret the message via Claude
+  const preData = convo.getCollectedData();
   console.log(`[intake] Calling Claude to interpret: "${text.substring(0, 80)}" for convo threadTs=${convo.getThreadTs()}, replyThreadTs=${threadTs}`);
+  console.log(`[intake] PRE-Claude state: target=${preData.target ? 'SET' : 'null'}, context=${preData.context_background ? 'SET' : 'null'}, outcomes=${preData.desired_outcomes ? '"' + preData.desired_outcomes.substring(0, 40) + '"' : 'null'}, deliverables=${JSON.stringify(preData.deliverables)}, due_date=${preData.due_date ?? 'null'}`);
   try {
     const extracted = await interpretMessage(text, convo.getCollectedData(), undefined, convo.getCurrentStep());
     console.log(`[intake] Claude response: confidence=${extracted.confidence}, department=${extracted.requester_department}`);
+    console.log(`[intake] Claude extracted: outcomes=${extracted.desired_outcomes ? '"' + extracted.desired_outcomes.substring(0, 40) + '"' : 'null'}, deliverables=${JSON.stringify(extracted.deliverables)}, target=${extracted.target ? '"' + extracted.target.substring(0, 30) + '"' : 'null'}, context=${extracted.context_background ? '"' + extracted.context_background.substring(0, 30) + '"' : 'null'}`);
     const fieldsApplied = applyExtractedFields(convo, extracted);
+    const postData = convo.getCollectedData();
+    console.log(`[intake] POST-apply state (${fieldsApplied} fields): outcomes=${postData.desired_outcomes ? '"' + postData.desired_outcomes.substring(0, 40) + '"' : 'null'}, deliverables=${JSON.stringify(postData.deliverables)}, due_date=${postData.due_date ?? 'null'}`);
 
     if (fieldsApplied === 0) {
       console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${convo.getCurrentStep()})`);
@@ -1890,6 +1895,8 @@ async function askNextQuestion(
 ): Promise<void> {
   const next = convo.getNextQuestion();
   if (!next) return;
+
+  console.log(`[intake] askNextQuestion → field=${next.field}, step=${convo.getCurrentStep()}`);
 
   await convo.save();
 

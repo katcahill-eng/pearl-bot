@@ -257,7 +257,11 @@ export class ConversationManager {
       if (!isFieldPopulated(this.collectedData, field)) {
         this.currentStep = field;
 
-        // Use context-aware prompt for due_date
+        // Use context-aware prompts for certain fields
+        if (field === 'deliverables') {
+          const deliverablesPrompt = this.getDeliverablesPrompt();
+          return { field, question: deliverablesPrompt.question, example: deliverablesPrompt.example };
+        }
         if (field === 'due_date') {
           const dueDatePrompt = this.getDueDatePrompt();
           return { field, question: dueDatePrompt.question, example: dueDatePrompt.example };
@@ -268,6 +272,51 @@ export class ConversationManager {
       }
     }
     return null;
+  }
+
+  /** Generate a context-aware deliverables prompt based on collected data. */
+  private getDeliverablesPrompt(): { question: string; example: string } {
+    const context = (this.collectedData.context_background ?? '').toLowerCase();
+    const target = (this.collectedData.target ?? '').toLowerCase();
+    const outcomes = (this.collectedData.desired_outcomes ?? '').toLowerCase();
+    const combined = `${context} ${target} ${outcomes}`;
+
+    if (combined.includes('webinar')) {
+      return {
+        question: 'What deliverable(s) do you need?',
+        example: 'e.g., "presentation deck, registration page, 3 promo emails, social posts, recording edit" — list as many as you need',
+      };
+    }
+
+    if (combined.includes('conference') || combined.includes('trade show') || combined.includes('expo')) {
+      return {
+        question: 'What deliverable(s) do you need?',
+        example: 'e.g., "booth graphics, 1 one-pager, social posts, presentation deck, badge scan follow-up email" — list as many as you need',
+      };
+    }
+
+    if (combined.includes('dinner') || combined.includes('insider')) {
+      return {
+        question: 'What deliverable(s) do you need?',
+        example: 'e.g., "invitation email, table cards, name tags, follow-up email, event brief" — list as many as you need',
+      };
+    }
+
+    if (combined.includes('email') || combined.includes('newsletter')) {
+      return {
+        question: 'What deliverable(s) do you need?',
+        example: 'e.g., "email template, subject line options, landing page, social teaser" — list as many as you need',
+      };
+    }
+
+    if (combined.includes('launch') || combined.includes('campaign')) {
+      return {
+        question: 'What deliverable(s) do you need?',
+        example: 'e.g., "landing page, 3 email templates, social posts, one-pager, press release" — list as many as you need',
+      };
+    }
+
+    return FIELD_PROMPTS.deliverables;
   }
 
   /** Generate a context-aware due date prompt based on collected data. */
