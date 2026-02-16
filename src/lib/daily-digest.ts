@@ -113,18 +113,16 @@ export async function sendDailyDigest(client: WebClient): Promise<void> {
     sections.push(`  ${dismissed.length} dismissed in last 24h`);
   }
 
-  // --- Footer ---
+  // --- Footer (clean days only) ---
   const isClean =
     errors.length === 0 &&
     unrecognized.length === 0 &&
     pending.length === 0 &&
     abandoned.length === 0;
 
-  sections.push('');
   if (isClean) {
-    sections.push('_All clear — no action needed._ :seedling:');
-  } else {
-    sections.push('_No action needed — I\'ll handle these automatically next time you work on pearl-bot._');
+    sections.push('');
+    sections.push('_All clear._ :seedling:');
   }
 
   const message = sections.join('\n');
