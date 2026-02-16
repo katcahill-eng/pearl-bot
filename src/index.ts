@@ -10,6 +10,7 @@ import { startWebhookServer } from './lib/webhook';
 import { initDb, getInstanceId, logError, cleanOldErrors, cleanOldMetrics } from './lib/db';
 import { trackError } from './lib/error-tracker';
 import { runSelfAnalysis } from './lib/self-analysis';
+import { sendDailyDigest } from './lib/daily-digest';
 
 const app = new App({
   token: config.slackBotToken,
@@ -88,6 +89,21 @@ process.on('SIGTERM', async () => {
       runSelfAnalysis().catch((err) => console.error('[self-analysis] Scheduled run failed:', err));
     }, 24 * 60 * 60 * 1000);
   }, 5 * 60 * 1000);
+
+  // Daily digest: check every 60s if it's 9:00am ET, send once per day
+  let lastDigestDate = '';
+  setInterval(() => {
+    const now = new Date();
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const todayStr = et.toISOString().split('T')[0];
+    if (et.getHours() === 9 && et.getMinutes() === 0 && lastDigestDate !== todayStr) {
+      lastDigestDate = todayStr;
+      sendDailyDigest(app.client).catch((err) => {
+        console.error('[daily-digest] Failed to send digest:', err);
+        trackError(err, app.client, { source: 'daily-digest' });
+      });
+    }
+  }, 60_000);
 
   // Start webhook HTTP server for form submissions
   startWebhookServer({ port: config.webhookPort, slackClient: app.client });

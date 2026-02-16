@@ -1,5 +1,6 @@
 import http from 'http';
 import { getRecentErrors, getImprovements, updateImprovementStatus, getRecentUnrecognizedMessages, getConversationMetricsSummary } from './db';
+import { sendDailyDigest } from './daily-digest';
 
 // --- In-memory ring buffer for recent logs (readable via GET /debug/logs) ---
 const LOG_BUFFER_SIZE = 2000;
@@ -101,6 +102,10 @@ export function startWebhookServer(opts: {
           );
           res.end(`=== ERRORS (last 24h, ${errors.length} unique) ===\n\n${lines.join('\n')}`);
         }
+      } else if (req.method === 'POST' && req.url === '/debug/digest') {
+        await sendDailyDigest(slackClient);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: 'Digest sent' }));
       } else if (req.method === 'POST' && req.url?.match(/^\/debug\/improvements\/(\d+)\/(dismiss|apply)$/)) {
         const match = req.url.match(/^\/debug\/improvements\/(\d+)\/(dismiss|apply)$/);
         const id = parseInt(match![1], 10);
