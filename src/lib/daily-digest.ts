@@ -117,14 +117,15 @@ export async function sendDailyDigest(client: WebClient): Promise<void> {
   const isClean =
     errors.length === 0 &&
     unrecognized.length === 0 &&
-    pending.length === 0;
+    pending.length === 0 &&
+    abandoned.length === 0;
 
   sections.push('');
-  sections.push(
-    isClean
-      ? '_All clear — no action needed._ :seedling:'
-      : '_Review pending items when you have a moment._',
-  );
+  if (isClean) {
+    sections.push('_All clear — no action needed._ :seedling:');
+  } else {
+    sections.push('_These items will be reviewed automatically in your next Claude Code session with pearl-bot._');
+  }
 
   const message = sections.join('\n');
 
