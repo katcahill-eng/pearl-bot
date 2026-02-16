@@ -1003,21 +1003,15 @@ async function handleGatheringState(
   // --- IDK detection (works in both gathering and follow-up) ---
   if (matchesAny(text, IDK_PATTERNS)) {
     if (convo.isInFollowUp()) {
-      const calendarNote = config.marketingLeadCalendarUrl
-        ? ` Or <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
-        : '';
       await say({
-        text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation, or give your best guess and the team will refine it.${calendarNote}`,
+        text: `No worries — you can say *skip* to move on, or give your best guess and the team will refine it.`,
         thread_ts: threadTs,
       });
     } else {
       const currentField = convo.getCurrentStep();
       if (currentField) {
         const guidance = await generateFieldGuidance(currentField, convo.getCollectedData());
-        const calendarNote = config.marketingLeadCalendarUrl
-          ? `\n\n_Or if you'd like to talk it through, <${config.marketingLeadCalendarUrl}|schedule time with marketing>._`
-          : '';
-        await say({ text: guidance + calendarNote, thread_ts: threadTs });
+        await say({ text: guidance, thread_ts: threadTs });
       } else {
         await say({
           text: "No worries — just tell me a bit about what you need and I'll help figure out the rest!",
@@ -1040,11 +1034,8 @@ async function handleGatheringState(
         const details = convo.getCollectedData().additional_details;
         details[currentQuestion.field_key] = '_needs discussion_';
         convo.markFieldCollected('additional_details', details);
-        const calendarLink = config.marketingLeadCalendarUrl
-          ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing>.`
-          : '';
         await say({
-          text: `:speech_balloon: Flagged for discussion — we'll cover this when we meet.${calendarLink}`,
+          text: `:speech_balloon: Flagged for discussion — the marketing team will follow up on this.`,
           thread_ts: threadTs,
         });
         const nextIndex = idx + 1;
@@ -1064,11 +1055,8 @@ async function handleGatheringState(
         flagForDiscussion(convo, currentField, currentField);
         convo.markFieldCollected(currentField as keyof CollectedData, '_needs discussion_');
         await convo.save();
-        const calendarLink = config.marketingLeadCalendarUrl
-          ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
-          : '';
         await say({
-          text: `:speech_balloon: Flagged *${formatFieldLabel(currentField)}* for discussion — we'll make sure to cover it.${calendarLink} Let's keep going!`,
+          text: `:speech_balloon: Flagged *${formatFieldLabel(currentField)}* for discussion — the marketing team will follow up on this. Let's keep going!`,
           thread_ts: threadTs,
         });
         if (convo.isComplete()) {
@@ -1308,11 +1296,8 @@ async function handleFollowUpAnswer(
 
   // Check for IDK in follow-up phase
   if (matchesAny(text, IDK_PATTERNS)) {
-    const calendarNote = config.marketingLeadCalendarUrl
-      ? ` Or <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
-      : '';
     await say({
-      text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation, or give your best guess and the team will refine it.${calendarNote}`,
+      text: `No worries — you can say *skip* to move on, or give your best guess and the team will refine it.`,
       thread_ts: threadTs,
     });
     return;
@@ -1327,11 +1312,8 @@ async function handleFollowUpAnswer(
     details[currentQuestion.field_key] = '_needs discussion_';
     convo.markFieldCollected('additional_details', details);
 
-    const calendarLink = config.marketingLeadCalendarUrl
-      ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing>.`
-      : '';
     await say({
-      text: `:speech_balloon: Flagged for discussion — we'll cover this when we meet.${calendarLink}`,
+      text: `:speech_balloon: Flagged for discussion — the marketing team will follow up on this.`,
       thread_ts: threadTs,
     });
 
