@@ -1064,6 +1064,16 @@ async function handleGatheringState(
 
     if (fieldsApplied === 0) {
       const step = convo.getCurrentStep();
+
+      // If the message is a start-fresh / "here" keyword that slipped through (e.g., race condition
+      // where dup_check conversation wasn't saved yet), just silently ask the next question.
+      const DUP_CHECK_HERE_PATTERNS = [/^here$/i, /^this\s*(one|thread)$/i, /^right\s*here$/i, /^over\s*here$/i, /^in\s*here$/i];
+      if (matchesAny(text, START_FRESH_PATTERNS) || matchesAny(text, DUP_CHECK_HERE_PATTERNS)) {
+        console.log(`[intake] Start-fresh/here keyword in gathering state (likely lost dup_check) — silently continuing`);
+        await askNextQuestion(convo, threadTs, say);
+        return;
+      }
+
       const isSubstantive = text.length > 5 && !matchesAny(text, NUDGE_PATTERNS) && !matchesAny(text, SKIP_PATTERNS);
       const isRequiredField = step && GATHERING_FIELDS.includes(step as keyof CollectedData);
 
