@@ -77,6 +77,16 @@ export async function initDb(): Promise<void> {
       instance_id TEXT NOT NULL,
       started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS error_log (
+      id SERIAL PRIMARY KEY,
+      error_key TEXT NOT NULL,
+      message TEXT NOT NULL,
+      stack TEXT,
+      context JSONB DEFAULT '{}',
+      instance_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   // Register this instance as the active leader
@@ -361,4 +371,78 @@ export async function isCurrentLeader(): Promise<boolean> {
 
 export function getInstanceId(): string {
   return INSTANCE_ID;
+}
+
+// --- Error tracking ---
+
+/**
+ * Log an error to the database. Returns the error count for the same key
+ * in the last hour (for spike detection).
+ */
+export async function logError(
+  error: unknown,
+  context?: Record<string, string>,
+): Promise<number> {
+  const err = error instanceof Error ? error : new Error(String(error));
+  // Use the first line of the stack (or message) as the dedup key
+  const errorKey = (err.stack?.split('\n')[0] ?? err.message).substring(0, 200);
+
+  try {
+    await pool.query(
+      `INSERT INTO error_log (error_key, message, stack, context, instance_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [errorKey, err.message, err.stack ?? null, JSON.stringify(context ?? {}), INSTANCE_ID]
+    );
+    // Count how many times this same error happened in the last hour
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as cnt FROM error_log WHERE error_key = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [errorKey]
+    );
+    return parseInt(countResult.rows[0]?.cnt ?? '1', 10);
+  } catch (dbErr) {
+    // If error logging itself fails, just console log — don't throw
+    console.error('[error-tracker] Failed to log error to DB:', dbErr);
+    return 0;
+  }
+}
+
+/** Get recent errors, grouped by key with counts. */
+export async function getRecentErrors(hours = 24, limit = 50): Promise<{
+  error_key: string;
+  message: string;
+  count: number;
+  last_seen: string;
+  last_stack: string | null;
+  last_context: Record<string, string>;
+}[]> {
+  const result = await pool.query(
+    `SELECT error_key,
+            MAX(message) as message,
+            COUNT(*) as count,
+            MAX(created_at) as last_seen,
+            (array_agg(stack ORDER BY created_at DESC))[1] as last_stack,
+            (array_agg(context ORDER BY created_at DESC))[1] as last_context
+     FROM error_log
+     WHERE created_at > NOW() - INTERVAL '${hours} hours'
+     GROUP BY error_key
+     ORDER BY count DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return result.rows.map((r: any) => ({
+    error_key: r.error_key,
+    message: r.message,
+    count: parseInt(r.count, 10),
+    last_seen: r.last_seen,
+    last_stack: r.last_stack,
+    last_context: r.last_context ?? {},
+  }));
+}
+
+/** Clean up old error logs. */
+export async function cleanOldErrors(daysToKeep = 7): Promise<number> {
+  const result = await pool.query(
+    `DELETE FROM error_log WHERE created_at < NOW() - INTERVAL '${daysToKeep} days'`
+  );
+  return result.rowCount ?? 0;
 }

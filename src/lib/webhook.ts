@@ -1,4 +1,5 @@
 import http from 'http';
+import { getRecentErrors } from './db';
 
 // --- In-memory ring buffer for recent logs (readable via GET /debug/logs) ---
 const LOG_BUFFER_SIZE = 2000;
@@ -89,6 +90,17 @@ export function startWebhookServer(opts: {
             dedup.rows.map((r: any) => r.message_ts).join('\n')
           );
         } finally { await debugPool.end(); }
+      } else if (req.method === 'GET' && req.url?.startsWith('/debug/errors')) {
+        const errors = await getRecentErrors(24, 50);
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        if (errors.length === 0) {
+          res.end('No errors in the last 24 hours.');
+        } else {
+          const lines = errors.map((e) =>
+            `[${e.count}x] ${e.message}\n    Last seen: ${e.last_seen}\n    Context: ${JSON.stringify(e.last_context)}\n`
+          );
+          res.end(`=== ERRORS (last 24h, ${errors.length} unique) ===\n\n${lines.join('\n')}`);
+        }
       } else {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));

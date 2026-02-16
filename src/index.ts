@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import * as Sentry from '@sentry/node';
 import { config } from './lib/config';
 import { App, LogLevel } from '@slack/bolt';
 import { registerMentionHandler } from './handlers/mentions';
@@ -8,17 +7,8 @@ import { registerApprovalHandler } from './handlers/approval';
 import { registerPostSubmissionActions } from './handlers/intake';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
-import { initDb, getInstanceId } from './lib/db';
-
-// Initialize Sentry error tracking (no-op if SENTRY_DSN is not set)
-if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV ?? 'production',
-    tracesSampleRate: 0.1,
-  });
-  console.log('[sentry] Error tracking initialized');
-}
+import { initDb, getInstanceId, logError, cleanOldErrors } from './lib/db';
+import { trackError } from './lib/error-tracker';
 
 const app = new App({
   token: config.slackBotToken,
@@ -31,7 +21,7 @@ const app = new App({
 // Global error handler — catches any unhandled errors from Bolt event processing
 app.error(async (error) => {
   console.error('[bolt] Unhandled error in Bolt event processing:', error);
-  Sentry.captureException(error);
+  await trackError(error, app.client, { source: 'bolt' });
 });
 
 // Global event middleware — logs ALL incoming events before any handler runs.
@@ -55,6 +45,7 @@ registerApprovalHandler(app);
 registerPostSubmissionActions(app);
 
 const TIMEOUT_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const ERROR_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // Graceful shutdown — disconnect from Slack so events stop being routed to this instance.
 // Critical for rolling deploys: without this, Slack splits events between old and new instances.
@@ -72,20 +63,26 @@ process.on('SIGTERM', async () => {
 (async () => {
   await initDb();
   await app.start();
-  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-16T0400 — sentry+health+vitest) instance=${getInstanceId().substring(0, 8)}`);
+  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-16T0500 — native-error-tracking) instance=${getInstanceId().substring(0, 8)}`);
 
   // Start periodic timeout check
   setInterval(() => {
     checkTimeouts(app.client).catch((err) => {
       console.error('[timeout] Scheduled timeout check failed:', err);
-      Sentry.captureException(err);
+      trackError(err, app.client, { source: 'timeout-check' });
     });
   }, TIMEOUT_CHECK_INTERVAL_MS);
+
+  // Clean up old error logs daily
+  setInterval(() => {
+    cleanOldErrors(7).catch((err) => {
+      console.error('[error-tracker] Cleanup failed:', err);
+    });
+  }, ERROR_CLEANUP_INTERVAL_MS);
 
   // Start webhook HTTP server for form submissions
   startWebhookServer({ port: config.webhookPort, slackClient: app.client });
 })().catch((err) => {
   console.error('[fatal] Startup failed:', err);
-  Sentry.captureException(err);
   process.exit(1);
 });
