@@ -372,6 +372,17 @@ export class ConversationManager {
     }
   }
 
+  /** Get items flagged for async clarification. */
+  getClarificationFlags(): { field: string; label: string }[] {
+    const raw = this.collectedData.additional_details['__needs_clarification'];
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as { field: string; label: string }[];
+    } catch {
+      return [];
+    }
+  }
+
   /** True when all required fields have been populated. */
   isComplete(): boolean {
     return REQUIRED_FIELDS.every((f) => isFieldPopulated(this.collectedData, f));
@@ -466,6 +477,16 @@ export class ConversationManager {
       lines.push(':speech_balloon: *Flagged for discussion:*');
       for (const flag of discussionFlags) {
         lines.push(`• ${formatFieldLabel(flag.label)}`);
+      }
+    }
+
+    // Show items flagged for clarification
+    const clarificationFlags = this.getClarificationFlags();
+    if (clarificationFlags.length > 0) {
+      lines.push('');
+      lines.push(':memo: *We\'ll follow up on:*');
+      for (const flag of clarificationFlags) {
+        lines.push(`• ${flag.label}`);
       }
     }
 

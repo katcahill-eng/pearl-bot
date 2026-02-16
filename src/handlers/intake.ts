@@ -692,6 +692,20 @@ async function handleConfirmingState(
       thread_ts: threadTs,
     });
 
+    // If any fields were flagged for clarification, send a friendly follow-up
+    // so the requester can think about them and reply when ready.
+    const clarificationFlags = convo.getClarificationFlags();
+    if (clarificationFlags.length > 0) {
+      const questionLines = clarificationFlags.map((flag) => {
+        const q = clarificationQuestionForField(flag.field);
+        return `• ${q}`;
+      });
+      await say({
+        text: `:memo: *A couple things to think about when you get a chance:*\n\n${questionLines.join('\n')}\n\nNo rush — just reply here when you're ready and I'll update your request.`,
+        thread_ts: threadTs,
+      });
+    }
+
     // Post approval request to #mktg-triage
     const projectName = generateProjectName(collectedData);
 
@@ -1003,21 +1017,15 @@ async function handleGatheringState(
   // --- IDK detection (works in both gathering and follow-up) ---
   if (matchesAny(text, IDK_PATTERNS)) {
     if (convo.isInFollowUp()) {
-      const calendarNote = config.marketingLeadCalendarUrl
-        ? ` Or <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
-        : '';
       await say({
-        text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation, or give your best guess and the team will refine it.${calendarNote}`,
+        text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation with the team, or give your best guess and the team will refine it.`,
         thread_ts: threadTs,
       });
     } else {
       const currentField = convo.getCurrentStep();
       if (currentField) {
         const guidance = await generateFieldGuidance(currentField, convo.getCollectedData());
-        const calendarNote = config.marketingLeadCalendarUrl
-          ? `\n\n_Or if you'd like to talk it through, <${config.marketingLeadCalendarUrl}|schedule time with marketing>._`
-          : '';
-        await say({ text: guidance + calendarNote, thread_ts: threadTs });
+        await say({ text: guidance + `\n\n_Give your best guess and the team will work with you on it, or say *skip* to come back to it later._`, thread_ts: threadTs });
       } else {
         await say({
           text: "No worries — just tell me a bit about what you need and I'll help figure out the rest!",
@@ -1041,10 +1049,10 @@ async function handleGatheringState(
         details[currentQuestion.field_key] = '_needs discussion_';
         convo.markFieldCollected('additional_details', details);
         const calendarLink = config.marketingLeadCalendarUrl
-          ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing>.`
+          ? ` If it would help, you can <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk through the details.`
           : '';
         await say({
-          text: `:speech_balloon: Flagged for discussion — we'll cover this when we meet.${calendarLink}`,
+          text: `:speech_balloon: Flagged for discussion — the marketing team will follow up.${calendarLink}`,
           thread_ts: threadTs,
         });
         const nextIndex = idx + 1;
@@ -1061,14 +1069,11 @@ async function handleGatheringState(
     } else {
       const currentField = convo.getCurrentStep();
       if (currentField) {
-        flagForDiscussion(convo, currentField, currentField);
-        convo.markFieldCollected(currentField as keyof CollectedData, '_needs discussion_');
+        flagForClarification(convo, currentField, formatFieldLabel(currentField));
+        convo.markFieldCollected(currentField as keyof CollectedData, '_needs clarification_');
         await convo.save();
-        const calendarLink = config.marketingLeadCalendarUrl
-          ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
-          : '';
         await say({
-          text: `:speech_balloon: Flagged *${formatFieldLabel(currentField)}* for discussion — we'll make sure to cover it.${calendarLink} Let's keep going!`,
+          text: `:speech_balloon: No problem — I've noted that *${formatFieldLabel(currentField)}* needs some more thought. The marketing team will follow up via Slack after you submit. Let's keep going!`,
           thread_ts: threadTs,
         });
         if (convo.isComplete()) {
@@ -1143,6 +1148,15 @@ async function handleGatheringState(
     const ack = buildFieldAcknowledgment(convo, extracted);
     if (ack) {
       await say({ text: ack, thread_ts: threadTs });
+    }
+
+    // Detect uncertainty language — flag the answered field for async clarification
+    if (hasUncertaintyLanguage(text)) {
+      const answeredField = convo.getCurrentStep();
+      if (answeredField && GATHERING_FIELDS.includes(answeredField as keyof CollectedData)) {
+        flagForClarification(convo, answeredField, formatFieldLabel(answeredField));
+        console.log(`[intake] Uncertainty detected in "${text.substring(0, 40)}" — flagging ${answeredField} for clarification`);
+      }
     }
 
     // Show production timeline if we just captured a due date
@@ -1308,11 +1322,8 @@ async function handleFollowUpAnswer(
 
   // Check for IDK in follow-up phase
   if (matchesAny(text, IDK_PATTERNS)) {
-    const calendarNote = config.marketingLeadCalendarUrl
-      ? ` Or <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk it through.`
-      : '';
     await say({
-      text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation, or give your best guess and the team will refine it.${calendarNote}`,
+      text: `No worries — you can say *skip* to move on, *discuss* to flag it for a conversation with the team, or give your best guess and the team will refine it.`,
       thread_ts: threadTs,
     });
     return;
@@ -1328,10 +1339,10 @@ async function handleFollowUpAnswer(
     convo.markFieldCollected('additional_details', details);
 
     const calendarLink = config.marketingLeadCalendarUrl
-      ? ` You can also <${config.marketingLeadCalendarUrl}|schedule time with marketing>.`
+      ? ` If it would help, you can <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk through the details.`
       : '';
     await say({
-      text: `:speech_balloon: Flagged for discussion — we'll cover this when we meet.${calendarLink}`,
+      text: `:speech_balloon: Flagged for discussion — the marketing team will follow up.${calendarLink}`,
       thread_ts: threadTs,
     });
 
@@ -2059,9 +2070,53 @@ function flagForDiscussion(convo: ConversationManager, fieldKey: string, label: 
   convo.markFieldCollected('additional_details', details);
 }
 
+/**
+ * Flag a field as needing async clarification via Slack.
+ * Lighter than "needs discussion" — requester gets a follow-up message after submission.
+ */
+function flagForClarification(convo: ConversationManager, fieldKey: string, label: string): void {
+  const details = convo.getCollectedData().additional_details;
+  let flags: { field: string; label: string }[] = [];
+  try {
+    flags = JSON.parse(details['__needs_clarification'] ?? '[]');
+  } catch { /* ignore */ }
+  if (!flags.some((f) => f.field === fieldKey)) {
+    flags.push({ field: fieldKey, label });
+  }
+  details['__needs_clarification'] = JSON.stringify(flags);
+  convo.markFieldCollected('additional_details', details);
+}
+
+/** Detect uncertainty language in a message. */
+const UNCERTAINTY_PATTERNS = [
+  /\bmaybe\b/i, /\bperhaps\b/i, /\bpossibly\b/i, /\bprobably\b/i,
+  /\bi\s*think\b/i, /\bi\s*guess\b/i, /\bnot\s*(entirely\s*)?sure\b/i,
+  /\bnot\s*certain\b/i, /\bmight\s*be\b/i, /\bcould\s*be\b/i,
+  /\bI'm\s*unsure\b/i, /\bdon['']?t\s*know\s*(if|whether)\b/i,
+  /\bstill\s*(figuring|deciding|thinking)\b/i, /\btentatively\b/i,
+];
+
+function hasUncertaintyLanguage(text: string): boolean {
+  return UNCERTAINTY_PATTERNS.some((p) => p.test(text));
+}
+
 /** Format a snake_case field key as a readable label. */
 function formatFieldLabel(field: string): string {
   return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Turn a field key into a friendly clarification question for post-submission follow-up. */
+function clarificationQuestionForField(field: string): string {
+  const map: Record<string, string> = {
+    target: 'Who exactly is the target audience for this?',
+    context_background: 'Any more context or background you can share on this request?',
+    desired_outcomes: 'What specific outcomes are you hoping to achieve?',
+    deliverables: 'What specific deliverables do you need (e.g., emails, social posts, a one-pager)?',
+    due_date: 'When do you need this by? Even a rough timeframe helps.',
+    approvals: 'Does anyone need to sign off on the final deliverables?',
+    constraints: 'Any budget, brand, or other constraints we should know about?',
+  };
+  return map[field] ?? `Can you provide more detail on *${formatFieldLabel(field)}*?`;
 }
 
 /**
