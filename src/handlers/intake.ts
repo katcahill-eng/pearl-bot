@@ -900,10 +900,31 @@ async function handleGatheringState(
   }
 
   // Check for bare "here" / dup-check keywords that slipped through due to deploy race conditions.
-  // These should never reach Claude — just silently continue to the next question.
+  // Send the welcome + name confirmation the user expects, then ask the first question.
   const DUP_STALE_HERE = [/^here$/i, /^this\s*(one|thread)$/i, /^right\s*here$/i, /^over\s*here$/i, /^in\s*here$/i];
   if (matchesAny(text, DUP_STALE_HERE)) {
-    console.log(`[intake] "here" keyword in gathering state (likely stale dup_check) — silently continuing`);
+    console.log(`[intake] "here" keyword in gathering state (likely stale dup_check) — sending welcome + first question`);
+    const welcomeMessages = [
+      "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._",
+      "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._",
+      "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._",
+      "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._",
+    ];
+    await say({ text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)], thread_ts: threadTs });
+
+    const data = convo.getCollectedData();
+    if (data.requester_name || data.requester_department) {
+      let confirmMsg: string;
+      if (data.requester_name && data.requester_department) {
+        confirmMsg = `I have you down as *${data.requester_name}* from *${data.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      } else if (data.requester_name) {
+        confirmMsg = `I have you down as *${data.requester_name}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      } else {
+        confirmMsg = `I have you down as part of *${data.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      }
+      await say({ text: confirmMsg, thread_ts: threadTs });
+    }
+
     await askNextQuestion(convo, threadTs, say);
     return;
   }
