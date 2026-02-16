@@ -360,12 +360,6 @@ async function handleIntakeMessageInner(opts: {
   // Strip bot mentions (e.g., "<@U123ABC>") so pattern matching works on the actual message
   const text = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
 
-  // Ignore empty messages (accidental @mention with no text)
-  if (text === '') {
-    console.log(`[intake] Ignoring empty message in thread ${threadTs}`);
-    return;
-  }
-
   // Load or create conversation
   let convo = await ConversationManager.load(userId, threadTs);
   console.log(`[intake] load(${userId}, ${threadTs}) → ${convo ? `found existing (status=${convo.getStatus()}, step=${convo.getCurrentStep()}, id=${convo.getId()})` : 'no conversation'}`);
@@ -876,6 +870,24 @@ async function handleGatheringState(
   threadTs: string,
   say: SayFn,
 ): Promise<void> {
+  // Empty @mention in an existing conversation — treat as a nudge
+  if (text === '') {
+    console.log(`[intake] Empty @mention in active conversation — re-asking current question`);
+    await say({ text: "I'm here! Let me pick up where we left off.", thread_ts: threadTs });
+    if (convo.isInFollowUp()) {
+      const questions = getStoredFollowUpQuestions(convo);
+      const index = convo.getFollowUpIndex();
+      if (questions && index < questions.length) {
+        await askFollowUpQuestion(convo, index, questions, threadTs, say);
+      } else {
+        await transitionToConfirming(convo, threadTs, say);
+      }
+    } else {
+      await askNextQuestion(convo, threadTs, say);
+    }
+    return;
+  }
+
   // Check for cancel
   if (matchesAny(text, CANCEL_PATTERNS)) {
     convo.setStatus('cancelled');
