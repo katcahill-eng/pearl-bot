@@ -300,8 +300,12 @@ ${KNOWLEDGE_BASE}
 
 Rules:
 - Generate 3-7 conversational, friendly questions appropriate for this request type
+- CRITICAL: The following core fields have ALREADY been collected during intake. Do NOT generate questions that re-ask for them, even with type-specific framing:
+  deliverables, due_date, target, context_background, desired_outcomes, requester_name, requester_department
+  For example, do NOT ask "What deliverables do you need for the conference?" if deliverables are already listed in the collected data.
+- DO ask about type-specific logistics, format, or details that go BEYOND the core fields (e.g., "Are you exhibiting with a booth?", "What webinar format — live, pre-recorded, or evergreen?", "Do you have a speaker confirmed?")
+- For multi-type requests: group questions by type in logical order. Ask all questions for one type before moving to the next.
 - Skip anything already answered in the collected data provided
-- If the user already provided information in their collected data that answers a potential question, do NOT generate that question
 - Include expectation-setting context naturally within questions (e.g., "Just so you know, printed materials are charged back to your department — do you need anything printed?")
 - Each question should feel conversational, not like a form field
 - Return a JSON array of objects with: id (string, unique), question (string), field_key (string, snake_case key for storing the answer)

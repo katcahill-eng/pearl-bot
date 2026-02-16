@@ -1257,7 +1257,17 @@ async function enterFollowUpPhase(
     convo.setRequestType(requestTypes.join(','));
 
     // Generate follow-up questions
-    const questions = await generateFollowUpQuestions(collectedData, requestTypes);
+    const rawQuestions = await generateFollowUpQuestions(collectedData, requestTypes);
+
+    // Filter out follow-up questions that duplicate already-collected required fields
+    const REQUIRED_FIELD_KEYS = ['deliverables', 'due_date', 'target', 'context_background', 'desired_outcomes', 'requester_name', 'requester_department'];
+    const questions = rawQuestions.filter((q) => {
+      if (REQUIRED_FIELD_KEYS.includes(q.field_key)) {
+        console.log(`[intake] Filtered follow-up question with field_key="${q.field_key}" — already collected`);
+        return false;
+      }
+      return true;
+    });
 
     if (questions.length === 0) {
       // No follow-ups needed — go straight to confirming
