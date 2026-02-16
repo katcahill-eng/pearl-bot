@@ -5,6 +5,7 @@ import {
   getImprovements,
   getConversationMetricsSummary,
   getRecentUnrecognizedMessages,
+  getAbandonedConversations,
 } from './db';
 
 /**
@@ -20,7 +21,7 @@ export async function sendDailyDigest(client: WebClient): Promise<void> {
     day: 'numeric',
   });
 
-  const [errors, pending, applied, dismissed, metrics, unrecognized] =
+  const [errors, pending, applied, dismissed, metrics, unrecognized, abandoned] =
     await Promise.all([
       getRecentErrors(24, 10),
       getImprovements('pending'),
@@ -28,6 +29,7 @@ export async function sendDailyDigest(client: WebClient): Promise<void> {
       getRecentImprovements('dismissed', 24),
       getConversationMetricsSummary(1),
       getRecentUnrecognizedMessages(1, 10),
+      getAbandonedConversations(24),
     ]);
 
   const sections: string[] = [
@@ -60,6 +62,25 @@ export async function sendDailyDigest(client: WebClient): Promise<void> {
         .join(', ');
       sections.push(`  By type: ${classParts}`);
     }
+  }
+  sections.push('');
+
+  // --- Abandoned / Timed Out ---
+  if (abandoned.length > 0) {
+    // Group by user
+    const byUser: Record<string, { name: string; count: number; lastStep: string | null }> = {};
+    for (const a of abandoned) {
+      if (!byUser[a.user_id]) {
+        byUser[a.user_id] = { name: a.user_name, count: 0, lastStep: a.current_step };
+      }
+      byUser[a.user_id].count++;
+    }
+    sections.push(`*Abandoned / Timed Out (24h):* ${abandoned.length}`);
+    for (const [, info] of Object.entries(byUser)) {
+      sections.push(`  • ${info.name} — ${info.count} conversation${info.count === 1 ? '' : 's'} (last step: ${info.lastStep ?? 'unknown'})`);
+    }
+  } else {
+    sections.push('*Abandoned / Timed Out (24h):* None :white_check_mark:');
   }
   sections.push('');
 

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   getRecentUnrecognizedMessages,
   getConversationMetricsSummary,
+  getImprovements,
   createImprovement,
   cleanOldMetrics,
 } from './db';
@@ -53,6 +54,31 @@ export async function runSelfAnalysis(): Promise<void> {
     if (metrics.total < 3 && unrecognized.length === 0) {
       console.log(`[self-analysis] Not enough data (${metrics.total} conversations, ${unrecognized.length} unrecognized). Skipping.`);
       return;
+    }
+
+    // Skip if existing improvements already cover these messages (prevents duplicate suggestions)
+    const existingImprovements = await getImprovements();
+    const pendingOrDismissed = existingImprovements.filter(
+      (i) => i.status === 'pending' || i.status === 'dismissed',
+    );
+    if (pendingOrDismissed.length > 0 && unrecognized.length > 0) {
+      // Check if any unrecognized messages are newer than the most recent improvement
+      const latestImprovement = new Date(
+        Math.max(...pendingOrDismissed.map((i) => new Date(i.created_at).getTime())),
+      );
+      const newMessages = unrecognized.filter(
+        (m) => new Date(m.created_at) > latestImprovement,
+      );
+      if (newMessages.length === 0) {
+        console.log(`[self-analysis] No new unrecognized messages since last improvement. Skipping.`);
+        // Still clean up old metrics
+        const cleaned = await cleanOldMetrics(30);
+        if (cleaned > 0) console.log(`[self-analysis] Cleaned ${cleaned} old metric rows`);
+        return;
+      }
+      // Only analyze new messages
+      unrecognized.length = 0;
+      unrecognized.push(...newMessages);
     }
 
     // Build the data payload for Claude

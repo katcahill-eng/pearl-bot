@@ -657,3 +657,20 @@ export async function cleanOldMetrics(daysToKeep = 30): Promise<number> {
   );
   return (r1.rowCount ?? 0) + (r2.rowCount ?? 0);
 }
+
+/** Get conversations that were cancelled (timed out / abandoned) in the last N hours. */
+export async function getAbandonedConversations(hours = 24): Promise<{
+  user_id: string;
+  user_name: string;
+  current_step: string | null;
+  updated_at: string;
+}[]> {
+  const result = await pool.query(
+    `SELECT user_id, user_name, current_step, updated_at
+     FROM conversations
+     WHERE status = 'cancelled'
+       AND updated_at > NOW() - INTERVAL '${hours} hours'
+     ORDER BY updated_at DESC`
+  );
+  return result.rows;
+}
