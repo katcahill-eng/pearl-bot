@@ -83,7 +83,7 @@ Rules:
 - If the user says "ASAP" or "urgent", set due_date to "ASAP"
 - If a user says "skip", "none", "n/a", or "no" for optional fields (approvals, constraints, supporting_links), return null for that field — do not store the skip keyword
 - If you cannot extract a field, omit it or set it to null
-- The confidence field (0-1) indicates your overall confidence in the extraction
+- The confidence field (0-1) indicates your overall confidence in the extraction. Set confidence > 0 if you extracted ANY field with useful information — even if it doesn't match the current step. Only use confidence=0 when the message is truly unintelligible, irrelevant to any marketing request, or too vague to extract anything meaningful.
 
 Respond with ONLY a JSON object, no markdown formatting, no code blocks, no explanation.`;
 
@@ -230,7 +230,7 @@ function buildUserPrompt(
   }
 
   if (currentStep) {
-    parts.push(`The bot just asked the user about: ${currentStep}. Prioritize mapping their response to this field unless it clearly belongs elsewhere.`);
+    parts.push(`The bot just asked the user about: ${currentStep}. The user's answer likely addresses this field, but they may also provide info for other fields — extract ALL fields you can identify. If their answer doesn't fit ${currentStep} but clearly fits another field, extract it there instead (e.g., if asked about desired_outcomes but they mention an event name, extract it as context_background). Always set confidence > 0 if you extracted ANY useful field.`);
     parts.push('');
   }
 
