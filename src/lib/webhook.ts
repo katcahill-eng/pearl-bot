@@ -62,7 +62,10 @@ export function startWebhookServer(opts: {
 
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.method === 'POST' && req.url === '/webhook/intake') {
+      if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+      } else if (req.method === 'POST' && req.url === '/webhook/intake') {
         await handleIntakeWebhook(req, res, slackClient);
       } else if (req.method === 'GET' && req.url === '/debug/logs') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });

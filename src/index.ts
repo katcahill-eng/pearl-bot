@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
 import { config } from './lib/config';
 import { App, LogLevel } from '@slack/bolt';
 import { registerMentionHandler } from './handlers/mentions';
@@ -8,6 +9,16 @@ import { registerPostSubmissionActions } from './handlers/intake';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
 import { initDb, getInstanceId } from './lib/db';
+
+// Initialize Sentry error tracking (no-op if SENTRY_DSN is not set)
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV ?? 'production',
+    tracesSampleRate: 0.1,
+  });
+  console.log('[sentry] Error tracking initialized');
+}
 
 const app = new App({
   token: config.slackBotToken,
@@ -20,6 +31,7 @@ const app = new App({
 // Global error handler — catches any unhandled errors from Bolt event processing
 app.error(async (error) => {
   console.error('[bolt] Unhandled error in Bolt event processing:', error);
+  Sentry.captureException(error);
 });
 
 // Global event middleware — logs ALL incoming events before any handler runs.
@@ -60,15 +72,20 @@ process.on('SIGTERM', async () => {
 (async () => {
   await initDb();
   await app.start();
-  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-16T0300 — strategic-idk+clarification) instance=${getInstanceId().substring(0, 8)}`);
+  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-16T0400 — sentry+health+vitest) instance=${getInstanceId().substring(0, 8)}`);
 
   // Start periodic timeout check
   setInterval(() => {
     checkTimeouts(app.client).catch((err) => {
       console.error('[timeout] Scheduled timeout check failed:', err);
+      Sentry.captureException(err);
     });
   }, TIMEOUT_CHECK_INTERVAL_MS);
 
   // Start webhook HTTP server for form submissions
   startWebhookServer({ port: config.webhookPort, slackClient: app.client });
-})();
+})().catch((err) => {
+  console.error('[fatal] Startup failed:', err);
+  Sentry.captureException(err);
+  process.exit(1);
+});

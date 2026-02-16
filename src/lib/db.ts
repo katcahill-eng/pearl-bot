@@ -10,6 +10,11 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,
 });
 
+// Prevent idle client errors from crashing the process
+pool.on('error', (err) => {
+  console.error('[db] Unexpected pool error on idle client:', err);
+});
+
 // --- Instance leader lock ---
 // During rolling deploys, two instances may run simultaneously.
 // Only the latest instance (leader) should process events.
