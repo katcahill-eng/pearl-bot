@@ -124,7 +124,7 @@ export async function sendDailyDigest(client: WebClient): Promise<void> {
   if (isClean) {
     sections.push('_All clear — no action needed._ :seedling:');
   } else {
-    sections.push('_These items will be reviewed automatically in your next Claude Code session with pearl-bot._');
+    sections.push('_No action needed — I\'ll handle these automatically next time you work on pearl-bot._');
   }
 
   const message = sections.join('\n');
