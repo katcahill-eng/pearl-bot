@@ -58,7 +58,7 @@ Fields:
 - target: The target audience for this request (e.g., "homeowners", "real estate agents", "conference attendees", "internal team")
 - context_background: Context and background explaining why this request exists and what prompted it
 - desired_outcomes: What the requester hopes to achieve (e.g., "increase sign-ups by 20%", "generate leads", "drive awareness")
-- deliverables: An array of specific deliverables needed (e.g., ["1 one-pager PDF", "3 social posts"])
+- deliverables: An array of specific deliverables the user is REQUESTING from marketing (e.g., ["1 one-pager PDF", "3 social posts"]). When the current step is "deliverables", assume the user is listing what they NEED, not what they already have — even if they use phrases like "I made" or "I have" (often voice-to-text artifacts for "I'd make use of" or "I need")
 - due_date: The due date as the user expressed it (e.g., "next Friday", "February 15", "end of month", "ASAP")
 - due_date_parsed: Your best ISO date interpretation (YYYY-MM-DD) of the due date. For relative dates like "next Friday" or "end of month", calculate from today's date which will be provided. If the user says "ASAP", set this to null.
 - approvals: Any specific approval requirements (e.g., "VP of Sales sign-off", "Legal review required")
@@ -74,6 +74,7 @@ Additional field:
   - "Noted — you need a one-pager and 3 social posts." (if deliverables were extracted)
   - "Got it — targeting real estate agents in the Southeast." (if target was extracted)
   Keep it short (one sentence), natural, and accurate to what the user actually said.
+  IMPORTANT: When acknowledging deliverables, say what they NEED (e.g., "Got it — you need a presentation deck and registration page") rather than implying they already have them.
 
 Rules:
 - Handle bundled responses: if a user provides multiple fields in one message, extract ALL of them

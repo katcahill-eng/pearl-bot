@@ -7,7 +7,7 @@ import { registerApprovalHandler } from './handlers/approval';
 import { registerPostSubmissionActions } from './handlers/intake';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
-import { initDb, isCurrentLeader, getInstanceId } from './lib/db';
+import { initDb, getInstanceId } from './lib/db';
 
 const app = new App({
   token: config.slackBotToken,
@@ -22,8 +22,7 @@ app.error(async (error) => {
   console.error('[bolt] Unhandled error in Bolt event processing:', error);
 });
 
-// Global event middleware — logs ALL events and enforces instance leader lock.
-// During rolling deploys, only the newest instance (leader) processes events.
+// Global event middleware — logs ALL incoming events before any handler runs.
 app.use(async ({ body, next }) => {
   const event = (body as any).event;
   if (event) {
@@ -33,14 +32,7 @@ app.use(async ({ body, next }) => {
     const ts = event.ts ?? '';
     const threadTs = event.thread_ts ?? '';
     const text = (event.text ?? '').substring(0, 60);
-    console.log(`[bolt-event] type=${type} subtype=${subtype} user=${user} ts=${ts} thread_ts=${threadTs} text="${text}"`);
-
-    // Leader check: if a newer instance has started, stop processing events
-    const leader = await isCurrentLeader();
-    if (!leader) {
-      console.log(`[bolt-event] SKIPPING event — this instance (${getInstanceId().substring(0, 8)}) is no longer the leader`);
-      return; // Don't call next(), dropping this event for the old instance
-    }
+    console.log(`[bolt-event] type=${type} subtype=${subtype} user=${user} ts=${ts} thread_ts=${threadTs} text="${text}" instance=${getInstanceId().substring(0, 8)}`);
   }
   await next();
 });
@@ -68,7 +60,7 @@ process.on('SIGTERM', async () => {
 (async () => {
   await initDb();
   await app.start();
-  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-15T1730 — field-diagnostics) instance=${getInstanceId().substring(0, 8)}`);
+  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-15T2100 — no-leader-lock) instance=${getInstanceId().substring(0, 8)}`);
 
   // Start periodic timeout check
   setInterval(() => {

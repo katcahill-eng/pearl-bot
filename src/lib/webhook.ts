@@ -1,7 +1,7 @@
 import http from 'http';
 
 // --- In-memory ring buffer for recent logs (readable via GET /debug/logs) ---
-const LOG_BUFFER_SIZE = 500;
+const LOG_BUFFER_SIZE = 2000;
 const logBuffer: string[] = [];
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
