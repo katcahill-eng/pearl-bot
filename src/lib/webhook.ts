@@ -102,6 +102,24 @@ export function startWebhookServer(opts: {
           );
           res.end(`=== ERRORS (last 24h, ${errors.length} unique) ===\n\n${lines.join('\n')}`);
         }
+      } else if (req.method === 'POST' && req.url === '/debug/reset') {
+        const pg = await import('pg');
+        const resetPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : undefined });
+        try {
+          const results = await Promise.all([
+            resetPool.query('DELETE FROM conversations'),
+            resetPool.query('DELETE FROM conversation_metrics'),
+            resetPool.query('DELETE FROM unrecognized_messages'),
+            resetPool.query('DELETE FROM message_dedup'),
+            resetPool.query('DELETE FROM bot_improvements'),
+          ]);
+          const counts = results.map((r) => r.rowCount ?? 0);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            deleted: { conversations: counts[0], metrics: counts[1], unrecognized: counts[2], dedup: counts[3], improvements: counts[4] },
+          }));
+        } finally { await resetPool.end(); }
       } else if (req.method === 'POST' && req.url === '/debug/digest') {
         await sendDailyDigest(slackClient);
         res.writeHead(200, { 'Content-Type': 'application/json' });
