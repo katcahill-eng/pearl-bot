@@ -141,6 +141,12 @@ function mentionsExistingContent(text: string): boolean {
   return patterns.some((p) => p.test(lower));
 }
 
+/** Fields asked during the gathering phase — used for raw-text fallback when Claude returns 0 fields. */
+const GATHERING_FIELDS: (keyof CollectedData)[] = [
+  'requester_name', 'requester_department', 'target', 'context_background',
+  'desired_outcomes', 'deliverables', 'due_date',
+];
+
 const CONVERSATIONAL_PREFIX = /^(let['']?s\s+|let\s+us\s+|i['']?d\s+like\s+to\s+|i\s+want\s+to\s+|can\s+we\s+|please\s+|i\s+want\s+|we\s+should\s+|we\s+can\s+)/i;
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
@@ -1057,13 +1063,36 @@ async function handleGatheringState(
     console.log(`[intake] POST-apply state (${fieldsApplied} fields): outcomes=${postData.desired_outcomes ? '"' + postData.desired_outcomes.substring(0, 40) + '"' : 'null'}, deliverables=${JSON.stringify(postData.deliverables)}, due_date=${postData.due_date ?? 'null'}`);
 
     if (fieldsApplied === 0) {
-      console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${convo.getCurrentStep()})`);
-      await say({
-        text: "I didn't quite catch that. Could you rephrase?",
-        thread_ts: threadTs,
-      });
-      // Re-ask the current question
-      await askNextQuestion(convo, threadTs, say);
+      const step = convo.getCurrentStep();
+      const isSubstantive = text.length > 5 && !matchesAny(text, NUDGE_PATTERNS) && !matchesAny(text, SKIP_PATTERNS);
+      const isRequiredField = step && GATHERING_FIELDS.includes(step as keyof CollectedData);
+
+      if (isSubstantive && isRequiredField) {
+        // Claude didn't extract it, but the user clearly answered — store the raw text
+        console.log(`[intake] Claude returned 0 fields but message looks substantive — storing raw text for field=${step}`);
+        if (step === 'deliverables' || step === 'supporting_links') {
+          convo.markFieldCollected(step as keyof CollectedData, [text]);
+        } else {
+          convo.markFieldCollected(step as keyof CollectedData, text);
+        }
+        await convo.save();
+
+        await say({ text: 'Got it!', thread_ts: threadTs });
+
+        if (convo.isComplete()) {
+          await enterFollowUpPhase(convo, 1, threadTs, say);
+        } else {
+          await askNextQuestion(convo, threadTs, say);
+        }
+      } else {
+        console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${step}, substantive=${isSubstantive})`);
+        await say({
+          text: "I didn't quite catch that. Could you rephrase?",
+          thread_ts: threadTs,
+        });
+        // Re-ask the current question
+        await askNextQuestion(convo, threadTs, say);
+      }
       return;
     }
 

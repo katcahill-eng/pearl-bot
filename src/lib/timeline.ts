@@ -3,70 +3,81 @@ import type { CollectedData } from './conversation';
 /**
  * Production timeline generator.
  * Works backwards from a target date to suggest specific production dates
- * for each task, using 1-week blocks per task as default durations.
+ * organized into clear phases: kick-off → marketing creates → requester reviews → target.
  */
+
+type Phase = 'kickoff' | 'create' | 'review' | 'delivery';
 
 interface TimelineTask {
   label: string;
-  daysBeforeDeadline: number; // start this many business days before the deliverable deadline
-  duration: string; // human-readable duration
+  phase: Phase;
+  daysBeforeDeadline: number;
 }
 
 interface TimelineEntry {
   task: string;
-  startBy: Date;
-  duration: string;
+  phase: Phase;
+  date: Date;
 }
 
 // --- Task templates by request type ---
 
 const WEBINAR_TASKS: TimelineTask[] = [
-  { label: 'Webinar registration page', daysBeforeDeadline: 1, duration: '1 day' },
-  { label: 'Slide deck development', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Email campaign creation', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Social media content', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Stakeholder approvals', daysBeforeDeadline: 22, duration: '1 week' },
+  { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 29 },
+  { label: 'Email campaign drafts', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Social media content', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Slide deck', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Webinar registration page', phase: 'create', daysBeforeDeadline: 8 },
+  { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 12 },
+  { label: 'Final approval', phase: 'review', daysBeforeDeadline: 5 },
 ];
 
 const WEBINAR_ADS_TASKS: TimelineTask[] = [
-  { label: 'Webinar registration page', daysBeforeDeadline: 1, duration: '1 day' },
-  { label: 'Slide deck development', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Email campaign creation', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Social media content', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Ad creative & setup', daysBeforeDeadline: 22, duration: '1 week' },
-  { label: 'Stakeholder approvals', daysBeforeDeadline: 29, duration: '1 week' },
-  { label: 'Ad warm-up period', daysBeforeDeadline: 36, duration: '2 weeks' },
+  { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 43 },
+  { label: 'Ad creative & targeting setup', phase: 'create', daysBeforeDeadline: 36 },
+  { label: 'Email campaign drafts', phase: 'create', daysBeforeDeadline: 29 },
+  { label: 'Social media content', phase: 'create', daysBeforeDeadline: 29 },
+  { label: 'Slide deck', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Webinar registration page', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 19 },
+  { label: 'Final approval', phase: 'review', daysBeforeDeadline: 12 },
+  { label: 'Ad warm-up begins (runs through event)', phase: 'delivery', daysBeforeDeadline: 14 },
 ];
 
 const CONFERENCE_TASKS: TimelineTask[] = [
-  { label: 'Final asset delivery', daysBeforeDeadline: 1, duration: '—' },
-  { label: 'Booth collateral & signage', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Presentation slides', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Pre-conference email campaign', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Social media promotion', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Stakeholder approvals', daysBeforeDeadline: 22, duration: '1 week' },
-  { label: 'Print production (if needed)', daysBeforeDeadline: 29, duration: '1 week' },
+  { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 36 },
+  { label: 'Print production sent to printer (if needed)', phase: 'create', daysBeforeDeadline: 29 },
+  { label: 'Pre-conference email campaign', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Social media promotion', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Booth collateral & signage', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Presentation slides', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 19 },
+  { label: 'Final approval on all materials', phase: 'review', daysBeforeDeadline: 8 },
+  { label: 'Assets delivered & ready to go', phase: 'delivery', daysBeforeDeadline: 3 },
 ];
 
 const DINNER_TASKS: TimelineTask[] = [
-  { label: 'Final asset delivery', daysBeforeDeadline: 1, duration: '—' },
-  { label: 'Invitation design & copy', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Event branding & signage', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Email invitation campaign', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Stakeholder approvals', daysBeforeDeadline: 22, duration: '1 week' },
+  { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 29 },
+  { label: 'Invitation design & copy', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Event branding & signage', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Email invitation campaign', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 19 },
+  { label: 'Final approval', phase: 'review', daysBeforeDeadline: 8 },
+  { label: 'Invitations sent', phase: 'delivery', daysBeforeDeadline: 10 },
 ];
 
 const QUICK_TASKS: TimelineTask[] = [
-  { label: 'Final delivery', daysBeforeDeadline: 1, duration: '—' },
-  { label: 'Asset creation', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Approvals', daysBeforeDeadline: 15, duration: '1 week' },
+  { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 15 },
+  { label: 'Asset creation', phase: 'create', daysBeforeDeadline: 8 },
+  { label: 'Review & approve', phase: 'review', daysBeforeDeadline: 5 },
 ];
 
 const DEFAULT_TASKS: TimelineTask[] = [
-  { label: 'Final delivery', daysBeforeDeadline: 1, duration: '—' },
-  { label: 'Content/asset development', daysBeforeDeadline: 8, duration: '1 week' },
-  { label: 'Email & social promotion', daysBeforeDeadline: 15, duration: '1 week' },
-  { label: 'Stakeholder approvals', daysBeforeDeadline: 22, duration: '1 week' },
+  { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 29 },
+  { label: 'Content & asset development', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Email & social promotion', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 12 },
+  { label: 'Final approval', phase: 'review', daysBeforeDeadline: 5 },
 ];
 
 // --- Public API ---
@@ -107,7 +118,6 @@ function selectTasks(context: string, deliverables: string, hasAds: boolean): Ti
     return DINNER_TASKS;
   }
 
-  // Check for quick/simple assets
   const quickAssets = ['email', 'social post', 'graphic', 'one-pager', 'flyer', 'banner', 'headshot'];
   const isQuick = quickAssets.some((a) => deliverables.includes(a));
   if (isQuick) {
@@ -119,39 +129,53 @@ function selectTasks(context: string, deliverables: string, hasAds: boolean): Ti
 
 function calculateDates(targetDate: Date, tasks: TimelineTask[]): TimelineEntry[] {
   return tasks.map((task) => {
-    const startBy = new Date(targetDate);
-    startBy.setDate(startBy.getDate() - task.daysBeforeDeadline);
+    const date = new Date(targetDate);
+    date.setDate(date.getDate() - task.daysBeforeDeadline);
     return {
       task: task.label,
-      startBy,
-      duration: task.duration,
+      phase: task.phase,
+      date,
     };
   });
 }
 
 function formatTimeline(entries: TimelineEntry[], targetDate: Date, userDateLabel: string): string {
   const lines: string[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   lines.push(`:calendar: *Suggested production timeline* (working back from ${userDateLabel}):\n`);
 
-  // Sort entries by date ascending (earliest first)
-  const sorted = [...entries].sort((a, b) => a.startBy.getTime() - b.startBy.getTime());
+  // Group entries by phase
+  const phases: { key: Phase; header: string; emoji: string }[] = [
+    { key: 'kickoff', header: 'Project kick-off', emoji: ':clipboard:' },
+    { key: 'create', header: 'Marketing creates', emoji: ':art:' },
+    { key: 'review', header: 'Your review & approval', emoji: ':mag:' },
+    { key: 'delivery', header: 'Go live', emoji: ':rocket:' },
+  ];
 
-  // Check if the earliest task is in the past
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const earliestStart = sorted[0]?.startBy;
-  const isTight = earliestStart && earliestStart < today;
+  let hasPastDates = false;
 
-  for (const entry of sorted) {
-    const dateStr = formatDate(entry.startBy);
-    const isPast = entry.startBy < today;
-    const marker = isPast ? ' :warning:' : '';
-    lines.push(`• *${dateStr}* — ${entry.task} (${entry.duration})${marker}`);
+  for (const phase of phases) {
+    const phaseEntries = entries
+      .filter((e) => e.phase === phase.key)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+    if (phaseEntries.length === 0) continue;
+
+    lines.push(`${phase.emoji} *${phase.header}*`);
+    for (const entry of phaseEntries) {
+      const dateStr = formatDate(entry.date);
+      const isPast = entry.date < today;
+      if (isPast) hasPastDates = true;
+      const marker = isPast ? ' :warning:' : '';
+      lines.push(`  • By ${dateStr} — ${entry.task}${marker}`);
+    }
+    lines.push('');
   }
-  lines.push(`• *${formatDate(targetDate)}* — :dart: Target date`);
 
-  if (isTight) {
+  lines.push(`:dart: *${formatDate(targetDate)}* — Target date`);
+
+  if (hasPastDates) {
     lines.push('\n:warning: Some dates are in the past — this timeline is tight! We may need to adjust scope or the target date.');
   }
 
