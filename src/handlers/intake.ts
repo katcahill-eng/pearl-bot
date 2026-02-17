@@ -6,7 +6,7 @@ import { interpretMessage, classifyRequest, classifyRequestType, generateFollowU
 import { generateFieldGuidance } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
-import { getActiveConversationForUser, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics } from '../lib/db';
+import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
 import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
 import { searchProjects } from '../lib/db';
@@ -85,6 +85,34 @@ function isCommandLikeMessage(text: string): boolean {
     return true;
   }
   return false;
+}
+
+// --- Personalization helpers ---
+
+/** Extract first name from full name. Returns null for "Unknown" or empty strings. */
+function getFirstName(fullName: string | null | undefined): string | null {
+  if (!fullName || fullName === 'Unknown') return null;
+  return fullName.split(/\s+/)[0] || null;
+}
+
+/** Return a personalized welcome message. Falls back to generic when firstName is null. */
+function getWelcomeMessage(firstName: string | null): string {
+  if (firstName) {
+    const messages = [
+      `Hey ${firstName}! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._`,
+      `Hi ${firstName}! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._`,
+      `Hey there, ${firstName}! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._`,
+      `Hi there, ${firstName}! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._`,
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  }
+  const messages = [
+    "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._",
+    "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._",
+    "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._",
+    "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._",
+  ];
+  return messages[Math.floor(Math.random() * messages.length)];
 }
 
 // --- Project match search ---
@@ -466,8 +494,11 @@ async function handleIntakeMessageInner(opts: {
         console.log(`[intake] Dup-check thread detected in ${threadTs} — recovering without hiccup message`);
       } else {
         console.log(`[intake] Bot was already active in thread ${threadTs} — recreating conversation from thread history`);
+        const hiccupFirstName = getFirstName(realName);
         await say({
-          text: "Looks like I had a brief hiccup — give me just a moment to catch up on our conversation...",
+          text: hiccupFirstName
+            ? `Looks like I had a brief hiccup, ${hiccupFirstName} — give me just a moment to catch up on our conversation...`
+            : "Looks like I had a brief hiccup — give me just a moment to catch up on our conversation...",
           thread_ts: threadTs,
         });
       }
@@ -475,15 +506,15 @@ async function handleIntakeMessageInner(opts: {
       convo = new ConversationManager({ userId, userName: realName, channelId, threadTs });
       if (realName !== 'Unknown') convo.markFieldCollected('requester_name', realName);
       if (department) convo.markFieldCollected('requester_department', department);
-      // For dup-check recovery: find the user's other active conversation and carry over its target
+      // For dup-check recovery: carry over target from most recent *accepted* project
       if (isDupCheckRecovery) {
         try {
-          const otherConvo = await getActiveConversationForUser(userId, threadTs);
-          if (otherConvo?.collected_data) {
-            const otherData = JSON.parse(otherConvo.collected_data);
-            if (otherData.target) {
-              convo.markFieldCollected('additional_details', { '__previous_target': otherData.target });
-              console.log(`[intake] Carried over previous target "${otherData.target}" from convo ${otherConvo.id}`);
+          const completedConvo = await getMostRecentCompletedConversation(userId);
+          if (completedConvo?.collected_data) {
+            const completedData = JSON.parse(completedConvo.collected_data);
+            if (completedData.target) {
+              convo.markFieldCollected('additional_details', { '__previous_target': completedData.target });
+              console.log(`[intake] Carried over previous target "${completedData.target}" from completed convo ${completedConvo.id}`);
             }
           }
         } catch (err) {
@@ -534,11 +565,14 @@ async function handleIntakeMessageInner(opts: {
           dupConvo.markFieldCollected('requester_department', department);
         }
         dupConvo.setCurrentStep(`dup_check:${existingConvo.id}`);
-        // Carry over the previous conversation's target so we can offer it when starting fresh
+        // Carry over target from most recent *accepted* project (not in-progress)
         let previousTarget: string | null = null;
         try {
-          const prevData = JSON.parse(existingConvo.collected_data);
-          previousTarget = prevData.target ?? null;
+          const completedConvo = await getMostRecentCompletedConversation(userId);
+          if (completedConvo?.collected_data) {
+            const completedData = JSON.parse(completedConvo.collected_data);
+            previousTarget = completedData.target ?? null;
+          }
         } catch { /* ignore */ }
         const dupDetails: Record<string, string> = {
           '__dup_existing_channel': existingConvo.channel_id,
@@ -549,8 +583,11 @@ async function handleIntakeMessageInner(opts: {
         console.log(`[intake] SAVING dup_check conversation: threadTs=${threadTs}, step=dup_check:${existingConvo.id}`);
         const savedId = await dupConvo.save();
         console.log(`[intake] SAVED dup_check conversation: id=${savedId}, threadTs=${threadTs}`);
+        const dupFirstName = getFirstName(realName);
         await say({
-          text: "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
+          text: dupFirstName
+            ? `Welcome back, ${dupFirstName}! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?`
+            : "Welcome back! It looks like you have an open request in another thread — would you like to *continue there* or *start fresh* here?",
           thread_ts: threadTs,
         });
         console.log(`[intake] SENT dup_check prompt in thread ${threadTs}`);
@@ -574,16 +611,10 @@ async function handleIntakeMessageInner(opts: {
       }
       await convo.save();
 
-      // Send a warm welcome before processing their message (randomized)
+      // Send a warm welcome before processing their message (personalized + randomized)
       console.log(`[intake] Sending welcome message in thread ${threadTs}`);
-      const welcomeMessages = [
-        "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._",
-        "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._",
-        "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._",
-        "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._",
-      ];
       await say({
-        text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
+        text: getWelcomeMessage(getFirstName(realName)),
         thread_ts: threadTs,
       });
 
@@ -669,10 +700,13 @@ async function handleConfirmingState(
 
   // Check for start over / start fresh
   if (matchesAny(text, RESET_PATTERNS) || matchesAny(text, START_FRESH_PATTERNS)) {
+    const resetFirstName = getFirstName(convo.getCollectedData().requester_name ?? null);
     convo.reset();
     await convo.save();
     await say({
-      text: "Starting fresh! Let's begin again.",
+      text: resetFirstName
+        ? `No problem, ${resetFirstName}! Let's start a new request.`
+        : "Starting fresh! Let's begin again.",
       thread_ts: threadTs,
     });
     await askNextQuestion(convo, threadTs, say);
@@ -900,15 +934,9 @@ async function startFreshFromDupCheck(
   convo.markFieldCollected('additional_details', freshDetails);
   await convo.save();
 
-  // Send welcome and start intake
-  const welcomeMessages = [
-    "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._",
-    "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._",
-    "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._",
-    "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._",
-  ];
+  // Send welcome and start intake (personalized if name is known)
   await say({
-    text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)],
+    text: getWelcomeMessage(getFirstName(convo.getCollectedData().requester_name ?? null)),
     thread_ts: threadTs,
   });
 
@@ -955,7 +983,8 @@ async function handleGatheringState(
   // Empty @mention in an existing conversation — treat as a nudge
   if (text === '') {
     console.log(`[intake] Empty @mention in active conversation — re-asking current question`);
-    await say({ text: "I'm here! Let me pick up where we left off.", thread_ts: threadTs });
+    const nudgeFirstName = getFirstName(convo.getCollectedData().requester_name ?? null);
+    await say({ text: nudgeFirstName ? `I'm here, ${nudgeFirstName}! Let me pick up where we left off.` : "I'm here! Let me pick up where we left off.", thread_ts: threadTs });
     if (convo.isInFollowUp()) {
       const questions = getStoredFollowUpQuestions(convo);
       const index = convo.getFollowUpIndex();
@@ -986,10 +1015,13 @@ async function handleGatheringState(
 
   // Check for start over / start fresh
   if (matchesAny(text, RESET_PATTERNS) || matchesAny(text, START_FRESH_PATTERNS)) {
+    const gatherResetFirstName = getFirstName(convo.getCollectedData().requester_name ?? null);
     convo.reset();
     await convo.save();
     await say({
-      text: "Starting fresh! Let's begin again.",
+      text: gatherResetFirstName
+        ? `No problem, ${gatherResetFirstName}! Let's start a new request.`
+        : "Starting fresh! Let's begin again.",
       thread_ts: threadTs,
     });
     await askNextQuestion(convo, threadTs, say);
@@ -1001,13 +1033,7 @@ async function handleGatheringState(
   const DUP_STALE_HERE = [/^here$/i, /^this\s*(one|thread)$/i, /^right\s*here$/i, /^over\s*here$/i, /^in\s*here$/i];
   if (matchesAny(text, DUP_STALE_HERE)) {
     console.log(`[intake] "here" keyword in gathering state (likely stale dup_check) — sending welcome + first question`);
-    const welcomeMessages = [
-      "Hey! Thanks for reaching out to marketing. I'd love to help you with this. I'm going to ask you a few quick questions so I can get your request to the right people.\n_If I ever pause or fail to reply, just say hello? and I'll pick back up._",
-      "Hi! Thanks for reaching out to the marketing team. To get things moving, I'll walk you through a few quick questions about your request.\n_If I ever go quiet, just say hello? and I'll jump back in._",
-      "Hey there! Glad you reached out to marketing. I'll just need to ask you a few questions to make sure we have everything we need to get started.\n_If I ever drop off, just say hello? and I'll pick up where we left off._",
-      "Hi there! Thanks for coming to us. Let me ask you a few quick questions so we can get your request set up and into the right hands.\n_If I ever pause, just say hello? to get me back on track._",
-    ];
-    await say({ text: welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)], thread_ts: threadTs });
+    await say({ text: getWelcomeMessage(getFirstName(convo.getCollectedData().requester_name ?? null)), thread_ts: threadTs });
 
     const data = convo.getCollectedData();
     if (data.requester_name || data.requester_department) {

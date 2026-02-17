@@ -365,6 +365,21 @@ export async function getActiveConversationForUser(userId: string, excludeThread
   return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
 }
 
+/** Find the user's most recent completed (accepted) conversation that has a target audience. */
+export async function getMostRecentCompletedConversation(userId: string): Promise<Conversation | undefined> {
+  const result = await pool.query(
+    `SELECT * FROM conversations
+     WHERE user_id = $1
+       AND status = 'complete'
+       AND collected_data->>'target' IS NOT NULL
+       AND collected_data->>'target' != ''
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
+}
+
 export async function updateMondayItemId(conversationId: number, itemId: string): Promise<void> {
   await pool.query(
     `UPDATE conversations SET monday_item_id = $1, updated_at = NOW() WHERE id = $2`,
