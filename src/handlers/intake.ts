@@ -1176,10 +1176,16 @@ async function handleGatheringState(
       await say({ text: ack, thread_ts: threadTs });
     }
 
-    // Detect uncertainty language — actively clarify instead of silently flagging
+    // Detect uncertainty language — actively clarify instead of silently flagging.
+    // Use the fields that were JUST applied (not getCurrentStep(), which has already
+    // advanced past the answered field) so we flag the right thing.
     if (hasUncertaintyLanguage(text)) {
-      const answeredField = convo.getCurrentStep();
-      if (answeredField && GATHERING_FIELDS.includes(answeredField as keyof CollectedData)) {
+      const justApplied = (fieldsApplied as any).appliedFields as string[] | undefined;
+      const fieldsToCheck = justApplied && justApplied.length > 0
+        ? justApplied.filter((f) => GATHERING_FIELDS.includes(f as keyof CollectedData))
+        : [];
+
+      for (const answeredField of fieldsToCheck) {
         flagForClarification(convo, answeredField, formatFieldLabel(answeredField));
         console.log(`[intake] Uncertainty detected in "${text.substring(0, 40)}" — flagging ${answeredField} for clarification`);
 
@@ -2044,8 +2050,8 @@ function applyExtractedFields(
   convo: ConversationManager,
   extracted: ExtractedFields,
   allowOverwrite = false,
-): number {
-  let count = 0;
+): number & { appliedFields: string[] } {
+  const appliedFields: string[] = [];
   const current = convo.getCollectedData();
 
   const fieldKeys: (keyof ExtractedFields)[] = [
@@ -2089,10 +2095,14 @@ function applyExtractedFields(
     }
 
     convo.markFieldCollected(field as keyof CollectedData, newValue as string | string[]);
-    count++;
+    appliedFields.push(field);
   }
 
-  return count;
+  // Return a number that also carries the field list — backwards-compatible
+  // with all callers that treat the result as a count
+  const result = appliedFields.length as number & { appliedFields: string[] };
+  (result as any).appliedFields = appliedFields;
+  return result;
 }
 
 /**
