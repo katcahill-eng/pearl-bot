@@ -429,15 +429,18 @@ async function handleIntakeMessageInner(opts: {
     // If so, recreate silently and process the message — no welcome, no dup-check
     // Uses two signals: (1) bot messages in Slack thread, (2) any DB conversation for this thread
     let botWasActive = false;
+    let threadBotTexts: string[] = [];
     try {
       const replies = await client.conversations.replies({
         channel: channelId,
         ts: threadTs,
         limit: 50,
       });
-      botWasActive = replies.messages?.some((m) =>
+      const botMsgs = (replies.messages ?? []).filter((m) =>
         (('bot_id' in m && m.bot_id) || ('subtype' in m && m.subtype === 'bot_message')) && m.ts !== threadTs
-      ) ?? false;
+      );
+      botWasActive = botMsgs.length > 0;
+      threadBotTexts = botMsgs.map((m: any) => m.text ?? '');
     } catch (err) {
       console.error('[intake] Failed to check thread history via Slack API:', err);
     }
@@ -452,15 +455,41 @@ async function handleIntakeMessageInner(opts: {
     }
 
     if (botWasActive) {
-      console.log(`[intake] Bot was already active in thread ${threadTs} — recreating conversation from thread history`);
-      await say({
-        text: "Looks like I had a brief hiccup — give me just a moment to catch up on our conversation...",
-        thread_ts: threadTs,
-      });
+      // Detect dup-check threads vs genuine deploy recovery.
+      // Only show the "hiccup" message for real deploy recovery — not when
+      // the user was mid-dup-check ("continue there or start fresh?").
+      const isDupCheckRecovery = threadBotTexts.some((t) =>
+        t.includes('continue there') || t.includes('start fresh')
+      );
+
+      if (isDupCheckRecovery) {
+        console.log(`[intake] Dup-check thread detected in ${threadTs} — recovering without hiccup message`);
+      } else {
+        console.log(`[intake] Bot was already active in thread ${threadTs} — recreating conversation from thread history`);
+        await say({
+          text: "Looks like I had a brief hiccup — give me just a moment to catch up on our conversation...",
+          thread_ts: threadTs,
+        });
+      }
       // Extract fields from all prior user messages in the thread
       convo = new ConversationManager({ userId, userName: realName, channelId, threadTs });
       if (realName !== 'Unknown') convo.markFieldCollected('requester_name', realName);
       if (department) convo.markFieldCollected('requester_department', department);
+      // For dup-check recovery: find the user's other active conversation and carry over its target
+      if (isDupCheckRecovery) {
+        try {
+          const otherConvo = await getActiveConversationForUser(userId, threadTs);
+          if (otherConvo?.collected_data) {
+            const otherData = JSON.parse(otherConvo.collected_data);
+            if (otherData.target) {
+              convo.markFieldCollected('additional_details', { '__previous_target': otherData.target });
+              console.log(`[intake] Carried over previous target "${otherData.target}" from convo ${otherConvo.id}`);
+            }
+          }
+        } catch (err) {
+          console.error('[intake] Failed to carry over previous target:', err);
+        }
+      }
       try {
         const historyReplies = await client.conversations.replies({
           channel: channelId, ts: threadTs, limit: 200,
@@ -505,10 +534,18 @@ async function handleIntakeMessageInner(opts: {
           dupConvo.markFieldCollected('requester_department', department);
         }
         dupConvo.setCurrentStep(`dup_check:${existingConvo.id}`);
-        dupConvo.markFieldCollected('additional_details', {
+        // Carry over the previous conversation's target so we can offer it when starting fresh
+        let previousTarget: string | null = null;
+        try {
+          const prevData = JSON.parse(existingConvo.collected_data);
+          previousTarget = prevData.target ?? null;
+        } catch { /* ignore */ }
+        const dupDetails: Record<string, string> = {
           '__dup_existing_channel': existingConvo.channel_id,
           '__dup_existing_thread': existingConvo.thread_ts,
-        } as unknown as Record<string, string>);
+        };
+        if (previousTarget) dupDetails['__previous_target'] = previousTarget;
+        dupConvo.markFieldCollected('additional_details', dupDetails as unknown as Record<string, string>);
         console.log(`[intake] SAVING dup_check conversation: threadTs=${threadTs}, step=dup_check:${existingConvo.id}`);
         const savedId = await dupConvo.save();
         console.log(`[intake] SAVED dup_check conversation: id=${savedId}, threadTs=${threadTs}`);
@@ -852,9 +889,15 @@ async function startFreshFromDupCheck(
   say: SayFn,
   initialMessage?: string,
 ): Promise<void> {
+  // Grab previous target before clearing data — we'll offer it to the user
+  const previousTarget = convo.getCollectedData().additional_details['__previous_target'] ?? null;
+
   await cancelConversation(existingConvoId);
   convo.setCurrentStep(null);
-  convo.markFieldCollected('additional_details', {});
+  // Preserve __previous_target so handleGatheringState can use it if the user says "same"
+  const freshDetails: Record<string, string> = {};
+  if (previousTarget) freshDetails['__previous_target'] = previousTarget;
+  convo.markFieldCollected('additional_details', freshDetails);
   await convo.save();
 
   // Send welcome and start intake
@@ -883,6 +926,15 @@ async function startFreshFromDupCheck(
       confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
     }
     await say({ text: confirmMsg, thread_ts: threadTs });
+  }
+
+  // Offer the previous conversation's audience as a starting point
+  if (previousTarget) {
+    await say({
+      text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
+      thread_ts: threadTs,
+    });
+    return; // Wait for user response — handleGatheringState will process it
   }
 
   // If the user typed their actual request, process it now instead of losing it
@@ -970,8 +1022,46 @@ async function handleGatheringState(
       await say({ text: confirmMsg, thread_ts: threadTs });
     }
 
+    // If we carried over a previous target, offer it instead of asking from scratch
+    const staleTarget = convo.getCollectedData().additional_details['__previous_target'] ?? null;
+    if (staleTarget) {
+      await say({
+        text: `Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
+        thread_ts: threadTs,
+      });
+      return;
+    }
+
     await askNextQuestion(convo, threadTs, say);
     return;
+  }
+
+  // Handle "same audience" response when the bot offered a previous target
+  const previousTarget = convo.getCollectedData().additional_details['__previous_target'] ?? null;
+  if (previousTarget && convo.getCurrentStep() === 'target') {
+    const SAME_AUDIENCE_PATTERNS = [
+      /^same$/i, /^yes$/i, /^yep$/i, /^yeah$/i, /^yup$/i, /^sure$/i,
+      /^same\s*(audience|one|people|group)$/i, /^that['\u2019]?s?\s*(right|correct|it|them)$/i,
+      /^correct$/i, /^exactly$/i, /^them$/i,
+    ];
+    if (matchesAny(text, SAME_AUDIENCE_PATTERNS)) {
+      convo.markFieldCollected('target', previousTarget);
+      // Clean up the __previous_target flag
+      const details = convo.getCollectedData().additional_details;
+      delete details['__previous_target'];
+      convo.markFieldCollected('additional_details', details);
+      await convo.save();
+      await say({ text: `Got it — targeting *${previousTarget}* again!`, thread_ts: threadTs });
+      await askNextQuestion(convo, threadTs, say);
+      return;
+    }
+    // User said something else — they're specifying a different audience.
+    // Clean up the flag and let normal extraction handle their response.
+    const details = convo.getCollectedData().additional_details;
+    delete details['__previous_target'];
+    convo.markFieldCollected('additional_details', details);
+    await convo.save();
+    // Fall through to normal Claude extraction below
   }
 
   // Check for continue/resume (used after timeout reminders)
