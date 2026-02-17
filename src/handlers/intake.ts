@@ -453,6 +453,10 @@ async function handleIntakeMessageInner(opts: {
 
     if (botWasActive) {
       console.log(`[intake] Bot was already active in thread ${threadTs} — recreating conversation from thread history`);
+      await say({
+        text: "Looks like I had a brief hiccup — give me just a moment to catch up on our conversation...",
+        thread_ts: threadTs,
+      });
       // Extract fields from all prior user messages in the thread
       convo = new ConversationManager({ userId, userName: realName, channelId, threadTs });
       if (realName !== 'Unknown') convo.markFieldCollected('requester_name', realName);
@@ -470,10 +474,11 @@ async function handleIntakeMessageInner(opts: {
           // Don't include the current message — it will be processed normally below
           const priorTexts = userTexts.slice(0, -1);
           if (priorTexts.length > 0) {
-            const combined = priorTexts.join('\n\n');
-            console.log(`[intake] Extracting fields from ${priorTexts.length} prior message(s)`);
-            const historyExtracted = await interpretMessage(combined, {});
-            applyExtractedFields(convo, historyExtracted);
+            console.log(`[intake] Extracting fields from ${priorTexts.length} prior message(s) individually`);
+            for (const msgText of priorTexts) {
+              const extracted = await interpretMessage(msgText, convo.getCollectedData());
+              applyExtractedFields(convo, extracted);
+            }
           }
         }
       } catch (err) {
@@ -1171,12 +1176,18 @@ async function handleGatheringState(
       await say({ text: ack, thread_ts: threadTs });
     }
 
-    // Detect uncertainty language — flag the answered field for async clarification
+    // Detect uncertainty language — actively clarify instead of silently flagging
     if (hasUncertaintyLanguage(text)) {
       const answeredField = convo.getCurrentStep();
       if (answeredField && GATHERING_FIELDS.includes(answeredField as keyof CollectedData)) {
         flagForClarification(convo, answeredField, formatFieldLabel(answeredField));
         console.log(`[intake] Uncertainty detected in "${text.substring(0, 40)}" — flagging ${answeredField} for clarification`);
+
+        // Provide active clarification based on the field and request context
+        const clarification = buildUncertaintyClarification(answeredField, convo.getCollectedData(), text);
+        if (clarification) {
+          await say({ text: clarification, thread_ts: threadTs });
+        }
       }
     }
 
@@ -2148,6 +2159,72 @@ function clarificationQuestionForField(field: string): string {
     constraints: 'Any budget, brand, or other constraints we should know about?',
   };
   return map[field] ?? `Can you provide more detail on *${formatFieldLabel(field)}*?`;
+}
+
+/**
+ * When a user expresses uncertainty about deliverables, provide a contextual
+ * suggestion list based on the type of request (conference, webinar, etc.)
+ * rather than silently flagging it for later follow-up.
+ */
+function buildUncertaintyClarification(
+  field: string,
+  data: CollectedData,
+  userText: string,
+): string | null {
+  // Only provide active clarification for deliverables —
+  // other fields are handled fine by the normal flow
+  if (field !== 'deliverables') return null;
+
+  // Infer request type from already-collected context
+  const context = (data.context_background ?? '').toLowerCase();
+  const target = (data.target ?? '').toLowerCase();
+  const combined = `${context} ${target} ${userText.toLowerCase()}`;
+
+  let suggestions: string[];
+
+  if (/conference|summit|expo|convention|trade\s*show/i.test(combined)) {
+    suggestions = [
+      'booth design and branded collateral',
+      'pre/post-conference email copy',
+      'social media promotion',
+      'presentation slide design',
+      'one-pagers, handouts, or signage',
+      'digital conference booth (4 iPads pre-loaded with content)',
+    ];
+  } else if (/webinar|web\s*event|online\s*(event|session|presentation)/i.test(combined)) {
+    suggestions = [
+      'webinar landing page copy',
+      'promotional email copy',
+      'social media promotion',
+      'slide deck design',
+      'post-webinar follow-up email copy',
+    ];
+  } else if (/dinner|event|gathering|reception/i.test(combined)) {
+    suggestions = [
+      'invitation design and copy',
+      'event branding and signage',
+      'presentation or slide deck',
+      'post-event follow-up email copy',
+      'social media coverage',
+    ];
+  } else if (/email|newsletter|campaign|nurture/i.test(combined)) {
+    suggestions = [
+      'email copywriting',
+      'email design/template',
+      'subject line and preview text',
+    ];
+  } else {
+    suggestions = [
+      'email copy',
+      'social media posts',
+      'design assets (one-pagers, banners, etc.)',
+      'presentation slides',
+      'digital ads',
+    ];
+  }
+
+  const list = suggestions.map((s) => `• ${s}`).join('\n');
+  return `No worries if you're not sure yet! Based on what you've told me, here are some things marketing can help with:\n${list}\nWould any of these work, or would you like to set up a brainstorm session to figure it out?`;
 }
 
 /**

@@ -55,8 +55,8 @@ Extract any of the following fields from the user's message. Return ONLY the fie
 Fields:
 - requester_name: The name of the person making the request (if mentioned or if they introduce themselves)
 - requester_department: The Pearl department/team making the request — must be one of: "CX", "Corporate", "BD", "Product", "P2", "Marketing", or "Other"
-- target: The target audience for this request (e.g., "homeowners", "real estate agents", "conference attendees", "internal team")
-- context_background: Context and background explaining why this request exists and what prompted it
+- target: The target audience for this request — extract ONLY the audience (e.g., "real estate agents", "homeowners", "internal team"). Do NOT include event names, locations, or dates in this field — those belong in context_background.
+- context_background: Context and background explaining why this request exists and what prompted it. Include event/conference names, locations, dates, and any other contextual details (e.g., "Inman Conference in San Diego in September"). If a message contains both audience AND event info, split them: audience → target, event details → context_background.
 - desired_outcomes: What the requester hopes to achieve (e.g., "increase sign-ups by 20%", "generate leads", "drive awareness")
 - deliverables: An array of specific deliverables the user is REQUESTING from marketing (e.g., ["1 one-pager PDF", "3 social posts"]). When the current step is "deliverables", assume the user is listing what they NEED, not what they already have — even if they use phrases like "I made" or "I have" (often voice-to-text artifacts for "I'd make use of" or "I need")
 - due_date: The due date as the user expressed it (e.g., "next Friday", "February 15", "end of month", "ASAP")
@@ -77,7 +77,7 @@ Additional field:
   IMPORTANT: When acknowledging deliverables, say what they NEED (e.g., "Got it — you need a presentation deck and registration page") rather than implying they already have them.
 
 Rules:
-- Handle bundled responses: if a user provides multiple fields in one message, extract ALL of them
+- Handle bundled responses: if a user provides multiple fields in one message, extract ALL of them. For example, "Real estate agents at the Inman Conference in San Diego in September" contains BOTH target ("real estate agents") AND context_background ("Inman Conference in San Diego in September") — extract both.
 - For department detection, handle natural language: "I'm on the customer experience team" → "CX", "business development" → "BD", "partner program" → "P2", "corporate team" → "Corporate"
 - For dates: "Friday" → next Friday, "end of month" → last day of current month, "in two weeks" → 14 days from today
 - If the user says "ASAP" or "urgent", set due_date to "ASAP"
