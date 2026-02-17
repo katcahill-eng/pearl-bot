@@ -506,19 +506,22 @@ async function handleIntakeMessageInner(opts: {
       convo = new ConversationManager({ userId, userName: realName, channelId, threadTs });
       if (realName !== 'Unknown') convo.markFieldCollected('requester_name', realName);
       if (department) convo.markFieldCollected('requester_department', department);
-      // For dup-check recovery: carry over target from most recent *accepted* project
+      // For dup-check recovery: carry over target + department from most recent *accepted* project
       if (isDupCheckRecovery) {
         try {
           const completedConvo = await getMostRecentCompletedConversation(userId);
           if (completedConvo?.collected_data) {
             const completedData = JSON.parse(completedConvo.collected_data);
-            if (completedData.target) {
-              convo.markFieldCollected('additional_details', { '__previous_target': completedData.target });
-              console.log(`[intake] Carried over previous target "${completedData.target}" from completed convo ${completedConvo.id}`);
+            const carryoverDetails: Record<string, string> = {};
+            if (completedData.target) carryoverDetails['__previous_target'] = completedData.target;
+            if (completedData.requester_department) carryoverDetails['__previous_department'] = completedData.requester_department;
+            if (Object.keys(carryoverDetails).length > 0) {
+              convo.markFieldCollected('additional_details', carryoverDetails);
+              console.log(`[intake] Carried over from completed convo ${completedConvo.id}: target="${completedData.target}", dept="${completedData.requester_department}"`);
             }
           }
         } catch (err) {
-          console.error('[intake] Failed to carry over previous target:', err);
+          console.error('[intake] Failed to carry over previous project data:', err);
         }
       }
       try {
@@ -565,13 +568,15 @@ async function handleIntakeMessageInner(opts: {
           dupConvo.markFieldCollected('requester_department', department);
         }
         dupConvo.setCurrentStep(`dup_check:${existingConvo.id}`);
-        // Carry over target from most recent *accepted* project (not in-progress)
+        // Carry over target + department from most recent *accepted* project (not in-progress)
         let previousTarget: string | null = null;
+        let previousDepartment: string | null = null;
         try {
           const completedConvo = await getMostRecentCompletedConversation(userId);
           if (completedConvo?.collected_data) {
             const completedData = JSON.parse(completedConvo.collected_data);
             previousTarget = completedData.target ?? null;
+            previousDepartment = completedData.requester_department ?? null;
           }
         } catch { /* ignore */ }
         const dupDetails: Record<string, string> = {
@@ -579,6 +584,7 @@ async function handleIntakeMessageInner(opts: {
           '__dup_existing_thread': existingConvo.thread_ts,
         };
         if (previousTarget) dupDetails['__previous_target'] = previousTarget;
+        if (previousDepartment) dupDetails['__previous_department'] = previousDepartment;
         dupConvo.markFieldCollected('additional_details', dupDetails as unknown as Record<string, string>);
         console.log(`[intake] SAVING dup_check conversation: threadTs=${threadTs}, step=dup_check:${existingConvo.id}`);
         const savedId = await dupConvo.save();
@@ -923,46 +929,59 @@ async function startFreshFromDupCheck(
   say: SayFn,
   initialMessage?: string,
 ): Promise<void> {
-  // Grab previous target before clearing data — we'll offer it to the user
+  // Grab previous target + department before clearing data
   const previousTarget = convo.getCollectedData().additional_details['__previous_target'] ?? null;
+  const previousDepartment = convo.getCollectedData().additional_details['__previous_department'] ?? null;
 
   await cancelConversation(existingConvoId);
   convo.setCurrentStep(null);
-  // Preserve __previous_target so handleGatheringState can use it if the user says "same"
+  // Preserve carryover data so handleGatheringState can use it if the user says "same"
   const freshDetails: Record<string, string> = {};
   if (previousTarget) freshDetails['__previous_target'] = previousTarget;
+  if (previousDepartment) freshDetails['__previous_department'] = previousDepartment;
   convo.markFieldCollected('additional_details', freshDetails);
   await convo.save();
 
-  // Send welcome and start intake (personalized if name is known)
-  await say({
-    text: getWelcomeMessage(getFirstName(convo.getCollectedData().requester_name ?? null)),
-    thread_ts: threadTs,
-  });
-
-  // Confirm pre-filled name/department
   const dupData = convo.getCollectedData();
-  if (dupData.requester_name || dupData.requester_department) {
-    const namePart = dupData.requester_name;
-    const deptPart = dupData.requester_department;
-    let confirmMsg: string;
-    if (namePart && deptPart) {
-      confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-    } else if (namePart) {
-      confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-    } else {
-      confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-    }
-    await say({ text: confirmMsg, thread_ts: threadTs });
-  }
+  const isReturningUser = previousDepartment && dupData.requester_name;
 
-  // Offer the previous conversation's audience as a starting point
-  if (previousTarget) {
+  if (isReturningUser) {
+    // Returning user — they already got "Welcome back!" so skip the verbose welcome.
+    // Just confirm department from their last accepted project.
     await say({
-      text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
+      text: `Are you requesting marketing support for *${previousDepartment}*? If not, just let me know.`,
       thread_ts: threadTs,
     });
-    return; // Wait for user response — handleGatheringState will process it
+
+    // Offer the previous audience as a follow-up
+    if (previousTarget) {
+      await say({
+        text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
+        thread_ts: threadTs,
+      });
+      return; // Wait for user response — handleGatheringState will process it
+    }
+  } else {
+    // New user — full welcome
+    await say({
+      text: getWelcomeMessage(getFirstName(dupData.requester_name ?? null)),
+      thread_ts: threadTs,
+    });
+
+    // Confirm pre-filled name/department from Slack profile
+    if (dupData.requester_name || dupData.requester_department) {
+      const namePart = dupData.requester_name;
+      const deptPart = dupData.requester_department;
+      let confirmMsg: string;
+      if (namePart && deptPart) {
+        confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      } else if (namePart) {
+        confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      } else {
+        confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+      }
+      await say({ text: confirmMsg, thread_ts: threadTs });
+    }
   }
 
   // If the user typed their actual request, process it now instead of losing it
@@ -1033,29 +1052,38 @@ async function handleGatheringState(
   const DUP_STALE_HERE = [/^here$/i, /^this\s*(one|thread)$/i, /^right\s*here$/i, /^over\s*here$/i, /^in\s*here$/i];
   if (matchesAny(text, DUP_STALE_HERE)) {
     console.log(`[intake] "here" keyword in gathering state (likely stale dup_check) — sending welcome + first question`);
-    await say({ text: getWelcomeMessage(getFirstName(convo.getCollectedData().requester_name ?? null)), thread_ts: threadTs });
+    const staleData = convo.getCollectedData();
+    const staleDept = staleData.additional_details['__previous_department'] ?? null;
+    const staleTarget = staleData.additional_details['__previous_target'] ?? null;
+    const isStaleReturning = staleDept && staleData.requester_name;
 
-    const data = convo.getCollectedData();
-    if (data.requester_name || data.requester_department) {
-      let confirmMsg: string;
-      if (data.requester_name && data.requester_department) {
-        confirmMsg = `I have you down as *${data.requester_name}* from *${data.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      } else if (data.requester_name) {
-        confirmMsg = `I have you down as *${data.requester_name}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      } else {
-        confirmMsg = `I have you down as part of *${data.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      }
-      await say({ text: confirmMsg, thread_ts: threadTs });
-    }
-
-    // If we carried over a previous target, offer it instead of asking from scratch
-    const staleTarget = convo.getCollectedData().additional_details['__previous_target'] ?? null;
-    if (staleTarget) {
+    if (isStaleReturning) {
+      // Returning user — streamlined (they already got "Welcome back!")
       await say({
-        text: `Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
+        text: `Are you requesting marketing support for *${staleDept}*? If not, just let me know.`,
         thread_ts: threadTs,
       });
-      return;
+      if (staleTarget) {
+        await say({
+          text: `Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
+          thread_ts: threadTs,
+        });
+        return;
+      }
+    } else {
+      // New user — full welcome
+      await say({ text: getWelcomeMessage(getFirstName(staleData.requester_name ?? null)), thread_ts: threadTs });
+      if (staleData.requester_name || staleData.requester_department) {
+        let confirmMsg: string;
+        if (staleData.requester_name && staleData.requester_department) {
+          confirmMsg = `I have you down as *${staleData.requester_name}* from *${staleData.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
+        } else if (staleData.requester_name) {
+          confirmMsg = `I have you down as *${staleData.requester_name}*. If that's not right, just let me know — otherwise, let's jump in!`;
+        } else {
+          confirmMsg = `I have you down as part of *${staleData.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
+        }
+        await say({ text: confirmMsg, thread_ts: threadTs });
+      }
     }
 
     await askNextQuestion(convo, threadTs, say);
