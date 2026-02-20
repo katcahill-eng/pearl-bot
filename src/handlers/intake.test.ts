@@ -1025,4 +1025,153 @@ describe('Intake conversation flows', () => {
       expect(texts.some((t) => t.includes('cancel'))).toBe(true);
     });
   });
+
+  // ====================
+  // KAT'S FULL SCRIPT — end-to-end regression
+  // Simulates the exact conversation flow from live testing.
+  // Catches: double messages, question-form acks, duplicate questions, lost fields.
+  // ====================
+  describe("Kat's full test script: dup-check → gather all fields", () => {
+    it('should send exactly ONE message per response and never re-ask answered fields', async () => {
+      // --- Step 1: "@MarcomsBot I need help with a project" → dup-check prompt ---
+      (getActiveConversationForUser as Mock).mockResolvedValue({
+        id: 99, user_id: 'U_TEST', thread_ts: 'other-thread',
+        channel_id: 'C_INTAKE', status: 'gathering',
+        collected_data: JSON.stringify({ requester_name: 'Kat Cahill', requester_department: 'Marketing' }),
+      });
+      (getMostRecentCompletedConversation as Mock).mockResolvedValue(undefined);
+
+      // NOTE: dup-check path does NOT call interpretMessage, so no mock needed here
+      await sendMessage({ text: 'I need help with a project', say, client });
+      let texts = getSayTexts(say);
+      expect(texts.some((t) => t.includes('continue') || t.includes('fresh'))).toBe(true);
+      say.mockClear();
+
+      // --- Step 2: "Here" → start fresh, ask first question ---
+      // After dup-check, getActiveConversationForUser should return nothing for fresh conversation
+      (getActiveConversationForUser as Mock).mockResolvedValue(undefined);
+      await sendMessage({ text: 'here', say, client });
+      texts = getSayTexts(say);
+
+      // Should be exactly ONE message (dept confirmation + first question combined)
+      expect(texts).toHaveLength(1);
+      // Should contain marketing dept reference (as a statement, NOT a question)
+      const firstMsg = texts[0];
+      expect(firstMsg.toLowerCase()).toContain('marketing');
+      // Must NOT contain "Are you requesting" — that's a question form
+      expect(firstMsg).not.toContain('Are you requesting');
+      // Should ask about target audience
+      expect(firstMsg.toLowerCase()).toContain('target');
+      say.mockClear();
+
+      // --- Step 3: "I have a webinar series coming up" → context extracted, ask target ---
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({
+          context_background: 'Webinar series coming up',
+          confidence: 0.85,
+          acknowledgment: 'Got it — you have a webinar series coming up.',
+        }),
+      );
+      await sendMessage({ text: 'I have a webinar series coming up', say, client });
+      texts = getSayTexts(say);
+
+      // Should be exactly ONE message (ack + target question combined)
+      expect(texts).toHaveLength(1);
+      expect(texts[0]).toContain('Got it');
+      expect(texts[0].toLowerCase()).toContain('target');
+      say.mockClear();
+
+      // --- Step 4: "Real estate agents at Inman Conference in San Diego in September" ---
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({
+          target: 'real estate agents',
+          context_background: 'Inman Conference in San Diego in September',
+          confidence: 0.95,
+          acknowledgment: "Got it — you're targeting real estate agents at the Inman Conference.",
+        }),
+      );
+      await sendMessage({ text: 'Real estate agents attending the Inman Conference in San Diego in September', say, client });
+      texts = getSayTexts(say);
+
+      // Should be exactly ONE message (ack + outcomes question combined)
+      expect(texts).toHaveLength(1);
+      expect(texts[0]).toContain('Got it');
+      expect(texts[0].toLowerCase()).toContain('outcome');
+      say.mockClear();
+
+      // --- Step 5: "Increase early access applications" → outcomes extracted ---
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({
+          desired_outcomes: 'increase early access applications',
+          confidence: 0.95,
+          acknowledgment: 'Got it — you want to increase early access applications.',
+          project_keywords: ['early access'],
+        }),
+      );
+      await sendMessage({ text: 'Increase early access applications', say, client });
+      texts = getSayTexts(say);
+
+      // Should be exactly ONE message (ack + deliverables question combined)
+      expect(texts).toHaveLength(1);
+      expect(texts[0]).toContain('Got it');
+      expect(texts[0].toLowerCase()).toContain('deliverable');
+      say.mockClear();
+
+      // Verify desired_outcomes is stored in the conversation
+      const savedAfterOutcomes = conversationStore['U_TEST::thread-1'];
+      const dataAfterOutcomes = JSON.parse(savedAfterOutcomes.collected_data);
+      expect(dataAfterOutcomes.desired_outcomes).toBe('increase early access applications');
+
+      // --- Step 6: "I definitely need help with a presentation deck. I'll probably need social media" ---
+      // This has uncertainty ("probably") — tests that ack+uncertainty+question are combined
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({
+          deliverables: ['presentation deck', 'social media content'],
+          confidence: 0.9,
+          acknowledgment: 'Got it — you need a presentation deck and social media content.',
+        }),
+      );
+      await sendMessage({ text: "I definitely need help with a presentation deck. I'll probably need social media", say, client });
+      texts = getSayTexts(say);
+
+      // Should be exactly ONE message (ack + uncertainty note + due_date question combined)
+      expect(texts).toHaveLength(1);
+      const delivMsg = texts[0];
+      expect(delivMsg).toContain('Got it');
+      expect(delivMsg).toContain('fine-tune'); // uncertainty note
+      // The NEXT question should be due_date, NOT desired_outcomes (which was already answered)
+      expect(delivMsg.toLowerCase()).toContain('when');
+      expect(delivMsg.toLowerCase()).not.toContain('desired outcome');
+      say.mockClear();
+
+      // Verify desired_outcomes is STILL stored after deliverables extraction
+      const savedAfterDeliverables = conversationStore['U_TEST::thread-1'];
+      const dataAfterDeliverables = JSON.parse(savedAfterDeliverables.collected_data);
+      expect(dataAfterDeliverables.desired_outcomes).toBe('increase early access applications');
+      expect(dataAfterDeliverables.deliverables).toEqual(['presentation deck', 'social media content']);
+    });
+
+    it('should sanitize question-form acknowledgments from Claude', async () => {
+      seedGatheringConversation();
+
+      // Claude returns a question-form acknowledgment (violating the prompt)
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({
+          target: 'Real estate agents',
+          confidence: 0.95,
+          acknowledgment: 'Are you requesting marketing support for Marketing? If not, just let me know.',
+        }),
+      );
+
+      await sendMessage({ text: 'Real estate agents', say, client });
+      const texts = getSayTexts(say);
+
+      // The question-form ack should be stripped; the actual field question is fine
+      expect(texts).toHaveLength(1);
+      expect(texts[0]).not.toContain('Are you requesting');
+      expect(texts[0]).not.toContain('If not, just let me know');
+      // Should still contain the actual next question (context/background)
+      expect(texts[0].toLowerCase()).toMatch(/context|background/);
+    });
+  });
 });
