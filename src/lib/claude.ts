@@ -115,7 +115,7 @@ export async function interpretMessage(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fastClient.messages.create({
-        model: 'claude-3-5-haiku-20241022',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
@@ -289,7 +289,7 @@ Respond with ONLY the type string(s), comma-separated if multiple, nothing else.
 - Desired Outcomes: ${collectedData.desired_outcomes ?? 'Not provided'}`;
 
   const response = await fastClient.messages.create({
-    model: 'claude-3-5-haiku-20241022',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 50,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
@@ -387,7 +387,7 @@ If the user's message doesn't answer the question (off-topic, unclear), set valu
 Respond with ONLY a JSON object, no markdown formatting, no code blocks.`;
 
   const response = await fastClient.messages.create({
-    model: 'claude-3-5-haiku-20241022',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 512,
     system: systemPrompt,
     messages: [{ role: 'user', content: `User's answer: "${message}"` }],
