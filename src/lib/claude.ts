@@ -80,6 +80,7 @@ Additional field:
   - "Noted — you need a one-pager and 3 social posts." (if deliverables were extracted)
   - "Got it — targeting real estate agents in the Southeast." (if target was extracted)
   Keep it short (one sentence), natural, and accurate to what the user actually said.
+  IMPORTANT: The acknowledgment must be a STATEMENT, never a question. Do NOT ask about departments, audiences, or anything else. Do NOT include "If not, just let me know" or similar prompts. Just confirm what the user said.
   IMPORTANT: When acknowledging deliverables, say what they NEED (e.g., "Got it — you need a presentation deck and registration page") rather than implying they already have them.
 
 Rules:
@@ -114,7 +115,7 @@ export async function interpretMessage(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fastClient.messages.create({
-        model: 'claude-3-5-haiku-latest',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 1024,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
@@ -288,7 +289,7 @@ Respond with ONLY the type string(s), comma-separated if multiple, nothing else.
 - Desired Outcomes: ${collectedData.desired_outcomes ?? 'Not provided'}`;
 
   const response = await fastClient.messages.create({
-    model: 'claude-3-5-haiku-latest',
+    model: 'claude-3-5-haiku-20241022',
     max_tokens: 50,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
@@ -386,7 +387,7 @@ If the user's message doesn't answer the question (off-topic, unclear), set valu
 Respond with ONLY a JSON object, no markdown formatting, no code blocks.`;
 
   const response = await fastClient.messages.create({
-    model: 'claude-3-5-haiku-latest',
+    model: 'claude-3-5-haiku-20241022',
     max_tokens: 512,
     system: systemPrompt,
     messages: [{ role: 'user', content: `User's answer: "${message}"` }],
