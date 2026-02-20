@@ -1015,6 +1015,11 @@ async function startFreshFromDupCheck(
   // Offer the previous audience as a follow-up (from accepted projects only)
   // This is shown as its own message since it needs a direct response.
   if (previousTarget) {
+    // Set currentStep so handleGatheringState knows the bot just asked about target.
+    // Without this, the user's next reply would cause askNextQuestion to re-ask about
+    // target (because it's still unpopulated), producing a duplicate question.
+    convo.setCurrentStep('target');
+    await convo.save();
     const deptNoteForTarget = dept ? `_I'll assume you're requesting support for *${dept}* — let me know if that's not right._\n\n` : '';
     await say({
       text: `${deptNoteForTarget}Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
@@ -1118,6 +1123,8 @@ async function handleGatheringState(
     const staleDeptNote = staleDept ? `_I'll assume you're requesting support for *${staleDept}* — let me know if that's not right._\n\n` : '';
 
     if (staleTarget) {
+      convo.setCurrentStep('target');
+      await convo.save();
       await say({
         text: `${staleDeptNote}Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
         thread_ts: threadTs,
@@ -1157,12 +1164,11 @@ async function handleGatheringState(
       await askNextQuestion(convo, threadTs, say);
       return;
     }
-    // User said something else — they're specifying a different audience.
-    // Clean up the flag and let normal extraction handle their response.
-    const details = convo.getCollectedData().additional_details;
-    delete details['__previous_target'];
-    convo.markFieldCollected('additional_details', details);
-    await convo.save();
+    // User said something other than "same" — they might be specifying a
+    // different audience, or they might be providing other info (context,
+    // deliverables, etc.) without addressing the audience question.
+    // Keep __previous_target so the post-extraction check can carry it over
+    // if Claude doesn't extract a new target from the user's message.
     // Fall through to normal Claude extraction below
   }
 
@@ -1447,6 +1453,20 @@ async function handleGatheringState(
         thread_ts: threadTs,
       });
       return;
+    }
+
+    // If the user was asked "same audience?" but didn't answer with a target,
+    // carry over the previous target so the bot doesn't re-ask about audience.
+    const postDetails = convo.getCollectedData().additional_details;
+    const pendingTarget = postDetails['__previous_target'] ?? null;
+    if (pendingTarget && !convo.getCollectedData().target) {
+      convo.markFieldCollected('target', pendingTarget);
+      console.log(`[intake] Carried over previous target "${pendingTarget}" (user didn't specify a new one)`);
+    }
+    // Clean up the __previous_target flag either way
+    if (postDetails['__previous_target']) {
+      delete postDetails['__previous_target'];
+      convo.markFieldCollected('additional_details', postDetails);
     }
 
     // Check if all required fields are now collected

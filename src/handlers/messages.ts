@@ -11,7 +11,7 @@ import { cancelStaleConversationsForUser } from '../lib/db';
 // the last one. Each new message cancels the previous pending message for
 // the same thread+user, ensuring only the final message gets processed.
 const pendingDebounce = new Map<string, () => void>();
-const DEBOUNCE_MS = 1500;
+const DEBOUNCE_MS = 800;
 
 function debounceMessage(threadTs: string, userId: string): Promise<boolean> {
   const key = `${threadTs}:${userId}`;

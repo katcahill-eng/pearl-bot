@@ -65,7 +65,7 @@ process.on('SIGTERM', async () => {
 (async () => {
   await initDb();
   await app.start();
-  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-20T0500 — fix-haiku-model+ack) instance=${getInstanceId().substring(0, 8)}`);
+  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-20T0600 — latency+dup-target) instance=${getInstanceId().substring(0, 8)}`);
 
   // Start periodic timeout check
   setInterval(() => {
