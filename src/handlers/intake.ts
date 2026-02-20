@@ -649,6 +649,7 @@ async function handleIntakeMessageInner(opts: {
       // Users often describe their request in the first @mention (e.g., "@bot I need a
       // webinar deck for real estate agents by March 15") — we should capture that info
       // instead of making them repeat it during Q&A.
+      let initialAck = '';
       const strippedInitial = text;
       const isShortNudgeInitial = matchesAny(strippedInitial, NUDGE_PATTERNS) && strippedInitial.trim().split(/\s+/).length <= 5;
       if (strippedInitial.length > 5 && !isShortNudgeInitial) {
@@ -659,8 +660,10 @@ async function handleIntakeMessageInner(opts: {
             if (initialFieldsApplied > 0) {
               console.log(`[intake] Extracted ${initialFieldsApplied} field(s) from initial message`);
               await convo.save();
+              // Sanitize the acknowledgment — don't send it as a separate message;
+              // instead, save it to combine with the first question below.
               if (initialExtracted.acknowledgment) {
-                await say({ text: initialExtracted.acknowledgment, thread_ts: threadTs });
+                initialAck = sanitizeAcknowledgment(initialExtracted.acknowledgment);
               }
             }
           }
@@ -669,20 +672,24 @@ async function handleIntakeMessageInner(opts: {
         }
       }
 
-      // Combine the confirmation prefix with the first question into ONE message.
+      // Build the combined message: ack (if any) + confirmPrefix + first question — ALL in ONE message.
+      // This ensures the user never sees separate ack / confirm / question bubbles.
+      const combinedPrefix = [initialAck, confirmPrefix.trim()].filter(Boolean).join('\n\n');
+
       if (convo.isComplete()) {
-        if (confirmPrefix) await say({ text: confirmPrefix.trim(), thread_ts: threadTs });
+        if (combinedPrefix) await say({ text: combinedPrefix, thread_ts: threadTs });
         await enterFollowUpPhase(convo, 0, threadTs, say);
       } else {
         const next = convo.getNextQuestion();
         if (next) {
           await convo.save();
+          const questionText = `${next.question}\n_${next.example}_`;
           await say({
-            text: `${confirmPrefix}${next.question}\n_${next.example}_`,
+            text: combinedPrefix ? `${combinedPrefix}\n\n${questionText}` : questionText,
             thread_ts: threadTs,
           });
         } else {
-          if (confirmPrefix) await say({ text: confirmPrefix.trim(), thread_ts: threadTs });
+          if (combinedPrefix) await say({ text: combinedPrefix, thread_ts: threadTs });
           await enterFollowUpPhase(convo, 0, threadTs, say);
         }
       }
@@ -1160,8 +1167,8 @@ async function handleGatheringState(
       delete details['__previous_target'];
       convo.markFieldCollected('additional_details', details);
       await convo.save();
-      await say({ text: `Got it — targeting *${previousTarget}* again!`, thread_ts: threadTs });
-      await askNextQuestion(convo, threadTs, say);
+      // Combine ack + next question into single message
+      await askNextQuestion(convo, threadTs, say, `Got it — targeting *${previousTarget}* again!`);
       return;
     }
     // User said something other than "same" — they might be specifying a
@@ -1363,23 +1370,19 @@ async function handleGatheringState(
           }
           await convo.save();
 
-          await say({ text: 'Got it!', thread_ts: threadTs });
-
           if (convo.isComplete()) {
+            await say({ text: 'Got it!', thread_ts: threadTs });
             await enterFollowUpPhase(convo, 1, threadTs, say);
           } else {
-            await askNextQuestion(convo, threadTs, say);
+            // Combine "Got it!" + next question into single message
+            await askNextQuestion(convo, threadTs, say, 'Got it!');
           }
         }
       } else {
         console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${step}, substantive=${isSubstantive})`);
         logUnrecognizedMessage({ conversationId: convo.getId(), userMessage: text, currentStep: step ?? null, confidence: extracted.confidence, fieldsExtracted: 0, rawFallbackUsed: false }).catch(() => {});
-        await say({
-          text: "I didn't quite catch that. Could you rephrase?",
-          thread_ts: threadTs,
-        });
-        // Re-ask the current question
-        await askNextQuestion(convo, threadTs, say);
+        // Combine "didn't catch that" + re-ask into single message
+        await askNextQuestion(convo, threadTs, say, "I didn't quite catch that. Could you rephrase?");
       }
       return;
     }
@@ -1411,14 +1414,15 @@ async function handleGatheringState(
       }
     }
 
-    if (ack) {
-      await say({ text: ack, thread_ts: threadTs });
-    }
-
-    // Show production timeline if we just captured a due date
+    // Show production timeline if we just captured a due date (sent as separate message — it's informational)
     if (extracted.due_date_parsed) {
       const timeline = generateProductionTimeline(convo.getCollectedData());
       if (timeline) {
+        // Send ack before timeline, then timeline, then question — 3 messages is OK for timeline
+        if (ack) {
+          await say({ text: ack, thread_ts: threadTs });
+          ack = null;
+        }
         await say({ text: timeline, thread_ts: threadTs });
       }
     }
@@ -1448,8 +1452,10 @@ async function handleGatheringState(
       convo.markFieldCollected('additional_details', details);
       convo.setCurrentStep('draft:awaiting_link');
       await convo.save();
+      // Send ack before draft question if we have one
+      const draftMsg = "It sounds like you have some existing content or a draft started — that's super helpful! Can you share a Google Drive link so we can take a look?\n_If you don't have a link handy, just say *skip* and you can share it later._";
       await say({
-        text: "It sounds like you have some existing content or a draft started — that's super helpful! Can you share a Google Drive link so we can take a look?\n_If you don't have a link handy, just say *skip* and you can share it later._",
+        text: ack ? `${ack}\n\n${draftMsg}` : draftMsg,
         thread_ts: threadTs,
       });
       return;
@@ -1472,12 +1478,12 @@ async function handleGatheringState(
     // Check if all required fields are now collected
     await convo.save();
     if (convo.isComplete()) {
-      // Enter follow-up phase
+      // Enter follow-up phase — send ack before transitioning
+      if (ack) await say({ text: ack, thread_ts: threadTs });
       await enterFollowUpPhase(convo, fieldsApplied, threadTs, say);
     } else {
-
-      // Ask the next question
-      await askNextQuestion(convo, threadTs, say);
+      // Combine acknowledgment + next question into a SINGLE message
+      await askNextQuestion(convo, threadTs, say, ack);
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
@@ -2273,22 +2279,31 @@ async function askNextQuestion(
   convo: ConversationManager,
   threadTs: string,
   say: SayFn,
+  prefix?: string | null,
 ): Promise<void> {
   const next = convo.getNextQuestion();
   if (!next) {
     // All required fields are complete — transition to follow-up phase
     // instead of silently returning with no response to the user.
     console.log(`[intake] askNextQuestion → no more questions, transitioning to follow-up`);
+    // Send any pending prefix (ack) before entering follow-up
+    if (prefix) await say({ text: prefix, thread_ts: threadTs });
     await enterFollowUpPhase(convo, 0, threadTs, say);
     return;
   }
 
-  console.log(`[intake] askNextQuestion → field=${next.field}, step=${convo.getCurrentStep()}`);
+  // Debug: log field states to help trace duplicate questions
+  const askData = convo.getCollectedData();
+  console.log(`[intake] askNextQuestion → field=${next.field}, step=${convo.getCurrentStep()}, outcomes=${askData.desired_outcomes ? '"' + askData.desired_outcomes.substring(0, 40) + '"' : 'null'}, deliverables=${JSON.stringify(askData.deliverables)}, due_date=${askData.due_date ?? 'null'}`);
 
   try {
     await convo.save();
+    const questionText = `${next.question}\n_${next.example}_`;
+    // Combine prefix (acknowledgment) and question into a SINGLE message
+    // so the user doesn't see two back-to-back messages in Slack.
+    const fullText = prefix ? `${prefix}\n\n${questionText}` : questionText;
     await say({
-      text: `${next.question}\n_${next.example}_`,
+      text: fullText,
       thread_ts: threadTs,
     });
   } catch (err) {
@@ -2433,6 +2448,31 @@ function clarificationQuestionForField(field: string): string {
 }
 
 /**
+ * Sanitize a Claude-generated acknowledgment.
+ * The prompt tells Claude to produce statements, never questions — but models
+ * sometimes ignore this. Strip trailing questions, "if not, just let me know"
+ * phrases, and question marks from acknowledgments.
+ */
+function sanitizeAcknowledgment(ack: string): string {
+  let cleaned = ack.trim();
+  // Remove trailing question sentences (e.g., "Are you requesting support for Marketing? If not, just let me know.")
+  // Split into sentences and drop any that end with "?"
+  const sentences = cleaned.split(/(?<=[.!?])\s+/);
+  const statements = sentences.filter((s) => !s.trim().endsWith('?'));
+  if (statements.length > 0) {
+    cleaned = statements.join(' ');
+  } else {
+    // ALL sentences are questions — replace entirely with a generic ack
+    cleaned = 'Got it!';
+  }
+  // Remove trailing "if not/that's not right" hedging phrases even without "?"
+  cleaned = cleaned.replace(/\s*(If (not|that's not right),?\s*(just )?(let me know|tell me)\.?\s*)$/i, '.').trim();
+  // Collapse trailing periods
+  cleaned = cleaned.replace(/\.{2,}$/, '.').trim();
+  return cleaned;
+}
+
+/**
  * Build a contextual acknowledgment message after extracting fields from a user's message.
  * Uses Claude's generated acknowledgment when available, with template fallback.
  * Appends info about pre-filled fields the user didn't need to provide.
@@ -2444,9 +2484,9 @@ function buildFieldAcknowledgment(
   const parts: string[] = [];
   const data = convo.getCollectedData();
 
-  // Use Claude's acknowledgment if available — it's always grammatically correct
+  // Use Claude's acknowledgment if available, sanitized to remove any questions
   if (extracted.acknowledgment) {
-    parts.push(extracted.acknowledgment);
+    parts.push(sanitizeAcknowledgment(extracted.acknowledgment));
   } else if (extracted.requester_name) {
     parts.push(`Thanks, ${extracted.requester_name}!`);
   } else {
