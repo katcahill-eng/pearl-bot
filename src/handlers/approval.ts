@@ -48,6 +48,8 @@ function statusContextMessage(status: TriageStatus): string {
       return 'unable to take on this request at this time.';
     case 'Withdrawn':
       return 'marked your request as withdrawn.';
+    default:
+      return 'updated the status of your request.';
   }
 }
 

@@ -152,6 +152,12 @@ export function registerMessageHandler(app: App): void {
           client,
         });
         if (recovered) return;
+        // Recovery failed — tell the user so they don't just get silence
+        await say({
+          text: "I lost track of our conversation after a restart. Could you start a new request by tagging me in <#" + process.env.SLACK_MARKETING_CHANNEL_ID + ">? Your previous answers weren't saved, sorry about that.",
+          thread_ts,
+        });
+        return;
       }
 
       // No active conversation — use intent detection

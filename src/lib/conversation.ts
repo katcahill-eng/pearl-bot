@@ -598,12 +598,12 @@ function parseCollectedData(raw: string): CollectedData {
 
 function isFieldPopulated(data: CollectedData, field: keyof CollectedData): boolean {
   const value = data[field];
-  if (Array.isArray(value)) return value.length > 0;
+  if (Array.isArray(value)) return value.some((v) => typeof v === 'string' ? v.trim() !== '' : v != null);
   return value !== null && value !== '';
 }
 
 function formatFieldLabel(field: string): string {
-  return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return field.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**

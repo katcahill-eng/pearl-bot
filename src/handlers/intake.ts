@@ -308,12 +308,17 @@ export async function recoverConversationFromHistory(opts: {
   }
 
   applyExtractedFields(convo, extracted);
+
+  // Classify the recovered request so it isn't stuck as 'undetermined'
+  const recoveredClassification = classifyRequest(convo.getCollectedData());
+  convo.setClassification(recoveredClassification);
+
   await convo.save();
 
   const collectedCount = Object.entries(convo.getCollectedData())
     .filter(([k, v]) => k !== 'additional_details' && k !== 'request_type' && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
     .length;
-  console.log(`[intake] Recovery: reconstructed conversation with ${collectedCount} field(s), complete=${convo.isComplete()}`);
+  console.log(`[intake] Recovery: reconstructed conversation with ${collectedCount} field(s), classification=${recoveredClassification}, complete=${convo.isComplete()}`);
 
   // 7. Send recovery message and continue
   await say({
@@ -780,6 +785,7 @@ async function handleConfirmingState(
     // Create Monday.com item at submission time
     let mondayItemId: string | null = null;
     let mondayUrl: string | null = null;
+    let mondayFailed = false;
     try {
       const mondayResult = await createMondayItemForReview({
         collectedData,
@@ -792,9 +798,21 @@ async function handleConfirmingState(
         mondayItemId = mondayResult.itemId;
         mondayUrl = mondayResult.boardUrl ?? null;
         convo.setMondayItemId(mondayResult.itemId);
+      } else {
+        mondayFailed = true;
+        console.error('[intake] Monday.com item creation returned failure:', mondayResult);
       }
     } catch (err) {
+      mondayFailed = true;
       console.error('[intake] Failed to create Monday.com item at submission:', err);
+    }
+
+    if (mondayFailed) {
+      await say({
+        text: ":warning: There was a problem submitting your request to our project tracker. Your information has been saved — please tag <@" + config.marketingLeadSlackId + "> so they can manually log it, or try submitting again.",
+        thread_ts: threadTs,
+      });
+      return;
     }
 
     // Set status to pending_approval
@@ -1918,7 +1936,13 @@ export function registerPostSubmissionActions(app: App): void {
 
     const { conversationId } = JSON.parse(action.value) as { conversationId: number };
     const convo = await loadConversationById(conversationId);
-    if (!convo) return;
+    if (!convo) {
+      const userId = (body as any).user?.id;
+      if (userId) {
+        await client.chat.postMessage({ channel: userId, text: "I couldn't find your request details — it may have expired. Please start a new request in the marketing channel." });
+      }
+      return;
+    }
 
     convo.setCurrentStep('post_sub:awaiting_info');
     await convo.save();
@@ -1942,7 +1966,13 @@ export function registerPostSubmissionActions(app: App): void {
 
     const { conversationId } = JSON.parse(action.value) as { conversationId: number };
     const convo = await loadConversationById(conversationId);
-    if (!convo) return;
+    if (!convo) {
+      const userId = (body as any).user?.id;
+      if (userId) {
+        await client.chat.postMessage({ channel: userId, text: "I couldn't find your request details — it may have expired. Please start a new request in the marketing channel." });
+      }
+      return;
+    }
 
     convo.setCurrentStep('post_sub:awaiting_change');
     await convo.save();
@@ -2212,12 +2242,21 @@ async function askNextQuestion(
 
   console.log(`[intake] askNextQuestion → field=${next.field}, step=${convo.getCurrentStep()}`);
 
-  await convo.save();
-
-  await say({
-    text: `${next.question}\n_${next.example}_`,
-    thread_ts: threadTs,
-  });
+  try {
+    await convo.save();
+    await say({
+      text: `${next.question}\n_${next.example}_`,
+      thread_ts: threadTs,
+    });
+  } catch (err) {
+    console.error('[intake] askNextQuestion: failed to save or send question:', err);
+    try {
+      await say({
+        text: "I'm having trouble saving your progress. Please try sending your answer again.",
+        thread_ts: threadTs,
+      });
+    } catch (_) { /* ignore */ }
+  }
 }
 
 /**
@@ -2333,7 +2372,7 @@ function hasUncertaintyLanguage(text: string): boolean {
 
 /** Format a snake_case field key as a readable label. */
 function formatFieldLabel(field: string): string {
-  return field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return field.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Turn a field key into a friendly clarification question for post-submission follow-up. */
