@@ -258,6 +258,7 @@ describe('Intake conversation flows', () => {
   // ====================
   describe('New user welcome', () => {
     it('should send personalized welcome with name and department', async () => {
+      (interpretMessage as Mock).mockResolvedValueOnce(emptyExtracted({ confidence: 0.3 }));
       await sendMessage({ text: 'I need marketing help', say, client });
 
       const texts = getSayTexts(say);
@@ -269,8 +270,16 @@ describe('Intake conversation flows', () => {
       expect(texts.some((t) => t.toLowerCase().includes('target audience') || t.toLowerCase().includes('who is'))).toBe(true);
     });
 
-    it('should not call interpretMessage on the initial message', async () => {
+    it('should extract fields from substantive initial message', async () => {
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({ context_background: 'Webinar series', confidence: 0.8 }),
+      );
       await sendMessage({ text: 'I need help with a webinar', say, client });
+      expect(interpretMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('should NOT call interpretMessage on short greeting initial message', async () => {
+      await sendMessage({ text: 'hi', say, client });
       expect(interpretMessage).not.toHaveBeenCalled();
     });
   });
@@ -522,17 +531,19 @@ describe('Intake conversation flows', () => {
       expect(texts.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('should not match "yep thats wrong" as confirmation', async () => {
-      // "yep" normally matches CONFIRM_PATTERNS but context matters
-      // Actually, the pattern ^yep(\s|!|$) WOULD match "yep thats wrong"
-      // This test documents current behavior — the pattern matcher is simple
+    it('should not match "yep thats wrong" as confirmation (bug fix)', async () => {
+      // "yep" matches CONFIRM_PATTERNS but "wrong" is a correction indicator,
+      // so the message should be routed to the edit handler, not submit.
       seedConfirmingConversation();
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({ target: 'Homeowners', confidence: 0.9 }),
+      );
       await sendMessage({ text: 'yep thats wrong, change the target to homeowners', say, client });
 
-      // Current behavior: "yep" matches CONFIRM_PATTERNS, so it submits
-      // This is a known limitation — documenting it
       const texts = getSayTexts(say);
-      expect(texts.length).toBeGreaterThanOrEqual(1);
+      // Should update the field and show revised summary, NOT submit
+      expect(texts.some((t) => t.includes('ubmit') && t.includes('review'))).toBe(false);
+      expect(texts.some((t) => t.includes('updated') || t.includes('revised') || t.includes("Here's what I've got"))).toBe(true);
     });
   });
 

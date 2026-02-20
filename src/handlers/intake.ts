@@ -639,8 +639,36 @@ async function handleIntakeMessageInner(opts: {
         await say({ text: confirmMsg, thread_ts: threadTs });
       }
 
-      // Ask the first unanswered question and return — don't try to interpret the initial message as an answer
-      await askNextQuestion(convo, threadTs, say);
+      // Extract fields from the initial message if it contains substantive content.
+      // Users often describe their request in the first @mention (e.g., "@bot I need a
+      // webinar deck for real estate agents by March 15") — we should capture that info
+      // instead of making them repeat it during Q&A.
+      const strippedInitial = text;
+      const isShortNudgeInitial = matchesAny(strippedInitial, NUDGE_PATTERNS) && strippedInitial.trim().split(/\s+/).length <= 5;
+      if (strippedInitial.length > 5 && !isShortNudgeInitial) {
+        try {
+          const initialExtracted = await interpretMessage(strippedInitial, convo.getCollectedData());
+          if (initialExtracted.confidence > 0) {
+            const { count: initialFieldsApplied } = applyExtractedFields(convo, initialExtracted);
+            if (initialFieldsApplied > 0) {
+              console.log(`[intake] Extracted ${initialFieldsApplied} field(s) from initial message`);
+              await convo.save();
+              if (initialExtracted.acknowledgment) {
+                await say({ text: initialExtracted.acknowledgment, thread_ts: threadTs });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[intake] Failed to extract fields from initial message (non-fatal):', err);
+        }
+      }
+
+      // Ask the next unanswered question (may skip fields already extracted from initial message)
+      if (convo.isComplete()) {
+        await enterFollowUpPhase(convo, 0, threadTs, say);
+      } else {
+        await askNextQuestion(convo, threadTs, say);
+      }
       return;
     }
   }
@@ -732,8 +760,10 @@ async function handleConfirmingState(
     return;
   }
 
-  // Check for confirmation
-  if (matchesAny(text, CONFIRM_PATTERNS)) {
+  // Check for confirmation — but only if the message doesn't also contain words
+  // that indicate the user wants to make changes (e.g., "yep thats wrong, change the target").
+  const CORRECTION_INDICATORS = /\b(wrong|change|update|fix|edit|modify|actually|except|however|but|incorrect|different|revise|adjust|not right|that's not)\b/i;
+  if (matchesAny(text, CONFIRM_PATTERNS) && !CORRECTION_INDICATORS.test(text)) {
     await say({
       text: ':hourglass_flowing_sand: Submitting for review...',
       thread_ts: threadTs,
@@ -817,7 +847,8 @@ async function handleConfirmingState(
   }
 
   // --- Nudge/greeting detection — resume the conversation ---
-  if (matchesAny(text, NUDGE_PATTERNS)) {
+  // Only treat as a nudge if the message is short (≤5 words)
+  if (matchesAny(text, NUDGE_PATTERNS) && text.trim().split(/\s+/).length <= 5) {
     await say({
       text: "Still here! Here's what I have so far:",
       thread_ts: threadTs,
@@ -1134,7 +1165,10 @@ async function handleGatheringState(
   }
 
   // --- Nudge/greeting detection — resume the conversation (checked before follow-up so "hello" isn't stored as an answer) ---
-  if (matchesAny(text, NUDGE_PATTERNS)) {
+  // Only treat as a nudge if the message is short (≤5 words). Longer messages like
+  // "Hey, the audience is real estate agents" contain real content and should be
+  // processed by Claude, not swallowed as a nudge.
+  if (matchesAny(text, NUDGE_PATTERNS) && text.trim().split(/\s+/).length <= 5) {
     await say({
       text: "I'm here! Let me pick up where we left off.",
       thread_ts: threadTs,
@@ -1252,7 +1286,8 @@ async function handleGatheringState(
     if (fieldsApplied === 0) {
       const step = convo.getCurrentStep();
 
-      const isSubstantive = text.length > 5 && !matchesAny(text, NUDGE_PATTERNS) && !matchesAny(text, SKIP_PATTERNS);
+      const isShortNudge = matchesAny(text, NUDGE_PATTERNS) && text.trim().split(/\s+/).length <= 5;
+      const isSubstantive = text.length > 5 && !isShortNudge && !matchesAny(text, SKIP_PATTERNS);
       const isRequiredField = step && GATHERING_FIELDS.includes(step as keyof CollectedData);
 
       if (isSubstantive && isRequiredField) {
@@ -2167,7 +2202,13 @@ async function askNextQuestion(
   say: SayFn,
 ): Promise<void> {
   const next = convo.getNextQuestion();
-  if (!next) return;
+  if (!next) {
+    // All required fields are complete — transition to follow-up phase
+    // instead of silently returning with no response to the user.
+    console.log(`[intake] askNextQuestion → no more questions, transitioning to follow-up`);
+    await enterFollowUpPhase(convo, 0, threadTs, say);
+    return;
+  }
 
   console.log(`[intake] askNextQuestion → field=${next.field}, step=${convo.getCurrentStep()}`);
 
