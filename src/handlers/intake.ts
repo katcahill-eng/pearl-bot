@@ -544,7 +544,11 @@ async function handleIntakeMessageInner(opts: {
           if (priorTexts.length > 0) {
             console.log(`[intake] Extracting fields from ${priorTexts.length} prior message(s) individually`);
             for (const msgText of priorTexts) {
-              const extracted = await interpretMessage(msgText, convo.getCollectedData());
+              // Infer the currentStep by finding the next unpopulated required field.
+              // This gives Claude context about what the user was answering, which
+              // dramatically improves extraction of short answers like "Early access applications".
+              const inferredStep = convo.getNextQuestion()?.field ?? null;
+              const extracted = await interpretMessage(msgText, convo.getCollectedData(), undefined, inferredStep);
               applyExtractedFields(convo, extracted);
             }
           }
