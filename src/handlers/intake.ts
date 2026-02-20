@@ -6,7 +6,7 @@ import { interpretMessage, classifyRequest, classifyRequestType, generateFollowU
 import { generateFieldGuidance } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
-import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics } from '../lib/db';
+import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics, logError } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
 import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
 import { searchProjects } from '../lib/db';
@@ -942,46 +942,31 @@ async function startFreshFromDupCheck(
   convo.markFieldCollected('additional_details', freshDetails);
   await convo.save();
 
+  // Anyone who enters startFreshFromDupCheck already got "Welcome back, [Name]!"
+  // so we never re-greet them with a verbose welcome. Just confirm department and move on.
   const dupData = convo.getCollectedData();
-  const isReturningUser = previousDepartment && dupData.requester_name;
+  const dept = previousDepartment || dupData.requester_department;
 
-  if (isReturningUser) {
-    // Returning user — they already got "Welcome back!" so skip the verbose welcome.
-    // Just confirm department from their last accepted project.
+  if (dept) {
     await say({
-      text: `Are you requesting marketing support for *${previousDepartment}*? If not, just let me know.`,
+      text: `Are you requesting marketing support for *${dept}*? If not, just let me know.`,
       thread_ts: threadTs,
     });
-
-    // Offer the previous audience as a follow-up
-    if (previousTarget) {
-      await say({
-        text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
-        thread_ts: threadTs,
-      });
-      return; // Wait for user response — handleGatheringState will process it
-    }
   } else {
-    // New user — full welcome
+    // No department known — brief start without verbose welcome
     await say({
-      text: getWelcomeMessage(getFirstName(dupData.requester_name ?? null)),
+      text: "Let's get your new request started! I'll walk you through a few quick questions.",
       thread_ts: threadTs,
     });
+  }
 
-    // Confirm pre-filled name/department from Slack profile
-    if (dupData.requester_name || dupData.requester_department) {
-      const namePart = dupData.requester_name;
-      const deptPart = dupData.requester_department;
-      let confirmMsg: string;
-      if (namePart && deptPart) {
-        confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      } else if (namePart) {
-        confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      } else {
-        confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
-      }
-      await say({ text: confirmMsg, thread_ts: threadTs });
-    }
+  // Offer the previous audience as a follow-up (from accepted projects only)
+  if (previousTarget) {
+    await say({
+      text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
+      thread_ts: threadTs,
+    });
+    return; // Wait for user response — handleGatheringState will process it
   }
 
   // If the user typed their actual request, process it now instead of losing it
@@ -1051,39 +1036,30 @@ async function handleGatheringState(
   // Send the welcome + name confirmation the user expects, then ask the first question.
   const DUP_STALE_HERE = [/^here$/i, /^this\s*(one|thread)$/i, /^right\s*here$/i, /^over\s*here$/i, /^in\s*here$/i];
   if (matchesAny(text, DUP_STALE_HERE)) {
-    console.log(`[intake] "here" keyword in gathering state (likely stale dup_check) — sending welcome + first question`);
+    console.log(`[intake] "here" keyword in gathering state (likely stale dup_check) — confirming dept + first question`);
+    // User already got "Welcome back!" in the dup-check thread — don't re-greet.
     const staleData = convo.getCollectedData();
-    const staleDept = staleData.additional_details['__previous_department'] ?? null;
+    const staleDept = staleData.additional_details['__previous_department'] ?? staleData.requester_department;
     const staleTarget = staleData.additional_details['__previous_target'] ?? null;
-    const isStaleReturning = staleDept && staleData.requester_name;
 
-    if (isStaleReturning) {
-      // Returning user — streamlined (they already got "Welcome back!")
+    if (staleDept) {
       await say({
         text: `Are you requesting marketing support for *${staleDept}*? If not, just let me know.`,
         thread_ts: threadTs,
       });
-      if (staleTarget) {
-        await say({
-          text: `Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
-          thread_ts: threadTs,
-        });
-        return;
-      }
     } else {
-      // New user — full welcome
-      await say({ text: getWelcomeMessage(getFirstName(staleData.requester_name ?? null)), thread_ts: threadTs });
-      if (staleData.requester_name || staleData.requester_department) {
-        let confirmMsg: string;
-        if (staleData.requester_name && staleData.requester_department) {
-          confirmMsg = `I have you down as *${staleData.requester_name}* from *${staleData.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
-        } else if (staleData.requester_name) {
-          confirmMsg = `I have you down as *${staleData.requester_name}*. If that's not right, just let me know — otherwise, let's jump in!`;
-        } else {
-          confirmMsg = `I have you down as part of *${staleData.requester_department}*. If that's not right, just let me know — otherwise, let's jump in!`;
-        }
-        await say({ text: confirmMsg, thread_ts: threadTs });
-      }
+      await say({
+        text: "Let's get your new request started! I'll walk you through a few quick questions.",
+        thread_ts: threadTs,
+      });
+    }
+
+    if (staleTarget) {
+      await say({
+        text: `Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
+        thread_ts: threadTs,
+      });
+      return;
     }
 
     await askNextQuestion(convo, threadTs, say);
@@ -1392,14 +1368,19 @@ async function handleGatheringState(
       await askNextQuestion(convo, threadTs, say);
     }
   } catch (error) {
-    console.error('[intake] Claude interpretation error during gathering:', error);
+    const errMsg = error instanceof Error ? error.message : JSON.stringify(error);
+    const errStack = error instanceof Error ? error.stack : undefined;
+    console.error('[intake] Claude interpretation error during gathering:', errMsg, errStack ?? '');
+    logError(error, { phase: 'gathering', step: convo.getCurrentStep() ?? 'null', text: text.substring(0, 100) }).catch(() => {});
     const firstName = getFirstName(convo.getCollectedData().requester_name ?? null);
-    await say({
-      text: firstName
-        ? `Sorry about that, ${firstName} — I had a brief moment. Could you try saying that again?`
-        : "Sorry about that — I had a brief moment. Could you try saying that again?",
-      thread_ts: threadTs,
-    });
+    try {
+      await say({
+        text: firstName
+          ? `Sorry about that, ${firstName} — I had a brief moment. Could you try saying that again?`
+          : "Sorry about that — I had a brief moment. Could you try saying that again?",
+        thread_ts: threadTs,
+      });
+    } catch { /* don't let the error message itself throw */ }
   }
 }
 
