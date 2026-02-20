@@ -1256,22 +1256,38 @@ async function handleGatheringState(
       const isRequiredField = step && GATHERING_FIELDS.includes(step as keyof CollectedData);
 
       if (isSubstantive && isRequiredField) {
-        // Claude didn't extract it, but the user clearly answered — store the raw text
-        console.log(`[intake] Claude returned 0 fields but message looks substantive — storing raw text for field=${step}`);
-        logUnrecognizedMessage({ conversationId: convo.getId(), userMessage: text, currentStep: step ?? null, confidence: extracted.confidence, fieldsExtracted: 0, rawFallbackUsed: true }).catch(() => {});
-        if (step === 'deliverables' || step === 'supporting_links') {
-          convo.markFieldCollected(step as keyof CollectedData, [text]);
-        } else {
-          convo.markFieldCollected(step as keyof CollectedData, text);
-        }
-        await convo.save();
+        // Check if the field is already populated — don't clobber good data with raw text
+        const currentData = convo.getCollectedData();
+        const existingVal = currentData[step as keyof CollectedData];
+        const alreadyPopulated = Array.isArray(existingVal) ? existingVal.length > 0 : existingVal !== null && existingVal !== '';
 
-        await say({ text: 'Got it!', thread_ts: threadTs });
-
-        if (convo.isComplete()) {
-          await enterFollowUpPhase(convo, 1, threadTs, say);
+        if (alreadyPopulated) {
+          // Field already answered — just move on to the next question
+          console.log(`[intake] Field ${step} already populated, skipping raw fallback — advancing to next question`);
+          await convo.save();
+          if (convo.isComplete()) {
+            await enterFollowUpPhase(convo, 0, threadTs, say);
+          } else {
+            await askNextQuestion(convo, threadTs, say);
+          }
         } else {
-          await askNextQuestion(convo, threadTs, say);
+          // Claude didn't extract it, but the user clearly answered — store the raw text
+          console.log(`[intake] Claude returned 0 fields but message looks substantive — storing raw text for field=${step}`);
+          logUnrecognizedMessage({ conversationId: convo.getId(), userMessage: text, currentStep: step ?? null, confidence: extracted.confidence, fieldsExtracted: 0, rawFallbackUsed: true }).catch(() => {});
+          if (step === 'deliverables' || step === 'supporting_links') {
+            convo.markFieldCollected(step as keyof CollectedData, [text]);
+          } else {
+            convo.markFieldCollected(step as keyof CollectedData, text);
+          }
+          await convo.save();
+
+          await say({ text: 'Got it!', thread_ts: threadTs });
+
+          if (convo.isComplete()) {
+            await enterFollowUpPhase(convo, 1, threadTs, say);
+          } else {
+            await askNextQuestion(convo, threadTs, say);
+          }
         }
       } else {
         console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${step}, substantive=${isSubstantive})`);
@@ -1292,14 +1308,11 @@ async function handleGatheringState(
     }
 
     // Build a contextual acknowledgment of what was just captured
-    const ack = buildFieldAcknowledgment(convo, extracted);
-    if (ack) {
-      await say({ text: ack, thread_ts: threadTs });
-    }
+    let ack = buildFieldAcknowledgment(convo, extracted);
 
-    // Detect uncertainty language — actively clarify instead of silently flagging.
-    // Use the fields that were JUST applied (not getCurrentStep(), which has already
-    // advanced past the answered field) so we flag the right thing.
+    // Detect uncertainty language — flag for post-submission clarification and
+    // append a brief reassurance to the acknowledgment (instead of sending a
+    // separate suggestions message that competes with the next question).
     if (hasUncertaintyLanguage(text)) {
       const justApplied = applyResult.appliedFields;
       const fieldsToCheck = justApplied.length > 0
@@ -1309,13 +1322,15 @@ async function handleGatheringState(
       for (const answeredField of fieldsToCheck) {
         flagForClarification(convo, answeredField, formatFieldLabel(answeredField));
         console.log(`[intake] Uncertainty detected in "${text.substring(0, 40)}" — flagging ${answeredField} for clarification`);
-
-        // Provide active clarification based on the field and request context
-        const clarification = buildUncertaintyClarification(answeredField, convo.getCollectedData(), text);
-        if (clarification) {
-          await say({ text: clarification, thread_ts: threadTs });
-        }
       }
+
+      if (ack && fieldsToCheck.length > 0) {
+        ack += " If you're not 100% sure yet, no worries — we can always fine-tune the details later.";
+      }
+    }
+
+    if (ack) {
+      await say({ text: ack, thread_ts: threadTs });
     }
 
     // Show production timeline if we just captured a due date
@@ -2292,72 +2307,6 @@ function clarificationQuestionForField(field: string): string {
     constraints: 'Any budget, brand, or other constraints we should know about?',
   };
   return map[field] ?? `Can you provide more detail on *${formatFieldLabel(field)}*?`;
-}
-
-/**
- * When a user expresses uncertainty about deliverables, provide a contextual
- * suggestion list based on the type of request (conference, webinar, etc.)
- * rather than silently flagging it for later follow-up.
- */
-function buildUncertaintyClarification(
-  field: string,
-  data: CollectedData,
-  userText: string,
-): string | null {
-  // Only provide active clarification for deliverables —
-  // other fields are handled fine by the normal flow
-  if (field !== 'deliverables') return null;
-
-  // Infer request type from already-collected context
-  const context = (data.context_background ?? '').toLowerCase();
-  const target = (data.target ?? '').toLowerCase();
-  const combined = `${context} ${target} ${userText.toLowerCase()}`;
-
-  let suggestions: string[];
-
-  if (/conference|summit|expo|convention|trade\s*show/i.test(combined)) {
-    suggestions = [
-      'booth design and branded collateral',
-      'pre/post-conference email copy',
-      'social media promotion',
-      'presentation slide design',
-      'one-pagers, handouts, or signage',
-      'digital conference booth (4 iPads pre-loaded with content)',
-    ];
-  } else if (/webinar|web\s*event|online\s*(event|session|presentation)/i.test(combined)) {
-    suggestions = [
-      'webinar landing page copy',
-      'promotional email copy',
-      'social media promotion',
-      'slide deck design',
-      'post-webinar follow-up email copy',
-    ];
-  } else if (/dinner|event|gathering|reception/i.test(combined)) {
-    suggestions = [
-      'invitation design and copy',
-      'event branding and signage',
-      'presentation or slide deck',
-      'post-event follow-up email copy',
-      'social media coverage',
-    ];
-  } else if (/email|newsletter|campaign|nurture/i.test(combined)) {
-    suggestions = [
-      'email copywriting',
-      'email design/template',
-      'subject line and preview text',
-    ];
-  } else {
-    suggestions = [
-      'email copy',
-      'social media posts',
-      'design assets (one-pagers, banners, etc.)',
-      'presentation slides',
-      'digital ads',
-    ];
-  }
-
-  const list = suggestions.map((s) => `• ${s}`).join('\n');
-  return `No worries if you're not sure yet! Based on what you've told me, here are some things marketing can help with:\n${list}\nWould any of these work, or would you like to set up a brainstorm session to figure it out?`;
 }
 
 /**

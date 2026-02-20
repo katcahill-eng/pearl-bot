@@ -680,6 +680,61 @@ describe('Intake conversation flows', () => {
       const texts = getSayTexts(say);
       expect(texts.length).toBeGreaterThanOrEqual(1);
     });
+
+    it('should append reassurance to acknowledgment instead of sending separate suggestions', async () => {
+      seedGatheringConversation({
+        current_step: 'deliverables',
+        collectedDataOverrides: {
+          target: 'Real estate agents',
+          context_background: 'Webinar series',
+          desired_outcomes: 'Increase sign-ups',
+        },
+      });
+
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({
+          deliverables: ['email marketing', 'social media'],
+          acknowledgment: 'Got it — email marketing and social media!',
+          confidence: 0.8,
+        }),
+      );
+
+      await sendMessage({ text: 'I probably need email and social media marketing', say, client });
+
+      const texts = getSayTexts(say);
+      // The acknowledgment should include the reassurance inline
+      const ackMsg = texts.find((t) => t.includes('Got it'));
+      expect(ackMsg).toBeDefined();
+      expect(ackMsg).toContain('fine-tune');
+      // Should NOT contain the old suggestions list with "Would any of these work?"
+      expect(texts.some((t) => t.includes('Would any of these work'))).toBe(false);
+      // Should still ask the next question (due_date)
+      expect(texts.some((t) => t.toLowerCase().includes('when') || t.toLowerCase().includes('need this by'))).toBe(true);
+    });
+
+    it('should not overwrite already-populated field with raw fallback text', async () => {
+      seedGatheringConversation({
+        current_step: 'deliverables',
+        collectedDataOverrides: {
+          target: 'Real estate agents',
+          context_background: 'Webinar series',
+          desired_outcomes: 'Increase sign-ups',
+          deliverables: ['email marketing'],
+        },
+      });
+
+      // Claude returns nothing — 0 fields extracted
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({ confidence: 0.5 }),
+      );
+
+      await sendMessage({ text: 'yeah those sound good', say, client });
+
+      // Should NOT overwrite deliverables with "yeah those sound good"
+      const saved = conversationStore['U_TEST::thread-1'];
+      const data = JSON.parse(saved.collected_data);
+      expect(data.deliverables).toEqual(['email marketing']);
+    });
   });
 
   // ====================
