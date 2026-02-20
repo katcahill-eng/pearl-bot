@@ -841,7 +841,7 @@ async function handleConfirmingState(
   // User is describing changes — re-interpret and update
   try {
     const extracted = await interpretMessage(text, convo.getCollectedData());
-    const changed = applyExtractedFields(convo, extracted, true); // allowOverwrite — user is correcting fields
+    const { count: changed } = applyExtractedFields(convo, extracted, true); // allowOverwrite — user is correcting fields
     await convo.save();
 
     if (changed > 0) {
@@ -1244,7 +1244,8 @@ async function handleGatheringState(
     const extracted = await interpretMessage(text, convo.getCollectedData(), undefined, convo.getCurrentStep());
     console.log(`[intake] Claude response: confidence=${extracted.confidence}, department=${extracted.requester_department}`);
     console.log(`[intake] Claude extracted: outcomes=${extracted.desired_outcomes ? '"' + extracted.desired_outcomes.substring(0, 40) + '"' : 'null'}, deliverables=${JSON.stringify(extracted.deliverables)}, target=${extracted.target ? '"' + extracted.target.substring(0, 30) + '"' : 'null'}, context=${extracted.context_background ? '"' + extracted.context_background.substring(0, 30) + '"' : 'null'}`);
-    const fieldsApplied = applyExtractedFields(convo, extracted);
+    const applyResult = applyExtractedFields(convo, extracted);
+    const fieldsApplied = applyResult.count;
     const postData = convo.getCollectedData();
     console.log(`[intake] POST-apply state (${fieldsApplied} fields): outcomes=${postData.desired_outcomes ? '"' + postData.desired_outcomes.substring(0, 40) + '"' : 'null'}, deliverables=${JSON.stringify(postData.deliverables)}, due_date=${postData.due_date ?? 'null'}`);
 
@@ -1300,8 +1301,8 @@ async function handleGatheringState(
     // Use the fields that were JUST applied (not getCurrentStep(), which has already
     // advanced past the answered field) so we flag the right thing.
     if (hasUncertaintyLanguage(text)) {
-      const justApplied = (fieldsApplied as any).appliedFields as string[] | undefined;
-      const fieldsToCheck = justApplied && justApplied.length > 0
+      const justApplied = applyResult.appliedFields;
+      const fieldsToCheck = justApplied.length > 0
         ? justApplied.filter((f) => GATHERING_FIELDS.includes(f as keyof CollectedData))
         : [];
 
@@ -2176,7 +2177,7 @@ function applyExtractedFields(
   convo: ConversationManager,
   extracted: ExtractedFields,
   allowOverwrite = false,
-): number & { appliedFields: string[] } {
+): { count: number; appliedFields: string[] } {
   const appliedFields: string[] = [];
   const current = convo.getCollectedData();
 
@@ -2224,11 +2225,7 @@ function applyExtractedFields(
     appliedFields.push(field);
   }
 
-  // Return a number that also carries the field list — backwards-compatible
-  // with all callers that treat the result as a count
-  const result = appliedFields.length as number & { appliedFields: string[] };
-  (result as any).appliedFields = appliedFields;
-  return result;
+  return { count: appliedFields.length, appliedFields };
 }
 
 /**
