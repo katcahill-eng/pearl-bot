@@ -1000,35 +1000,38 @@ async function startFreshFromDupCheck(
   if (dept) convo.markFieldCollected('requester_department', dept);
   await convo.save();
 
-  if (dept) {
-    await say({
-      text: `I'll assume you're requesting support for *${dept}* — let me know if that's not right.`,
-      thread_ts: threadTs,
-    });
-  } else {
-    // No department known — brief start without verbose welcome
-    await say({
-      text: "Let's get your new request started! I'll walk you through a few quick questions.",
-      thread_ts: threadTs,
-    });
-  }
-
   // Offer the previous audience as a follow-up (from accepted projects only)
+  // This is shown as its own message since it needs a direct response.
   if (previousTarget) {
+    const deptNoteForTarget = dept ? `_I'll assume you're requesting support for *${dept}* — let me know if that's not right._\n\n` : '';
     await say({
-      text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
+      text: `${deptNoteForTarget}Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
       thread_ts: threadTs,
     });
-    return; // Wait for user response — handleGatheringState will process it
+    return;
   }
 
-  // If the user typed their actual request, process it now instead of losing it
+  // If the user typed their actual request inline, process it now instead of losing it
   if (initialMessage) {
     await handleGatheringState(convo, initialMessage, threadTs, say);
     return;
   }
 
-  await askNextQuestion(convo, threadTs, say);
+  // Combine the dept assumption and the first question into one message so the
+  // user doesn't see two consecutive messages that both look like questions.
+  const next = convo.getNextQuestion();
+  const deptNote = dept ? `_I'll assume you're requesting support for *${dept}* — let me know if that's not right._\n\n` : '';
+  if (next) {
+    await convo.save();
+    await say({
+      text: `${deptNote}${next.question}\n_${next.example}_`,
+      thread_ts: threadTs,
+    });
+  } else {
+    // All fields somehow already complete — move to follow-up
+    if (deptNote) await say({ text: deptNote.trim(), thread_ts: threadTs });
+    await enterFollowUpPhase(convo, 0, threadTs, say);
+  }
 }
 
 async function handleGatheringState(
@@ -1098,26 +1101,28 @@ async function handleGatheringState(
     if (staleDept) {
       convo.markFieldCollected('requester_department', staleDept);
       await convo.save();
-      await say({
-        text: `I'll assume you're requesting support for *${staleDept}* — let me know if that's not right.`,
-        thread_ts: threadTs,
-      });
-    } else {
-      await say({
-        text: "Let's get your new request started! I'll walk you through a few quick questions.",
-        thread_ts: threadTs,
-      });
     }
+
+    const staleDeptNote = staleDept ? `_I'll assume you're requesting support for *${staleDept}* — let me know if that's not right._\n\n` : '';
 
     if (staleTarget) {
       await say({
-        text: `Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
+        text: `${staleDeptNote}Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
         thread_ts: threadTs,
       });
       return;
     }
 
-    await askNextQuestion(convo, threadTs, say);
+    const staleNext = convo.getNextQuestion();
+    if (staleNext) {
+      await convo.save();
+      await say({
+        text: `${staleDeptNote}${staleNext.question}\n_${staleNext.example}_`,
+        thread_ts: threadTs,
+      });
+    } else {
+      await enterFollowUpPhase(convo, 0, threadTs, say);
+    }
     return;
   }
 
