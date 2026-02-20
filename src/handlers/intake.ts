@@ -557,6 +557,28 @@ async function handleIntakeMessageInner(opts: {
         console.error('[intake] Failed to extract fields from thread history:', err);
       }
       await convo.save();
+
+      // If this is a dup-check recovery and the current message is a command-like
+      // response to the dup-check prompt (e.g., "Here", "start fresh"), don't send
+      // it to Claude — just send the first question directly. The user was answering
+      // the dup-check, not providing intake content.
+      if (isDupCheckRecovery && isCommandLikeMessage(text)) {
+        console.log(`[intake] Dup-check recovery: current message "${text}" is command-like — skipping Claude, asking first question`);
+        const dept = convo.getCollectedData().requester_department;
+        const deptNote = dept ? `_I'll assume you're requesting support for *${dept}* — let me know if that's not right._\n\n` : '';
+        const next = convo.getNextQuestion();
+        if (next) {
+          await convo.save();
+          await say({
+            text: `${deptNote}${next.question}\n_${next.example}_`,
+            thread_ts: threadTs,
+          });
+        } else {
+          if (deptNote) await say({ text: deptNote.trim(), thread_ts: threadTs });
+          await enterFollowUpPhase(convo, 0, threadTs, say);
+        }
+        return;
+      }
       // Fall through to status handling below — process the current message normally
     } else {
       // Check for active conversation in another thread
@@ -664,11 +686,8 @@ async function handleIntakeMessageInner(opts: {
             if (initialFieldsApplied > 0) {
               console.log(`[intake] Extracted ${initialFieldsApplied} field(s) from initial message`);
               await convo.save();
-              // Sanitize the acknowledgment — don't send it as a separate message;
-              // instead, save it to combine with the first question below.
-              if (initialExtracted.acknowledgment) {
-                initialAck = sanitizeAcknowledgment(initialExtracted.acknowledgment);
-              }
+              // Use deterministic template for the acknowledgment — never Claude's text
+              initialAck = buildFieldAcknowledgment(convo, initialExtracted) ?? '';
             }
           }
         } catch (err) {
@@ -1041,6 +1060,10 @@ async function startFreshFromDupCheck(
 
   // If the user typed their actual request inline, process it now instead of losing it
   if (initialMessage) {
+    // Ensure currentStep is set so Claude knows what field the user is answering.
+    // Without this, Claude gets currentStep=null and often fails to extract fields.
+    convo.getNextQuestion(); // sets convo.currentStep to the first unpopulated field
+    await convo.save();
     await handleGatheringState(convo, initialMessage, threadTs, say);
     return;
   }
@@ -1106,13 +1129,10 @@ async function handleGatheringState(
     const gatherResetFirstName = getFirstName(convo.getCollectedData().requester_name ?? null);
     convo.reset();
     await convo.save();
-    await say({
-      text: gatherResetFirstName
-        ? `No problem, ${gatherResetFirstName}! Let's start a new request.`
-        : "Starting fresh! Let's begin again.",
-      thread_ts: threadTs,
-    });
-    await askNextQuestion(convo, threadTs, say);
+    const resetPrefix = gatherResetFirstName
+      ? `No problem, ${gatherResetFirstName}! Let's start a new request.`
+      : "Starting fresh! Let's begin again.";
+    await askNextQuestion(convo, threadTs, say, resetPrefix);
     return;
   }
 
@@ -2452,53 +2472,42 @@ function clarificationQuestionForField(field: string): string {
 }
 
 /**
- * Sanitize a Claude-generated acknowledgment.
- * The prompt tells Claude to produce statements, never questions — but models
- * sometimes ignore this. Strip trailing questions, "if not, just let me know"
- * phrases, and question marks from acknowledgments.
- */
-function sanitizeAcknowledgment(ack: string): string {
-  let cleaned = ack.trim();
-  // Remove trailing question sentences (e.g., "Are you requesting support for Marketing? If not, just let me know.")
-  // Split into sentences and drop any that end with "?"
-  const sentences = cleaned.split(/(?<=[.!?])\s+/);
-  const statements = sentences.filter((s) => !s.trim().endsWith('?'));
-  if (statements.length > 0) {
-    cleaned = statements.join(' ');
-  } else {
-    // ALL sentences are questions — replace entirely with a generic ack
-    cleaned = 'Got it!';
-  }
-  // Remove trailing "if not/that's not right" hedging phrases even without "?"
-  cleaned = cleaned.replace(/\s*(If (not|that's not right),?\s*(just )?(let me know|tell me)\.?\s*)$/i, '.').trim();
-  // Collapse trailing periods
-  cleaned = cleaned.replace(/\.{2,}$/, '.').trim();
-  return cleaned;
-}
-
-/**
  * Build a contextual acknowledgment message after extracting fields from a user's message.
- * Uses Claude's generated acknowledgment when available, with template fallback.
- * Appends info about pre-filled fields the user didn't need to provide.
+ *
+ * IMPORTANT: This function uses ONLY deterministic templates — it NEVER uses
+ * Claude's generated `acknowledgment` field. Claude's acknowledgment was
+ * unreliable (often generated questions like "Are you requesting marketing
+ * support for Marketing?") and multiple attempts to sanitize it failed.
+ * Deterministic templates guarantee safe, statement-only acknowledgments.
  */
 function buildFieldAcknowledgment(
-  convo: ConversationManager,
+  _convo: ConversationManager,
   extracted: ExtractedFields,
 ): string | null {
-  const parts: string[] = [];
-  const data = convo.getCollectedData();
-
-  // Use Claude's acknowledgment if available, sanitized to remove any questions
-  if (extracted.acknowledgment) {
-    parts.push(sanitizeAcknowledgment(extracted.acknowledgment));
-  } else if (extracted.requester_name) {
-    parts.push(`Thanks, ${extracted.requester_name}!`);
-  } else {
-    parts.push('Got it, thanks for sharing that.');
+  // Determine which fields were just extracted to pick the best template
+  if (extracted.requester_name && !extracted.target && !extracted.context_background && !extracted.desired_outcomes && !extracted.deliverables) {
+    return `Thanks, ${extracted.requester_name}!`;
   }
-
-  // Pre-filled info is now confirmed upfront in the welcome flow,
-  // so we don't need to mention it again during gathering.
-
-  return parts.join(' ');
+  if (extracted.context_background && extracted.target) {
+    return 'Got it — thanks for the context and audience info.';
+  }
+  if (extracted.context_background) {
+    return 'Got it — thanks for the context.';
+  }
+  if (extracted.target) {
+    return "Got it — I've noted your target audience.";
+  }
+  if (extracted.desired_outcomes) {
+    return "Got it — I've noted your desired outcomes.";
+  }
+  if (extracted.deliverables && extracted.deliverables.length > 0) {
+    return "Got it — I've noted the deliverables you need.";
+  }
+  if (extracted.due_date) {
+    return "Got it — I've noted the timeline.";
+  }
+  if (extracted.requester_department) {
+    return 'Got it!';
+  }
+  return 'Got it, thanks for sharing that.';
 }
