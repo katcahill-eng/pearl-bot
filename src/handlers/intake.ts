@@ -629,19 +629,20 @@ async function handleIntakeMessageInner(opts: {
         thread_ts: threadTs,
       });
 
-      // If we pre-filled name/department from Slack, confirm with the user before moving on
+      // Build a confirmation prefix from pre-filled name/department.
+      // This will be combined with the first question into a SINGLE message
+      // so the user doesn't see two back-to-back messages that both look like questions.
+      let confirmPrefix = '';
       if (nameFromSlack || department) {
         const namePart = nameFromSlack ? realName : null;
         const deptPart = department ?? null;
-        let confirmMsg: string;
         if (namePart && deptPart) {
-          confirmMsg = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+          confirmPrefix = `I have you down as *${namePart}* from *${deptPart}*. If that's not right, just let me know!\n\n`;
         } else if (namePart) {
-          confirmMsg = `I have you down as *${namePart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+          confirmPrefix = `I have you down as *${namePart}*. If that's not right, just let me know!\n\n`;
         } else {
-          confirmMsg = `I have you down as part of *${deptPart}*. If that's not right, just let me know — otherwise, let's jump in!`;
+          confirmPrefix = `I have you down as part of *${deptPart}*. If that's not right, just let me know!\n\n`;
         }
-        await say({ text: confirmMsg, thread_ts: threadTs });
       }
 
       // Extract fields from the initial message if it contains substantive content.
@@ -668,11 +669,22 @@ async function handleIntakeMessageInner(opts: {
         }
       }
 
-      // Ask the next unanswered question (may skip fields already extracted from initial message)
+      // Combine the confirmation prefix with the first question into ONE message.
       if (convo.isComplete()) {
+        if (confirmPrefix) await say({ text: confirmPrefix.trim(), thread_ts: threadTs });
         await enterFollowUpPhase(convo, 0, threadTs, say);
       } else {
-        await askNextQuestion(convo, threadTs, say);
+        const next = convo.getNextQuestion();
+        if (next) {
+          await convo.save();
+          await say({
+            text: `${confirmPrefix}${next.question}\n_${next.example}_`,
+            thread_ts: threadTs,
+          });
+        } else {
+          if (confirmPrefix) await say({ text: confirmPrefix.trim(), thread_ts: threadTs });
+          await enterFollowUpPhase(convo, 0, threadTs, say);
+        }
       }
       return;
     }
