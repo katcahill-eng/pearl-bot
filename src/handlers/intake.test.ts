@@ -42,7 +42,7 @@ vi.mock('./approval', () => ({
 }));
 
 vi.mock('../lib/workflow', () => ({
-  createMondayItemForReview: vi.fn().mockResolvedValue('mock-monday-id'),
+  createMondayItemForReview: vi.fn().mockResolvedValue({ success: true, itemId: 'mock-monday-id', boardUrl: 'https://monday.com/mock' }),
 }));
 
 vi.mock('../lib/monday', () => ({
@@ -556,7 +556,7 @@ describe('Intake conversation flows', () => {
       await sendMessage({ text: 'yes', say, client });
 
       const texts = getSayTexts(say);
-      expect(texts.some((t) => t.includes('ubmit'))).toBe(true);
+      expect(texts.some((t) => t.includes('submitted for review'))).toBe(true);
     });
 
     it('should submit on "looks good"', async () => {
@@ -564,7 +564,7 @@ describe('Intake conversation flows', () => {
       await sendMessage({ text: 'looks good', say, client });
 
       const texts = getSayTexts(say);
-      expect(texts.some((t) => t.includes('ubmit'))).toBe(true);
+      expect(texts.some((t) => t.includes('submitted for review'))).toBe(true);
     });
 
     it('should submit on "send it"', async () => {
@@ -572,7 +572,7 @@ describe('Intake conversation flows', () => {
       await sendMessage({ text: 'send it', say, client });
 
       const texts = getSayTexts(say);
-      expect(texts.some((t) => t.includes('ubmit'))).toBe(true);
+      expect(texts.some((t) => t.includes('submitted for review'))).toBe(true);
     });
 
     it('should allow editing a field during confirmation', async () => {

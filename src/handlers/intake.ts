@@ -992,13 +992,17 @@ async function startFreshFromDupCheck(
   await convo.save();
 
   // Anyone who enters startFreshFromDupCheck already got "Welcome back, [Name]!"
-  // so we never re-greet them with a verbose welcome. Just confirm department and move on.
-  const dupData = convo.getCollectedData();
-  const dept = previousDepartment || dupData.requester_department;
+  // so we never re-greet them with a verbose welcome.
+  // Pre-populate name + department so askNextQuestion skips them and goes straight to content.
+  const knownName = convo.getCollectedData().requester_name ?? convo.getUserName();
+  const dept = previousDepartment || convo.getCollectedData().requester_department;
+  if (knownName) convo.markFieldCollected('requester_name', knownName);
+  if (dept) convo.markFieldCollected('requester_department', dept);
+  await convo.save();
 
   if (dept) {
     await say({
-      text: `Are you requesting marketing support for *${dept}*? If not, just let me know.`,
+      text: `I'll assume you're requesting support for *${dept}* — let me know if that's not right.`,
       thread_ts: threadTs,
     });
   } else {
@@ -1092,8 +1096,10 @@ async function handleGatheringState(
     const staleTarget = staleData.additional_details['__previous_target'] ?? null;
 
     if (staleDept) {
+      convo.markFieldCollected('requester_department', staleDept);
+      await convo.save();
       await say({
-        text: `Are you requesting marketing support for *${staleDept}*? If not, just let me know.`,
+        text: `I'll assume you're requesting support for *${staleDept}* — let me know if that's not right.`,
         thread_ts: threadTs,
       });
     } else {
