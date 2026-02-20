@@ -32,8 +32,14 @@ export interface FollowUpQuestion {
 
 // --- Client ---
 
+// Fast client for structured extraction tasks (haiku — lower latency, same accuracy for JSON)
+const fastClient = new Anthropic({
+  timeout: 15_000, // 15s — fail fast so users see an error quickly rather than waiting 30s
+});
+
+// Reasoning client for complex generation tasks (sonnet — better quality for follow-up questions)
 const client = new Anthropic({
-  timeout: 30_000, // 30s timeout — prevents silent hangs from stalling the bot
+  timeout: 30_000,
 });
 
 // --- Knowledge Base ---
@@ -107,8 +113,8 @@ export async function interpretMessage(
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
+      const response = await fastClient.messages.create({
+        model: 'claude-3-5-haiku-latest',
         max_tokens: 1024,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userPrompt }],
@@ -122,7 +128,6 @@ export async function interpretMessage(
       lastError = err;
       if (attempt === 0) {
         console.warn(`[claude] interpretMessage attempt 1 failed, retrying:`, err instanceof Error ? err.message : err);
-        await new Promise((r) => setTimeout(r, 1000)); // brief pause before retry
       }
     }
   }
@@ -282,8 +287,8 @@ Respond with ONLY the type string(s), comma-separated if multiple, nothing else.
 - Target: ${collectedData.target ?? 'Not provided'}
 - Desired Outcomes: ${collectedData.desired_outcomes ?? 'Not provided'}`;
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+  const response = await fastClient.messages.create({
+    model: 'claude-3-5-haiku-latest',
     max_tokens: 50,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
@@ -380,8 +385,8 @@ If the user's message doesn't answer the question (off-topic, unclear), set valu
 
 Respond with ONLY a JSON object, no markdown formatting, no code blocks.`;
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+  const response = await fastClient.messages.create({
+    model: 'claude-3-5-haiku-latest',
     max_tokens: 512,
     system: systemPrompt,
     messages: [{ role: 'user', content: `User's answer: "${message}"` }],
