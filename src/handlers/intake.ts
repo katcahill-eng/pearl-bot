@@ -1393,12 +1393,13 @@ async function handleGatheringState(
     }
   } catch (error) {
     console.error('[intake] Claude interpretation error during gathering:', error);
-    const formFallback = config.intakeFormUrl ? ` Or fill out the form instead: ${config.intakeFormUrl}` : '';
+    const firstName = getFirstName(convo.getCollectedData().requester_name ?? null);
     await say({
-      text: `I didn't quite catch that. Could you rephrase?${formFallback}\nIf you need immediate help, tag someone from the marketing team in #marcoms-requests.`,
+      text: firstName
+        ? `Sorry about that, ${firstName} — I had a brief moment. Could you try saying that again?`
+        : "Sorry about that — I had a brief moment. Could you try saying that again?",
       thread_ts: threadTs,
     });
-    await askNextQuestion(convo, threadTs, say);
   }
 }
 

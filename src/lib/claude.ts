@@ -103,17 +103,30 @@ export async function interpretMessage(
 
   const userPrompt = buildUserPrompt(message, conversationState, today, currentStep);
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userPrompt }],
-  });
+  // Retry once on transient API errors (timeouts, 5xx, overloaded)
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userPrompt }],
+      });
 
-  const text =
-    response.content[0].type === 'text' ? response.content[0].text : '';
+      const text =
+        response.content[0].type === 'text' ? response.content[0].text : '';
 
-  return parseExtractedFields(text);
+      return parseExtractedFields(text);
+    } catch (err) {
+      lastError = err;
+      if (attempt === 0) {
+        console.warn(`[claude] interpretMessage attempt 1 failed, retrying:`, err instanceof Error ? err.message : err);
+        await new Promise((r) => setTimeout(r, 1000)); // brief pause before retry
+      }
+    }
+  }
+  throw lastError;
 }
 
 /**
