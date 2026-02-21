@@ -86,13 +86,21 @@ async function mondayApi<T = unknown>(
 export async function discoverBoardColumns(): Promise<void> {
   try {
     const data = await mondayApi<{
-      boards: Array<{ columns: Array<{ id: string; title: string; type: string }> }>;
-    }>(`query ($boardId: [ID!]!) { boards(ids: $boardId) { columns { id title type } } }`, {
+      boards: Array<{ columns: Array<{ id: string; title: string; type: string; settings_str: string }> }>;
+    }>(`query ($boardId: [ID!]!) { boards(ids: $boardId) { columns { id title type settings_str } } }`, {
       boardId: [config.mondayBoardId],
     });
     console.log('[monday] Board columns:');
     for (const col of data.boards[0].columns) {
-      console.log(`  ${col.id.padEnd(30)} ${col.type.padEnd(15)} ${col.title}`);
+      let extra = '';
+      if (col.type === 'status') {
+        try {
+          const settings = JSON.parse(col.settings_str);
+          const labels = settings.labels ? Object.values(settings.labels) : [];
+          if (labels.length > 0) extra = ` → labels: ${(labels as string[]).join(', ')}`;
+        } catch { /* ignore */ }
+      }
+      console.log(`  ${col.id.padEnd(30)} ${col.type.padEnd(15)} ${col.title}${extra}`);
     }
   } catch (err) {
     console.error('[monday] Column discovery failed:', err);
