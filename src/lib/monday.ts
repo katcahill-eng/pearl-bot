@@ -76,6 +76,24 @@ async function mondayApi<T = unknown>(
   return json.data;
 }
 
+// --- Column Discovery (one-time, for mapping new columns) ---
+
+export async function discoverBoardColumns(): Promise<void> {
+  try {
+    const data = await mondayApi<{
+      boards: Array<{ columns: Array<{ id: string; title: string; type: string }> }>;
+    }>(`query ($boardId: [ID!]!) { boards(ids: $boardId) { columns { id title type } } }`, {
+      boardId: [config.mondayBoardId],
+    });
+    console.log('[monday] Board columns:');
+    for (const col of data.boards[0].columns) {
+      console.log(`  ${col.id.padEnd(30)} ${col.type.padEnd(15)} ${col.title}`);
+    }
+  } catch (err) {
+    console.error('[monday] Column discovery failed:', err);
+  }
+}
+
 // --- Public API ---
 
 /**
