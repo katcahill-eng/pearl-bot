@@ -24,10 +24,10 @@ interface TimelineEntry {
 
 const WEBINAR_TASKS: TimelineTask[] = [
   { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 29 },
-  { label: 'Email campaign drafts', phase: 'create', daysBeforeDeadline: 22 },
-  { label: 'Social media content', phase: 'create', daysBeforeDeadline: 22 },
-  { label: 'Slide deck', phase: 'create', daysBeforeDeadline: 15 },
-  { label: 'Webinar registration page', phase: 'create', daysBeforeDeadline: 8 },
+  { label: 'Promotional emails for webinar registration', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Social media posts promoting webinar', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Webinar slide deck', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Webinar registration page setup', phase: 'create', daysBeforeDeadline: 8 },
   { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 12 },
   { label: 'Final approval', phase: 'review', daysBeforeDeadline: 5 },
 ];
@@ -35,10 +35,10 @@ const WEBINAR_TASKS: TimelineTask[] = [
 const WEBINAR_ADS_TASKS: TimelineTask[] = [
   { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 43 },
   { label: 'Ad creative & targeting setup', phase: 'create', daysBeforeDeadline: 36 },
-  { label: 'Email campaign drafts', phase: 'create', daysBeforeDeadline: 29 },
-  { label: 'Social media content', phase: 'create', daysBeforeDeadline: 29 },
-  { label: 'Slide deck', phase: 'create', daysBeforeDeadline: 22 },
-  { label: 'Webinar registration page', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Promotional emails for webinar registration', phase: 'create', daysBeforeDeadline: 29 },
+  { label: 'Social media posts promoting webinar', phase: 'create', daysBeforeDeadline: 29 },
+  { label: 'Webinar slide deck', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Webinar registration page setup', phase: 'create', daysBeforeDeadline: 15 },
   { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 19 },
   { label: 'Final approval', phase: 'review', daysBeforeDeadline: 12 },
   { label: 'Ad warm-up begins (runs through event)', phase: 'delivery', daysBeforeDeadline: 14 },
@@ -47,10 +47,10 @@ const WEBINAR_ADS_TASKS: TimelineTask[] = [
 const CONFERENCE_TASKS: TimelineTask[] = [
   { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 36 },
   { label: 'Print production sent to printer (if needed)', phase: 'create', daysBeforeDeadline: 29 },
-  { label: 'Pre-conference email campaign', phase: 'create', daysBeforeDeadline: 22 },
-  { label: 'Social media promotion', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Pre-conference promotional emails', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Social media posts promoting conference', phase: 'create', daysBeforeDeadline: 22 },
   { label: 'Booth collateral & signage', phase: 'create', daysBeforeDeadline: 15 },
-  { label: 'Presentation slides', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Conference presentation slides', phase: 'create', daysBeforeDeadline: 15 },
   { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 19 },
   { label: 'Final approval on all materials', phase: 'review', daysBeforeDeadline: 8 },
   { label: 'Assets delivered & ready to go', phase: 'delivery', daysBeforeDeadline: 3 },
@@ -60,7 +60,7 @@ const DINNER_TASKS: TimelineTask[] = [
   { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 29 },
   { label: 'Invitation design & copy', phase: 'create', daysBeforeDeadline: 22 },
   { label: 'Event branding & signage', phase: 'create', daysBeforeDeadline: 15 },
-  { label: 'Email invitation campaign', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Dinner invitation emails', phase: 'create', daysBeforeDeadline: 15 },
   { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 19 },
   { label: 'Final approval', phase: 'review', daysBeforeDeadline: 8 },
   { label: 'Invitations sent', phase: 'delivery', daysBeforeDeadline: 10 },
@@ -74,8 +74,8 @@ const QUICK_TASKS: TimelineTask[] = [
 
 const DEFAULT_TASKS: TimelineTask[] = [
   { label: 'Marketing reviews brief & confirms scope', phase: 'kickoff', daysBeforeDeadline: 29 },
-  { label: 'Content & asset development', phase: 'create', daysBeforeDeadline: 22 },
-  { label: 'Email & social promotion', phase: 'create', daysBeforeDeadline: 15 },
+  { label: 'Content creation & asset development', phase: 'create', daysBeforeDeadline: 22 },
+  { label: 'Promotional emails & social media posts', phase: 'create', daysBeforeDeadline: 15 },
   { label: 'Review drafts & provide feedback', phase: 'review', daysBeforeDeadline: 12 },
   { label: 'Final approval', phase: 'review', daysBeforeDeadline: 5 },
 ];

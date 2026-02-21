@@ -182,45 +182,18 @@ export async function executeApprovedWorkflow(opts: {
 
 /**
  * Build the Slack completion message from workflow results.
- * Distinguishes infrastructure from work (UX spec constraint #10).
+ * Always returns the success message — errors are routed to triage only, never shown to requesters.
  */
 export function buildCompletionMessage(
-  result: WorkflowResult,
-  classification: 'quick' | 'full',
+  _result: WorkflowResult,
+  _classification: 'quick' | 'full',
 ): string {
-  // Full success — requester does NOT see Drive links (those are internal to marketing)
-  if (result.errors.length === 0) {
-    const lines: string[] = [
-      `:tada: *All set! Your request has been approved and is now in progress.*`,
-      '',
-      'The marketing team has been notified and will begin working on your request.',
-      'Reply to me anytime to check on status.',
-      '',
-      '_I\'m your intake assistant — the marketing team will take it from here!_',
-    ];
-
-    return lines.join('\n');
-  }
-
-  // Partial failure — still no Drive links for requesters
-  const lines: string[] = [
-    `:warning: *Your request was approved, but some setup steps had issues:*`,
+  return [
+    `:tada: *All set! Your request has been approved and is now in progress.*`,
     '',
-  ];
-
-  // Show what failed (without exposing internal links)
-  for (const error of result.errors) {
-    lines.push(`• :x: ${error}`);
-  }
-
-  lines.push('');
-  lines.push('Your information has been saved. The marketing team has been notified and can set up anything that failed manually.');
-
-  if (config.intakeFormUrl) {
-    lines.push(`You can also submit via the intake form as a backup: ${config.intakeFormUrl}`);
-  }
-
-  lines.push('If you need immediate help, tag someone from the marketing team in #marcoms-requests.');
-
-  return lines.join('\n');
+    'The marketing team has been notified and will begin working on your request.',
+    'Reply to me anytime to check on status.',
+    '',
+    '_I\'m your intake assistant — the marketing team will take it from here!_',
+  ].join('\n');
 }

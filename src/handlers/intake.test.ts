@@ -804,16 +804,20 @@ describe('Intake conversation flows', () => {
       await sendMessage({ text: 'event page, email series, deck, name badges, and social posts', say, client });
       say.mockClear();
 
-      // Message 3: due date → follow-up phase
+      // Message 3: due date → shows timeline, waits for response
       (interpretMessage as Mock).mockResolvedValueOnce(
         emptyExtracted({ due_date: 'April 10-12', due_date_parsed: '2026-04-10', confidence: 0.9 }),
       );
+      await sendMessage({ text: 'April 10-12', say, client });
+      say.mockClear();
+
+      // Message 4: accept timeline → enters follow-up phase
       (classifyRequestType as Mock).mockResolvedValueOnce(['conference', 'insider_dinner']);
       (generateFollowUpQuestions as Mock).mockResolvedValueOnce([
         { id: 'q1', question: 'How many attendees?', field_key: 'attendees' },
         { id: 'q2', question: 'Venue confirmed?', field_key: 'venue' },
       ]);
-      await sendMessage({ text: 'April 10-12', say, client });
+      await sendMessage({ text: 'looks good', say, client });
       say.mockClear();
 
       // Follow-up 1

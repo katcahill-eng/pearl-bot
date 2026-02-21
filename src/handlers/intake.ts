@@ -3,7 +3,7 @@ import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
 import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
 import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
-import { generateFieldGuidance } from '../lib/guidance';
+import { generateFieldGuidance, generateDeliverablesOptions } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics, logError } from '../lib/db';
@@ -152,9 +152,10 @@ async function searchForProjectMatches(keywords: string[]): Promise<ProjectMatch
   return matches;
 }
 
-/** Detect mentions of existing content/drafts in user messages. */
+/** Detect mentions of existing content/drafts in user messages. Handles negation (e.g., "I don't have a deck"). */
 function mentionsExistingContent(text: string): boolean {
   const lower = text.toLowerCase();
+  const negationWords = /\b(don[''\u2019]?t|do\s+not|no|not|never|without|haven[''\u2019]?t|hasn[''\u2019]?t|doesn[''\u2019]?t|lack|neither)\b/;
   const patterns = [
     /existing\s+(content|draft|deck|copy|doc|document|slides?|one[- ]?pager|asset)/i,
     /already\s+(have|started|wrote|created|drafted|built)/i,
@@ -166,7 +167,20 @@ function mentionsExistingContent(text: string): boolean {
     /work[- ]?in[- ]?progress/i,
     /wip/i,
   ];
-  return patterns.some((p) => p.test(lower));
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(lower);
+    if (match) {
+      // Check the 40 chars preceding the match for negation words
+      const precedingText = lower.slice(Math.max(0, match.index - 40), match.index);
+      if (!negationWords.test(precedingText)) {
+        return true; // positive mention — no negation found
+      }
+      // Negation found (e.g., "I don't have a deck") — skip this match
+      console.log(`[intake] mentionsExistingContent: negation detected before "${match[0]}" — skipping`);
+    }
+  }
+  return false;
 }
 
 /** Fields asked during the gathering phase — used for raw-text fallback when Claude returns 0 fields. */
@@ -1223,8 +1237,14 @@ async function handleGatheringState(
     return;
   }
 
-  // --- Handle draft collection sub-flow ---
+  // --- Handle timeline response sub-flow ---
   const currentStep = convo.getCurrentStep();
+  if (currentStep === 'timeline:awaiting_response') {
+    await handleTimelineResponse(convo, text, threadTs, say);
+    return;
+  }
+
+  // --- Handle draft collection sub-flow ---
   if (currentStep === 'draft:awaiting_link') {
     await handleDraftLink(convo, text, threadTs, say);
     return;
@@ -1342,6 +1362,23 @@ async function handleGatheringState(
     return;
   }
 
+  // --- "What are my options?" deliverables helper ---
+  const OPTIONS_PATTERNS = [
+    /what\s*(are\s*)?my\s*options/i,
+    /what\s*(can|do)\s*you\s*(do|offer|provide|handle|make|create)/i,
+    /what('?s| is)\s*available/i,
+    /show\s*me\s*(the\s*)?(options|services|list)/i,
+    /help\s*me\s*(decide|choose)/i,
+    /what\s*should\s*I\s*(pick|choose|ask\s*for|request)/i,
+    /what\s*services/i,
+    /list\s*(of\s*)?(options|services|deliverables)/i,
+  ];
+  if (matchesAny(text, OPTIONS_PATTERNS) && (convo.getCurrentStep() === 'deliverables' || convo.isInFollowUp())) {
+    const optionsList = generateDeliverablesOptions(convo.getCollectedData());
+    await say({ text: optionsList, thread_ts: threadTs });
+    return;
+  }
+
   // --- Handle follow-up phase ---
   if (convo.isInFollowUp()) {
     await handleFollowUpAnswer(convo, text, threadTs, say);
@@ -1438,16 +1475,19 @@ async function handleGatheringState(
       }
     }
 
-    // Show production timeline if we just captured a due date (sent as separate message — it's informational)
+    // Show production timeline if we just captured a due date — wait for user response before continuing
     if (extracted.due_date_parsed) {
       const timeline = generateProductionTimeline(convo.getCollectedData());
       if (timeline) {
-        // Send ack before timeline, then timeline, then question — 3 messages is OK for timeline
         if (ack) {
           await say({ text: ack, thread_ts: threadTs });
           ack = null;
         }
         await say({ text: timeline, thread_ts: threadTs });
+        // Wait for user to respond to the timeline before continuing
+        convo.setCurrentStep('timeline:awaiting_response');
+        await convo.save();
+        return;
       }
     }
 
@@ -1549,6 +1589,16 @@ async function enterFollowUpPhase(
     const questions = rawQuestions.filter((q) => {
       if (REQUIRED_FIELD_KEYS.includes(q.field_key)) {
         console.log(`[intake] Filtered follow-up question with field_key="${q.field_key}" — already collected`);
+        return false;
+      }
+      // Skip date/time-related follow-ups when due_date is already collected
+      if (collectedData.due_date && /date|time|when|schedule|datetime/i.test(q.field_key)) {
+        console.log(`[intake] Filtered follow-up question with field_key="${q.field_key}" — due_date already collected`);
+        return false;
+      }
+      // Skip audience-related follow-ups when target is already collected
+      if (collectedData.target && /target|audience/i.test(q.field_key)) {
+        console.log(`[intake] Filtered follow-up question with field_key="${q.field_key}" — target already collected`);
         return false;
       }
       return true;
@@ -1694,12 +1744,16 @@ async function handleFollowUpAnswer(
     }
 
     convo.markFieldCollected('additional_details', details);
+
+    // Merge any deliverable-like items mentioned in the follow-up answer into the core deliverables array
+    mergeFollowUpDeliverables(convo, result.value ?? text);
   } catch (err) {
     console.error('[intake] Follow-up interpretation failed:', err);
     // Store raw answer as fallback
     const details = convo.getCollectedData().additional_details;
     details[currentQuestion.field_key] = text;
     convo.markFieldCollected('additional_details', details);
+    mergeFollowUpDeliverables(convo, text);
   }
 
   // Detect mentions of existing content in follow-up answers
@@ -2105,6 +2159,42 @@ function saveExistingAssets(convo: ConversationManager, assets: ExistingAsset[])
   convo.markFieldCollected('additional_details', details);
 }
 
+/**
+ * Handle user's response to "Does this timeline work?" after showing the production timeline.
+ * Accept any response and continue to the next question or follow-up phase.
+ */
+async function handleTimelineResponse(
+  convo: ConversationManager,
+  text: string,
+  threadTs: string,
+  say: SayFn,
+): Promise<void> {
+  // Store any timeline feedback as a note
+  const isConfirmation = matchesAny(text, CONFIRM_PATTERNS);
+  if (!isConfirmation) {
+    // User had feedback — store it for the triage team
+    const details = convo.getCollectedData().additional_details;
+    details['__timeline_feedback'] = text;
+    convo.markFieldCollected('additional_details', details);
+  }
+
+  // Clear the timeline waiting state
+  convo.setCurrentStep(null);
+  await convo.save();
+
+  const ack = isConfirmation
+    ? 'Great, we\'ll use that timeline as a starting point!'
+    : 'Got it — I\'ve noted your feedback on the timeline. The team will adjust as needed.';
+
+  // Continue to follow-up or next question
+  if (convo.isComplete()) {
+    await say({ text: ack, thread_ts: threadTs });
+    await enterFollowUpPhase(convo, 0, threadTs, say);
+  } else {
+    await askNextQuestion(convo, threadTs, say, ack);
+  }
+}
+
 async function handleDraftLink(
   convo: ConversationManager,
   text: string,
@@ -2453,6 +2543,44 @@ function hasUncertaintyLanguage(text: string): boolean {
 }
 
 /** Format a snake_case field key as a readable label. */
+/**
+ * Scan a follow-up answer for deliverable-like items and merge them into the core deliverables array
+ * so they appear in the summary and triage panel.
+ */
+function mergeFollowUpDeliverables(convo: ConversationManager, answerText: string): void {
+  const lower = answerText.toLowerCase();
+  const currentDeliverables = convo.getCollectedData().deliverables;
+  const deliverableKeywords = [
+    { pattern: /social\s*media|social\s*posts?/i, label: 'social media' },
+    { pattern: /promotional\s*emails?|promo\s*emails?|email\s*campaign/i, label: 'promotional emails' },
+    { pattern: /follow[- ]?up\s*emails?/i, label: 'follow-up emails' },
+    { pattern: /slide\s*deck|slides|presentation/i, label: 'slide deck' },
+    { pattern: /one[- ]?pager/i, label: 'one-pager' },
+    { pattern: /flyer/i, label: 'flyer' },
+    { pattern: /banner/i, label: 'banner' },
+    { pattern: /landing\s*page/i, label: 'landing page' },
+    { pattern: /registration\s*page/i, label: 'registration page' },
+    { pattern: /invitation/i, label: 'invitation' },
+    { pattern: /signage/i, label: 'signage' },
+    { pattern: /brochure/i, label: 'brochure' },
+    { pattern: /ad\s*creative|digital\s*ads/i, label: 'ad creative' },
+    { pattern: /booth\s*collateral/i, label: 'booth collateral' },
+    { pattern: /printed?\s*(materials?|invitations?)/i, label: 'printed materials' },
+  ];
+
+  let added = false;
+  for (const { pattern, label } of deliverableKeywords) {
+    if (pattern.test(lower) && !currentDeliverables.some((d) => d.toLowerCase().includes(label))) {
+      currentDeliverables.push(label);
+      added = true;
+      console.log(`[intake] Merged follow-up deliverable: "${label}"`);
+    }
+  }
+  if (added) {
+    convo.markFieldCollected('deliverables', currentDeliverables);
+  }
+}
+
 function formatFieldLabel(field: string): string {
   return field.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }

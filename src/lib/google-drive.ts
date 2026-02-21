@@ -15,12 +15,23 @@ export interface DriveResult {
 
 function getAuth(): ReturnType<typeof google.auth.fromJSON> | null {
   try {
-    const credentials = JSON.parse(config.googleServiceAccountJson);
+    const raw = config.googleServiceAccountJson;
+    if (!raw || raw === 'undefined') {
+      console.error('[google-drive] GOOGLE_SERVICE_ACCOUNT_JSON is empty or undefined');
+      return null;
+    }
+    const credentials = JSON.parse(raw);
+    if (!credentials.client_email) {
+      console.error('[google-drive] Service account JSON missing client_email');
+      return null;
+    }
+    console.log(`[google-drive] Authenticating as ${credentials.client_email}`);
     return google.auth.fromJSON({
       ...credentials,
       scopes: ['https://www.googleapis.com/auth/drive'],
     }) as ReturnType<typeof google.auth.fromJSON>;
-  } catch {
+  } catch (err) {
+    console.error('[google-drive] Failed to parse service account JSON:', err);
     return null;
   }
 }

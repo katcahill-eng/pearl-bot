@@ -64,7 +64,7 @@ const FIELD_PROMPTS: Record<string, { question: string; example: string }> = {
   },
   deliverables: {
     question: 'What deliverable(s) do you need?',
-    example: 'e.g., "1 one-pager (PDF), 3 social posts, 1 email template" — list as many as you need',
+    example: 'e.g., "1 one-pager (PDF), 3 social posts, 1 email template" — list as many as you need, or say *"what are my options?"*',
   },
   // due_date is handled dynamically by getDueDatePrompt() — this is a fallback
   due_date: {
@@ -296,39 +296,40 @@ export class ConversationManager {
     const target = (this.collectedData.target ?? '').toLowerCase();
     const outcomes = (this.collectedData.desired_outcomes ?? '').toLowerCase();
     const combined = `${context} ${target} ${outcomes}`;
+    const optionsHint = ', or say *"what are my options?"*';
 
     if (combined.includes('webinar')) {
       return {
         question: 'What deliverable(s) do you need?',
-        example: 'e.g., "presentation deck, registration page, 3 promo emails, social posts, recording edit" — list as many as you need',
+        example: `e.g., "presentation deck, registration page, 3 promo emails, social posts, recording edit" — list as many as you need${optionsHint}`,
       };
     }
 
     if (combined.includes('conference') || combined.includes('trade show') || combined.includes('expo')) {
       return {
         question: 'What deliverable(s) do you need?',
-        example: 'e.g., "booth graphics, 1 one-pager, social posts, presentation deck, badge scan follow-up email" — list as many as you need',
+        example: `e.g., "booth graphics, 1 one-pager, social posts, presentation deck, badge scan follow-up email" — list as many as you need${optionsHint}`,
       };
     }
 
     if (combined.includes('dinner') || combined.includes('insider')) {
       return {
         question: 'What deliverable(s) do you need?',
-        example: 'e.g., "invitation email, table cards, name tags, follow-up email, event brief" — list as many as you need',
+        example: `e.g., "invitation email, table cards, name tags, follow-up email, event brief" — list as many as you need${optionsHint}`,
       };
     }
 
     if (combined.includes('email') || combined.includes('newsletter')) {
       return {
         question: 'What deliverable(s) do you need?',
-        example: 'e.g., "email template, subject line options, landing page, social teaser" — list as many as you need',
+        example: `e.g., "email template, subject line options, landing page, social teaser" — list as many as you need${optionsHint}`,
       };
     }
 
     if (combined.includes('launch') || combined.includes('campaign')) {
       return {
         question: 'What deliverable(s) do you need?',
-        example: 'e.g., "landing page, 3 email templates, social posts, one-pager, press release" — list as many as you need',
+        example: `e.g., "landing page, 3 email templates, social posts, one-pager, press release" — list as many as you need${optionsHint}`,
       };
     }
 

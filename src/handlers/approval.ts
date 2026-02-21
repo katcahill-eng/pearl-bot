@@ -462,16 +462,29 @@ export function registerApprovalHandler(app: App): void {
           }
         }
 
-        // Notify requester
+        // Always send the success message to the requester — never expose internal errors
         try {
-          const completionMsg = buildCompletionMessage(result, classification);
           await client.chat.postMessage({
             channel: convo.getChannelId(),
-            text: completionMsg,
+            text: ':tada: *All set! Your request has been approved and is now in progress.*\n\nThe marketing team has been notified and will begin working on your request.\nReply to me anytime to check on status.\n\n_I\'m your intake assistant — the marketing team will take it from here!_',
             thread_ts: convo.getThreadTs(),
           });
         } catch (err) {
           console.error('[approval] Failed to notify requester:', err);
+        }
+
+        // If there are workflow errors, post them to triage thread ONLY (never to requester)
+        if (result.errors.length > 0 && body.message && body.channel?.id) {
+          const errorLines = result.errors.map((e: string) => `• :x: ${e}`).join('\n');
+          try {
+            await client.chat.postMessage({
+              channel: body.channel.id,
+              text: `:warning: *Post-approval setup issues:*\n${errorLines}\n\nThe requester has been notified that their request is in progress. These errors need manual resolution.`,
+              thread_ts: body.message.ts,
+            });
+          } catch (err) {
+            console.error('[approval] Failed to post error details to triage:', err);
+          }
         }
       }
 
@@ -502,6 +515,17 @@ export function registerApprovalHandler(app: App): void {
 
       convo.setStatus('complete');
       await convo.save();
+
+      // Auto-notify requester that their request is complete
+      try {
+        await client.chat.postMessage({
+          channel: convo.getChannelId(),
+          text: ':white_check_mark: Great news — your request has been completed! If you have any feedback or need anything else, feel free to start a new request anytime.',
+          thread_ts: convo.getThreadTs(),
+        });
+      } catch (err) {
+        console.error('[approval] Failed to notify requester of completion:', err);
+      }
     }
 
     if (newStatus === 'Declined') {

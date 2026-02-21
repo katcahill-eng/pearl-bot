@@ -47,7 +47,7 @@ describe('generateProductionTimeline', () => {
       context_background: 'We are attending AHR Expo conference',
     }));
     expect(result).toContain('Booth collateral');
-    expect(result).toContain('Presentation slides');
+    expect(result).toContain('Conference presentation slides');
   });
 
   it('generates dinner timeline', () => {
@@ -72,7 +72,7 @@ describe('generateProductionTimeline', () => {
     const result = generateProductionTimeline(makeData({
       context_background: 'General marketing support needed',
     }));
-    expect(result).toContain('Content & asset development');
+    expect(result).toContain('Content creation & asset development');
     expect(result).toContain('Final approval');
   });
 

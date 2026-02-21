@@ -298,7 +298,36 @@ Respond with ONLY the type string(s), comma-separated if multiple, nothing else.
   const text = response.content[0].type === 'text' ? response.content[0].text.trim().toLowerCase() : 'general';
   const validTypes = ['conference', 'insider_dinner', 'webinar', 'email', 'graphic_design', 'general'];
   const types = text.split(',').map((t) => t.trim()).filter((t) => validTypes.includes(t));
-  return types.length > 0 ? types : ['general'];
+  const result = types.length > 0 ? types : ['general'];
+
+  // Deterministic post-check: scan collected data for type keywords Claude may have missed
+  const allText = [
+    collectedData.context_background ?? '',
+    collectedData.desired_outcomes ?? '',
+    (collectedData.deliverables ?? []).join(' '),
+    collectedData.target ?? '',
+  ].join(' ').toLowerCase();
+
+  const typeKeywords: Record<string, RegExp> = {
+    conference: /\b(conference|trade\s*show|expo|exhibition|booth)\b/,
+    webinar: /\b(webinar|web\s*session|online\s*presentation|zoom\s*webinar|goto\s*webinar)\b/,
+    insider_dinner: /\b(insider\s*dinner|pearl\s*dinner|executive\s*dinner)\b/,
+    email: /\b(email\s*campaign|email\s*sequence|newsletter|email\s*blast|promotional\s*email)\b/,
+  };
+
+  for (const [type, pattern] of Object.entries(typeKeywords)) {
+    if (pattern.test(allText) && !result.includes(type)) {
+      console.log(`[claude] classifyRequestType: deterministic post-check added "${type}" (keyword found in collected data)`);
+      result.push(type);
+    }
+  }
+
+  // Remove 'general' if we found specific types
+  if (result.length > 1 && result.includes('general')) {
+    return result.filter((t) => t !== 'general');
+  }
+
+  return result;
 }
 
 /**
@@ -322,11 +351,15 @@ Rules:
 - CRITICAL: The following core fields have ALREADY been collected during intake. Do NOT generate questions that re-ask for them, even with type-specific framing:
   deliverables, due_date, target, context_background, desired_outcomes, requester_name, requester_department
   For example, do NOT ask "What deliverables do you need for the conference?" if deliverables are already listed in the collected data.
+- If due_date is already collected, do NOT ask about dates, times, scheduling, or when something is happening — the timeline is already set.
+- If target is already collected, do NOT ask about audience or who this is for — the audience is already defined.
 - DO ask about type-specific logistics, format, or details that go BEYOND the core fields (e.g., "Are you exhibiting with a booth?", "What webinar format — live, pre-recorded, or evergreen?", "Do you have a speaker confirmed?")
 - For multi-type requests: group questions by type in logical order. Ask all questions for one type before moving to the next.
 - Skip anything already answered in the collected data provided
 - Include expectation-setting context naturally within questions (e.g., "Just so you know, printed materials are charged back to your department — do you need anything printed?")
 - Each question should feel conversational, not like a form field
+- FORMATTING: When a question presents multiple options (e.g., webinar formats, email types), format them as a bulleted list using Slack mrkdwn. Keep the intro sentence short, then list the options on separate lines using bullet points (•). Example:
+  "What type of webinar are you thinking?\n\n• *Live* — real-time via Zoom, great for Q&A\n• *Pre-recorded* — polished and edited, automated playback via GoTo\n• *Evergreen* — record a live session, then run it on-demand as an automated encore"
 - Return a JSON array of objects with: id (string, unique), question (string), field_key (string, snake_case key for storing the answer)
 
 Respond with ONLY a JSON array, no markdown formatting, no code blocks.`;
