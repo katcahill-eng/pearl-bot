@@ -10,6 +10,7 @@ import { getActiveConversationForUser, getMostRecentCompletedConversation, getCo
 import { createMondayItemForReview } from '../lib/workflow';
 import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
 import { searchProjects } from '../lib/db';
+import { getWorkspaceUsers, resolveNames, extractNamesFromText } from '../lib/slack-users';
 
 // --- Confirmation keywords ---
 
@@ -363,10 +364,11 @@ export async function handleIntakeMessage(opts: {
   threadTs: string;
   messageTs: string;
   text: string;
+  files?: { id: string; name: string; permalink: string }[];
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
-  const { userId, userName, channelId, threadTs, messageTs, text, say, client } = opts;
+  const { userId, userName, channelId, threadTs, messageTs, text, files, say, client } = opts;
 
   // Deduplicate: skip if this exact message was already processed by another container
   // (happens during rolling deploys and when both app_mention and message events fire)
@@ -378,7 +380,7 @@ export async function handleIntakeMessage(opts: {
   console.log(`[intake] Message ${messageTs} claimed (not a duplicate), proceeding`);
 
   try {
-    await handleIntakeMessageInner({ userId, userName, channelId, threadTs, text, say, client });
+    await handleIntakeMessageInner({ userId, userName, channelId, threadTs, text, files, say, client });
   } catch (err) {
     console.error('[intake] Unhandled error in intake handler:', err);
     const formFallback = config.intakeFormUrl ? ` You can also fill out the form instead: ${config.intakeFormUrl}` : '';
@@ -399,10 +401,11 @@ async function handleIntakeMessageInner(opts: {
   channelId: string;
   threadTs: string;
   text: string;
+  files?: { id: string; name: string; permalink: string }[];
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
-  const { userId, userName, channelId, threadTs, text: rawText, say, client } = opts;
+  const { userId, userName, channelId, threadTs, text: rawText, files, say, client } = opts;
 
   // Strip bot mentions (e.g., "<@U123ABC>") so pattern matching works on the actual message
   const text = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
@@ -421,7 +424,7 @@ async function handleIntakeMessageInner(opts: {
   console.log(`[intake] dup_check gate: convo=${!!convo}, step="${convo?.getCurrentStep()}", startsWith_dup_check=${convo?.getCurrentStep()?.startsWith('dup_check:')}, text="${text}"`);
   if (convo && convo.getCurrentStep()?.startsWith('dup_check:')) {
     console.log(`[intake] → ENTERING handleDuplicateCheckResponse for text="${text}"`);
-    await handleDuplicateCheckResponse(convo, text, threadTs, say);
+    await handleDuplicateCheckResponse(convo, text, threadTs, say, client);
     return;
   }
 
@@ -754,9 +757,9 @@ async function handleIntakeMessageInner(opts: {
     return;
   }
 
-  // --- Handle post-submission states with buttons ---
+  // --- Handle post-submission states ---
   if (status === 'pending_approval' || status === 'complete') {
-    await handlePostSubmissionMessage(convo, text, threadTs, say, client);
+    await handlePostSubmissionMessage(convo, text, files, threadTs, say, client);
     return;
   }
 
@@ -767,7 +770,7 @@ async function handleIntakeMessageInner(opts: {
   }
 
   // --- Handle gathering state ---
-  await handleGatheringState(convo, text, threadTs, say);
+  await handleGatheringState(convo, text, threadTs, say, client);
 }
 
 // --- State handlers ---
@@ -880,9 +883,19 @@ async function handleConfirmingState(
       logConversationMetrics({ conversationId: convo.getId()!, userId: convo.getUserId(), finalStatus: 'pending_approval', durationSeconds: convo.getDurationSeconds(), classification: convo.getClassification() }).catch(() => {});
     }
 
-    // Tell requester it's submitted for review
+    // Tell requester it's submitted with clear instructions
+    const calendarUrl = config.marketingLeadCalendarUrl;
+    const calendarLine = calendarUrl
+      ? `\nIf you need to schedule a meeting with Marketing about this request: ${calendarUrl}`
+      : '\nIf you need to discuss this request further, tag someone from the marketing team in #marcoms-requests.';
+
     await say({
-      text: ":white_check_mark: *Your request has been submitted for review!*\n\nThe marketing team will review your request and either approve it or reach out to discuss. I'll notify you once there's an update.",
+      text: [
+        ':white_check_mark: *Thanks so much! Your request has been submitted to Marketing.*',
+        '',
+        'Any updates will be posted in this thread. If you need to add files, paste them here and I\'ll make sure they get added to your request.',
+        calendarLine,
+      ].join('\n'),
       thread_ts: threadTs,
     });
 
@@ -980,6 +993,7 @@ async function handleDuplicateCheckResponse(
   text: string,
   threadTs: string,
   say: SayFn,
+  client: WebClient,
 ): Promise<void> {
   console.log(`[intake] handleDuplicateCheckResponse called with text="${text}", threadTs=${threadTs}`);
   const step = convo.getCurrentStep()!;
@@ -1009,14 +1023,14 @@ async function handleDuplicateCheckResponse(
   // In dup-check context, "here" unambiguously means "start fresh here"
   const DUP_CHECK_HERE_PATTERNS = [/^here$/i, /^this\s*(one|thread)$/i, /^right\s*here$/i, /^over\s*here$/i, /^in\s*here$/i];
   if (matchesAny(text, START_FRESH_PATTERNS) || matchesAny(text, RESET_PATTERNS) || matchesAny(text, DUP_CHECK_HERE_PATTERNS)) {
-    await startFreshFromDupCheck(convo, existingConvoId, threadTs, say);
+    await startFreshFromDupCheck(convo, existingConvoId, threadTs, say, client);
     return;
   }
 
   // User typed something that looks like an actual request (long enough to be content, not a command)
   // — start fresh and process their message as the first intake input
   if (text.length > 20) {
-    await startFreshFromDupCheck(convo, existingConvoId, threadTs, say, text);
+    await startFreshFromDupCheck(convo, existingConvoId, threadTs, say, client, text);
     return;
   }
 
@@ -1032,6 +1046,7 @@ async function startFreshFromDupCheck(
   existingConvoId: number,
   threadTs: string,
   say: SayFn,
+  client: WebClient,
   initialMessage?: string,
 ): Promise<void> {
   // Grab previous target + department before clearing data
@@ -1078,7 +1093,7 @@ async function startFreshFromDupCheck(
     // Without this, Claude gets currentStep=null and often fails to extract fields.
     convo.getNextQuestion(); // sets convo.currentStep to the first unpopulated field
     await convo.save();
-    await handleGatheringState(convo, initialMessage, threadTs, say);
+    await handleGatheringState(convo, initialMessage, threadTs, say, client);
     return;
   }
 
@@ -1104,6 +1119,7 @@ async function handleGatheringState(
   text: string,
   threadTs: string,
   say: SayFn,
+  client: WebClient,
 ): Promise<void> {
   // Empty @mention in an existing conversation — treat as a nudge
   if (text === '') {
@@ -1381,7 +1397,7 @@ async function handleGatheringState(
 
   // --- Handle follow-up phase ---
   if (convo.isInFollowUp()) {
-    await handleFollowUpAnswer(convo, text, threadTs, say);
+    await handleFollowUpAnswer(convo, text, threadTs, say, client);
     return;
   }
 
@@ -1661,6 +1677,7 @@ async function handleFollowUpAnswer(
   text: string,
   threadTs: string,
   say: SayFn,
+  client: WebClient,
 ): Promise<void> {
   const questions = getStoredFollowUpQuestions(convo);
   const currentIndex = convo.getFollowUpIndex();
@@ -1757,6 +1774,38 @@ async function handleFollowUpAnswer(
     details[currentQuestion.field_key] = text;
     convo.markFieldCollected('additional_details', details);
     mergeFollowUpDeliverables(convo, text);
+  }
+
+  // Resolve approver names against Slack user directory
+  if (currentQuestion.field_key === 'approvers_list') {
+    try {
+      const names = extractNamesFromText(text);
+      if (names.length > 0) {
+        const users = await getWorkspaceUsers(client);
+        const resolution = resolveNames(names, users);
+
+        const approvers: { name: string; slackId: string | null; confidence?: string; ambiguous?: string[] }[] = [];
+
+        for (const r of resolution.resolved) {
+          approvers.push({ name: r.name, slackId: r.slackId, confidence: r.confidence });
+        }
+        for (const a of resolution.ambiguous) {
+          approvers.push({ name: a.name, slackId: null, ambiguous: a.candidates.map((c) => `${c.name} (${c.title || 'no title'})`) });
+        }
+        for (const u of resolution.unresolved) {
+          approvers.push({ name: u, slackId: null });
+        }
+
+        if (approvers.length > 0) {
+          const approverDetails = convo.getCollectedData().additional_details;
+          approverDetails['__approvers'] = JSON.stringify(approvers);
+          convo.markFieldCollected('additional_details', approverDetails);
+          console.log(`[intake] Resolved ${resolution.resolved.length} approver(s), ${resolution.ambiguous.length} ambiguous, ${resolution.unresolved.length} unresolved`);
+        }
+      }
+    } catch (err) {
+      console.error('[intake] Approver name resolution failed (non-critical):', err);
+    }
   }
 
   // Detect mentions of existing content in follow-up answers
@@ -1910,93 +1959,91 @@ async function transitionToConfirming(
 
 // --- Post-submission handling ---
 
+const WITHDRAW_PATTERNS = [/^withdraw/i, /\bwithdraw\s*(this\s*)?(request|it)?\b/i];
+
 async function handlePostSubmissionMessage(
   convo: ConversationManager,
   text: string,
+  files: { id: string; name: string; permalink: string }[] | undefined,
   threadTs: string,
   say: SayFn,
   client: WebClient,
 ): Promise<void> {
   const currentStep = convo.getCurrentStep();
 
-  // Handle sub-flow states
-  if (currentStep === 'post_sub:awaiting_info') {
-    await handlePostSubInfo(convo, text, threadTs, say, client);
-    return;
-  }
-  if (currentStep === 'post_sub:awaiting_change') {
-    await handlePostSubChange(convo, text, threadTs, say, client);
-    return;
-  }
+  // Handle pending withdrawal confirmation
   if (currentStep === 'post_sub:awaiting_withdraw_confirm') {
     await handlePostSubWithdrawConfirm(convo, text, threadTs, say, client);
     return;
   }
 
-  // Show post-submission action buttons
-  await say({
-    text: "Looks like you have something to share about this request. What would you like to do?",
-    thread_ts: threadTs,
-    blocks: [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: 'Looks like you have something to share about this request. What would you like to do?',
-        },
-      },
-      {
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: 'Additional Information' },
-            action_id: 'post_sub_additional',
-            value: JSON.stringify({ conversationId: convo.getId() }),
-          },
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: 'Change to Request' },
-            action_id: 'post_sub_change',
-            value: JSON.stringify({ conversationId: convo.getId() }),
-          },
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: 'Withdraw Request' },
-            action_id: 'post_sub_withdraw',
-            style: 'danger',
-            value: JSON.stringify({ conversationId: convo.getId() }),
-          },
-        ],
-      },
-    ],
-  });
-}
+  // Check for withdrawal intent
+  if (matchesAny(text, CANCEL_PATTERNS) || matchesAny(text, WITHDRAW_PATTERNS)) {
+    convo.setCurrentStep('post_sub:awaiting_withdraw_confirm');
+    await convo.save();
+    await say({
+      text: 'Are you sure you want to withdraw this request? Reply *yes* to confirm.',
+      thread_ts: threadTs,
+    });
+    return;
+  }
 
-async function handlePostSubInfo(
-  convo: ConversationManager,
-  text: string,
-  threadTs: string,
-  say: SayFn,
-  client: WebClient,
-): Promise<void> {
-  // Store the additional info
-  convo.setCurrentStep(null);
-  await convo.save();
+  // --- Auto-detect and forward files, URLs, or text ---
 
-  await say({
-    text: "Got it! Your additional information has been forwarded to the marketing team.",
-    thread_ts: threadTs,
-  });
-
-  // Post in triage thread
   const triageTs = convo.getTriageMessageTs();
   const triageChannelId = convo.getTriageChannelId();
+  const mondayItemId = convo.getMondayItemId();
+
+  // 1. Files attached — auto-forward
+  if (files && files.length > 0) {
+    const fileLines = files.map((f) => `• <${f.permalink}|${f.name}>`).join('\n');
+
+    await say({
+      text: "Got it! I've added your file(s) to the request for the marketing team.",
+      thread_ts: threadTs,
+    });
+
+    if (triageTs && triageChannelId) {
+      try {
+        await client.chat.postMessage({
+          channel: triageChannelId,
+          text: `The requester shared file(s):\n${fileLines}`,
+          thread_ts: triageTs,
+        });
+      } catch (err) {
+        console.error('[intake] Failed to post files to triage thread:', err);
+      }
+    }
+
+    if (mondayItemId) {
+      try {
+        const fileNames = files.map((f) => f.name).join(', ');
+        await addMondayItemUpdate(mondayItemId, `[Files Added] from requester: ${fileNames}\n${files.map((f) => f.permalink).join('\n')}`);
+      } catch (err) {
+        console.error('[intake] Failed to add file info to Monday.com:', err);
+      }
+    }
+    return;
+  }
+
+  // 2. URLs in text — forward as additional context
+  const urlPattern = /<(https?:\/\/[^|>]+)/g;
+  const bareUrlPattern = /(https?:\/\/\S+)/g;
+  const hasUrls = urlPattern.test(text) || bareUrlPattern.test(text);
+
+  // 3. Forward text/URLs as additional context
+  await say({
+    text: "Got it! I've passed that along to the marketing team.",
+    thread_ts: threadTs,
+  });
+
+  const label = hasUrls ? 'Additional Files/Links' : 'Additional Information';
+
   if (triageTs && triageChannelId) {
     try {
       await client.chat.postMessage({
         channel: triageChannelId,
-        text: `The requester has added new information:\n> ${text}`,
+        text: `[${label}] from requester:\n> ${text}`,
         thread_ts: triageTs,
       });
     } catch (err) {
@@ -2004,54 +2051,11 @@ async function handlePostSubInfo(
     }
   }
 
-  // Update Monday.com item
-  const mondayItemId = convo.getMondayItemId();
   if (mondayItemId) {
     try {
-      await addMondayItemUpdate(mondayItemId, `[Additional Information] from requester:\n${text}`);
+      await addMondayItemUpdate(mondayItemId, `[${label}] from requester:\n${text}`);
     } catch (err) {
       console.error('[intake] Failed to add Monday.com update:', err);
-    }
-  }
-}
-
-async function handlePostSubChange(
-  convo: ConversationManager,
-  text: string,
-  threadTs: string,
-  say: SayFn,
-  client: WebClient,
-): Promise<void> {
-  convo.setCurrentStep(null);
-  await convo.save();
-
-  await say({
-    text: "Scope change noted! The marketing team has been notified.",
-    thread_ts: threadTs,
-  });
-
-  // Post in triage thread
-  const triageTs = convo.getTriageMessageTs();
-  const triageChannelId = convo.getTriageChannelId();
-  if (triageTs && triageChannelId) {
-    try {
-      await client.chat.postMessage({
-        channel: triageChannelId,
-        text: `[Scope Change] from requester:\n> ${text}`,
-        thread_ts: triageTs,
-      });
-    } catch (err) {
-      console.error('[intake] Failed to post scope change to triage thread:', err);
-    }
-  }
-
-  // Update Monday.com item
-  const mondayItemId = convo.getMondayItemId();
-  if (mondayItemId) {
-    try {
-      await addMondayItemUpdate(mondayItemId, `[Scope Change] from requester:\n${text}`);
-    } catch (err) {
-      console.error('[intake] Failed to add Monday.com scope change update:', err);
     }
   }
 }
@@ -2067,7 +2071,7 @@ async function handlePostSubWithdrawConfirm(
     convo.setCurrentStep(null);
     await convo.save();
     await say({
-      text: "Withdrawal cancelled. Your request is still active.",
+      text: 'Withdrawal cancelled. Your request is still active.',
       thread_ts: threadTs,
     });
     return;
@@ -2078,7 +2082,7 @@ async function handlePostSubWithdrawConfirm(
   await convo.save();
 
   await say({
-    text: "Your request has been withdrawn.",
+    text: 'Your request has been withdrawn.',
     thread_ts: threadTs,
   });
 
@@ -2116,89 +2120,11 @@ async function handlePostSubWithdrawConfirm(
 // --- Action handler registration ---
 
 export function registerPostSubmissionActions(app: App): void {
-  app.action('post_sub_additional', async ({ ack, body, client }) => {
-    await ack();
-    if (body.type !== 'block_actions' || !body.actions?.[0]) return;
-    const action = body.actions[0];
-    if (!('value' in action) || !action.value) return;
-
-    const { conversationId } = JSON.parse(action.value) as { conversationId: number };
-    const convo = await loadConversationById(conversationId);
-    if (!convo) {
-      const userId = (body as any).user?.id;
-      if (userId) {
-        await client.chat.postMessage({ channel: userId, text: "I couldn't find your request details — it may have expired. Please start a new request in the marketing channel." });
-      }
-      return;
-    }
-
-    convo.setCurrentStep('post_sub:awaiting_info');
-    await convo.save();
-
-    try {
-      await client.chat.postMessage({
-        channel: convo.getChannelId(),
-        text: "What additional information would you like to add?",
-        thread_ts: convo.getThreadTs(),
-      });
-    } catch (err) {
-      console.error('[intake] Failed to prompt for additional info:', err);
-    }
-  });
-
-  app.action('post_sub_change', async ({ ack, body, client }) => {
-    await ack();
-    if (body.type !== 'block_actions' || !body.actions?.[0]) return;
-    const action = body.actions[0];
-    if (!('value' in action) || !action.value) return;
-
-    const { conversationId } = JSON.parse(action.value) as { conversationId: number };
-    const convo = await loadConversationById(conversationId);
-    if (!convo) {
-      const userId = (body as any).user?.id;
-      if (userId) {
-        await client.chat.postMessage({ channel: userId, text: "I couldn't find your request details — it may have expired. Please start a new request in the marketing channel." });
-      }
-      return;
-    }
-
-    convo.setCurrentStep('post_sub:awaiting_change');
-    await convo.save();
-
-    try {
-      await client.chat.postMessage({
-        channel: convo.getChannelId(),
-        text: "What would you like to change?",
-        thread_ts: convo.getThreadTs(),
-      });
-    } catch (err) {
-      console.error('[intake] Failed to prompt for change:', err);
-    }
-  });
-
-  app.action('post_sub_withdraw', async ({ ack, body, client }) => {
-    await ack();
-    if (body.type !== 'block_actions' || !body.actions?.[0]) return;
-    const action = body.actions[0];
-    if (!('value' in action) || !action.value) return;
-
-    const { conversationId } = JSON.parse(action.value) as { conversationId: number };
-    const convo = await loadConversationById(conversationId);
-    if (!convo) return;
-
-    convo.setCurrentStep('post_sub:awaiting_withdraw_confirm');
-    await convo.save();
-
-    try {
-      await client.chat.postMessage({
-        channel: convo.getChannelId(),
-        text: "Are you sure you want to withdraw this request? Reply *yes* to confirm.",
-        thread_ts: convo.getThreadTs(),
-      });
-    } catch (err) {
-      console.error('[intake] Failed to prompt for withdraw confirmation:', err);
-    }
-  });
+  // Legacy button handlers — kept as no-ops in case old messages with buttons still exist in Slack.
+  // New post-submission flow uses auto-detection instead of buttons.
+  app.action('post_sub_additional', async ({ ack }) => { await ack(); });
+  app.action('post_sub_change', async ({ ack }) => { await ack(); });
+  app.action('post_sub_withdraw', async ({ ack }) => { await ack(); });
 }
 
 // --- Draft/existing content collection mini-flow ---

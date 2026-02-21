@@ -11,6 +11,7 @@ import { initDb, getInstanceId, logError, cleanOldErrors, cleanOldMetrics } from
 import { trackError } from './lib/error-tracker';
 import { runSelfAnalysis } from './lib/self-analysis';
 import { sendDailyDigest } from './lib/daily-digest';
+import { checkStaleTriage } from './lib/stale-triage';
 
 const app = new App({
   token: config.slackBotToken,
@@ -65,7 +66,7 @@ process.on('SIGTERM', async () => {
 (async () => {
   await initDb();
   await app.start();
-  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-20T1300 — proactive-probes+followup-in-brief+monday-details) instance=${getInstanceId().substring(0, 8)}`);
+  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-20T2230 — notifications+stale-triage+approver-resolution) instance=${getInstanceId().substring(0, 8)}`);
 
   // Start periodic timeout check
   setInterval(() => {
@@ -101,6 +102,11 @@ process.on('SIGTERM', async () => {
       sendDailyDigest(app.client).catch((err) => {
         console.error('[daily-digest] Failed to send digest:', err);
         trackError(err, app.client, { source: 'daily-digest' });
+      });
+      // Check for stale triage items alongside the daily digest
+      checkStaleTriage(app.client).catch((err) => {
+        console.error('[stale-triage] Failed to check stale triage:', err);
+        trackError(err, app.client, { source: 'stale-triage' });
       });
     }
   }, 60_000);

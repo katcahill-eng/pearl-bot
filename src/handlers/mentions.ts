@@ -11,6 +11,14 @@ export function registerMentionHandler(app: App): void {
     const thread_ts = event.thread_ts ?? event.ts;
     const userId = event.user ?? '';
 
+    // Extract file attachments (rare in mentions but possible)
+    const rawFiles = 'files' in event ? (event as any).files as any[] : undefined;
+    const files = rawFiles?.map((f: any) => ({
+      id: f.id as string,
+      name: f.name as string ?? f.title as string ?? 'file',
+      permalink: f.permalink as string ?? f.url_private as string ?? '',
+    }));
+
     console.log(`[mentions] Received app_mention from ${userId} in channel ${event.channel}: "${text.substring(0, 80)}" event.ts=${event.ts} event.thread_ts=${event.thread_ts ?? 'NONE'} → using thread_ts=${thread_ts}`);
 
     // Channel restriction — only respond in the allowed channel (if configured)
@@ -54,6 +62,7 @@ export function registerMentionHandler(app: App): void {
             threadTs: thread_ts,
             messageTs: event.ts,
             text,
+            files,
             say,
             client,
           });

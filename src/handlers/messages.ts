@@ -56,6 +56,14 @@ export function registerMessageHandler(app: App): void {
     const thread_ts = event.thread_ts ?? event.ts;
     const userId = 'user' in event ? (event.user as string) : '';
 
+    // Extract file attachments from Slack event (for post-submission file sharing)
+    const rawFiles = 'files' in event ? (event as any).files as any[] : undefined;
+    const files = rawFiles?.map((f: any) => ({
+      id: f.id as string,
+      name: f.name as string ?? f.title as string ?? 'file',
+      permalink: f.permalink as string ?? f.url_private as string ?? '',
+    }));
+
     console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
 
     // Debounce: if the user sends multiple messages quickly, only process the last one.
@@ -90,6 +98,7 @@ export function registerMessageHandler(app: App): void {
           threadTs: thread_ts,
           messageTs,
           text,
+          files,
           say,
           client,
         });
@@ -131,6 +140,7 @@ export function registerMessageHandler(app: App): void {
             threadTs: thread_ts,
             messageTs,
             text,
+            files,
             say,
             client,
           });
@@ -185,6 +195,7 @@ export function registerMessageHandler(app: App): void {
             threadTs: thread_ts,
             messageTs,
             text,
+            files,
             say,
             client,
           });

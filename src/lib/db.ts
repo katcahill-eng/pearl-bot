@@ -122,6 +122,9 @@ export async function initDb(): Promise<void> {
     );
   `);
 
+  // Add triage_reminder_count column (migration — safe to run repeatedly)
+  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS triage_reminder_count INTEGER NOT NULL DEFAULT 0`);
+
   // Register this instance as the active leader
   await pool.query(
     `INSERT INTO bot_instance (id, instance_id, started_at) VALUES (1, $1, NOW())
@@ -160,6 +163,7 @@ export interface Conversation {
   monday_item_id: string | null;
   triage_message_ts: string | null;
   triage_channel_id: string | null;
+  triage_reminder_count: number;
   created_at: string;
   updated_at: string;
   expires_at: string;
@@ -688,4 +692,36 @@ export async function getAbandonedConversations(hours = 24): Promise<{
      ORDER BY updated_at DESC`
   );
   return result.rows;
+}
+
+/**
+ * Get triage conversations that are stale (pending_approval with no recent activity).
+ * Returns conversations with a triage panel that haven't been reminded too many times.
+ */
+export async function getStaleTriageConversations(): Promise<Conversation[]> {
+  const result = await pool.query(
+    `SELECT * FROM conversations
+     WHERE status = 'pending_approval'
+       AND triage_message_ts IS NOT NULL
+       AND triage_channel_id IS NOT NULL
+       AND triage_reminder_count < 5
+     ORDER BY updated_at ASC`
+  );
+  return result.rows.map(normalizeConversationRow);
+}
+
+/** Increment the triage reminder count for a conversation. */
+export async function incrementTriageReminderCount(conversationId: number): Promise<void> {
+  await pool.query(
+    `UPDATE conversations SET triage_reminder_count = triage_reminder_count + 1 WHERE id = $1`,
+    [conversationId]
+  );
+}
+
+/** Reset the triage reminder count (called when status changes in triage). */
+export async function resetTriageReminderCount(conversationId: number): Promise<void> {
+  await pool.query(
+    `UPDATE conversations SET triage_reminder_count = 0, updated_at = NOW() WHERE id = $1`,
+    [conversationId]
+  );
 }

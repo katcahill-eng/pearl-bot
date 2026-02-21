@@ -1,6 +1,6 @@
 import type { App } from '@slack/bolt';
 import { config } from '../lib/config';
-import { getConversationById, updateTriageInfo } from '../lib/db';
+import { getConversationById, updateTriageInfo, resetTriageReminderCount } from '../lib/db';
 import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
 import { executeApprovedWorkflow, buildCompletionMessage } from '../lib/workflow';
 import { buildNotificationMessage } from '../lib/notifications';
@@ -194,6 +194,42 @@ function buildTriageBlocks(opts: {
     });
   }
 
+  // Approvers section (resolved from Slack directory)
+  let approversText = '';
+  try {
+    const approversRaw = collectedData.additional_details['__approvers'];
+    if (approversRaw) {
+      const approvers = JSON.parse(approversRaw) as { name: string; slackId: string | null; confidence?: string; ambiguous?: string[] }[];
+      if (approvers.length > 0) {
+        const lines = approvers.map((a) => {
+          if (a.slackId) {
+            return `• <@${a.slackId}> (${a.name})`;
+          }
+          if (a.ambiguous && a.ambiguous.length > 0) {
+            return `• ${a.name} — :warning: multiple matches: ${a.ambiguous.join(', ')}`;
+          }
+          return `• ${a.name} _(not found in directory)_`;
+        });
+        approversText = lines.join('\n');
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Fall back to raw approvals text
+  if (!approversText && collectedData.approvals) {
+    approversText = collectedData.approvals;
+  }
+
+  if (approversText) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:bust_in_silhouette: *Approvers:*\n${approversText}`,
+      },
+    });
+  }
+
   // Monday.com link section
   if (mondayUrl) {
     blocks.push({
@@ -322,22 +358,19 @@ export async function sendApprovalRequest(
 function triageGuideText(): string {
   return (
     ':clipboard: *Triage Guide*\n\n' +
-    '*What to do:*\n' +
-    '1. Review the request details above\n' +
-    '2. Use the *Change Status* dropdown to move it through the workflow\n' +
-    '3. Use *Notify Requester* to send them a status update\n\n' +
+    ':bell: *Important:* Every status change below automatically notifies the requester in their thread. The requester sees real-time updates — no need to message them separately unless you want to add context.\n\n' +
     '*Statuses:*\n' +
-    '• *Under Review* — Default. You\'re looking at it.\n' +
+    '• *Under Review* — Default. Requester was told their request is being reviewed.\n' +
     '• *Discussion Needed* — Auto-DMs the requester with a calendar link to schedule time.\n' +
-    '• *In Progress* — Approved. Creates a brief + Drive folder (Full Projects) or updates Monday (Quick Requests).\n' +
-    '• *On Hold* — Paused. Requester is notified.\n' +
-    '• *Completed* — Done. Locks the panel.\n' +
-    '• *Declined* — Not taking it on. Requester is notified.\n' +
-    '• *Withdrawn* — Requester cancelled.\n\n' +
+    '• *In Progress* — Approved! Creates brief + Drive folder (Full) or updates Monday (Quick). Requester is told work has begun.\n' +
+    '• *On Hold* — Paused. Requester is told their request is on hold.\n' +
+    '• *Completed* — Done. Requester is told it\'s complete. Panel locks.\n' +
+    '• *Declined* — Not taking it on. Requester is told it wasn\'t approved. Panel locks.\n' +
+    '• *Withdrawn* — Requester cancelled. Panel locks.\n\n' +
     '*Classification:*\n' +
     '• *Quick Request* — Single asset, goes straight to the team.\n' +
     '• *Full Project* — Generates a brief + Google Drive folder on approval.\n\n' +
-    '_You can reclassify at any time using the Classification dropdown._'
+    '_You can reclassify at any time. Use "Notify Requester" to send an extra message with context._'
   );
 }
 
@@ -385,6 +418,13 @@ export function registerApprovalHandler(app: App): void {
     // Build Monday URL from existing item
     const mondayItemId = convo.getMondayItemId();
     const mondayUrl = mondayItemId ? buildMondayUrl(mondayItemId) : null;
+
+    // Reset stale-triage reminder count on any status change
+    try {
+      await resetTriageReminderCount(conversationId);
+    } catch (err) {
+      console.error('[approval] Failed to reset triage reminder count:', err);
+    }
 
     // --- Handle each status ---
 
@@ -500,6 +540,17 @@ export function registerApprovalHandler(app: App): void {
         } catch (err) {
           console.error('[approval] Failed to update Monday.com status to On Hold:', err);
         }
+      }
+
+      // Notify requester
+      try {
+        await client.chat.postMessage({
+          channel: convo.getChannelId(),
+          text: 'Your request has been put on hold temporarily. The marketing team will let you know when work resumes.',
+          thread_ts: convo.getThreadTs(),
+        });
+      } catch (err) {
+        console.error('[approval] Failed to notify requester of hold:', err);
       }
     }
 

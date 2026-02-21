@@ -292,6 +292,15 @@ export const TYPE_PROBES: Record<string, TypeProbe[]> = {
       priority: 2,
     },
   ],
+  // Universal probes — always asked regardless of request type
+  all: [
+    {
+      fieldKey: 'approvers_list',
+      question: 'Who needs to approve the final deliverables? Give me first or full names and I\'ll look them up in the team directory.',
+      keywords: /approv|sign.?off|stakeholder|reviewer/i,
+      priority: 10,  // Ask late — after type-specific probes
+    },
+  ],
 };
 
 /**
@@ -302,6 +311,7 @@ export function getProbesForTypes(requestTypes: string[]): TypeProbe[] {
   const probes: TypeProbe[] = [];
   const seenFieldKeys = new Set<string>();
 
+  // Include type-specific probes
   for (const type of requestTypes) {
     const typeProbes = TYPE_PROBES[type];
     if (!typeProbes) continue;
@@ -310,6 +320,15 @@ export function getProbesForTypes(requestTypes: string[]): TypeProbe[] {
         seenFieldKeys.add(probe.fieldKey);
         probes.push(probe);
       }
+    }
+  }
+
+  // Always include universal probes (approvers, etc.)
+  const universalProbes = TYPE_PROBES['all'] ?? [];
+  for (const probe of universalProbes) {
+    if (!seenFieldKeys.has(probe.fieldKey)) {
+      seenFieldKeys.add(probe.fieldKey);
+      probes.push(probe);
     }
   }
 
