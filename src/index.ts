@@ -12,7 +12,6 @@ import { trackError } from './lib/error-tracker';
 import { runSelfAnalysis } from './lib/self-analysis';
 import { sendDailyDigest } from './lib/daily-digest';
 import { checkStaleTriage } from './lib/stale-triage';
-import { discoverBoardColumns } from './lib/monday';
 
 const app = new App({
   token: config.slackBotToken,
@@ -67,10 +66,7 @@ process.on('SIGTERM', async () => {
 (async () => {
   await initDb();
   await app.start();
-  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-20T2245 — column-discovery) instance=${getInstanceId().substring(0, 8)}`);
-
-  // One-time column discovery — prints all Monday.com board columns to logs
-  discoverBoardColumns().catch((err) => console.error('[startup] Column discovery failed:', err));
+  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-20T2300 — monday-file-upload+column-mapping) instance=${getInstanceId().substring(0, 8)}`);
 
   // Start periodic timeout check
   setInterval(() => {

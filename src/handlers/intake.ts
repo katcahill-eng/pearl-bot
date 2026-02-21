@@ -8,7 +8,7 @@ import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics, logError } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
-import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems } from '../lib/monday';
+import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems, uploadFileToItem } from '../lib/monday';
 import { searchProjects } from '../lib/db';
 import { getWorkspaceUsers, resolveNames, extractNamesFromText } from '../lib/slack-users';
 
@@ -364,7 +364,7 @@ export async function handleIntakeMessage(opts: {
   threadTs: string;
   messageTs: string;
   text: string;
-  files?: { id: string; name: string; permalink: string }[];
+  files?: { id: string; name: string; permalink: string; urlPrivate: string }[];
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
@@ -401,7 +401,7 @@ async function handleIntakeMessageInner(opts: {
   channelId: string;
   threadTs: string;
   text: string;
-  files?: { id: string; name: string; permalink: string }[];
+  files?: { id: string; name: string; permalink: string; urlPrivate: string }[];
   say: SayFn;
   client: WebClient;
 }): Promise<void> {
@@ -1964,7 +1964,7 @@ const WITHDRAW_PATTERNS = [/^withdraw/i, /\bwithdraw\s*(this\s*)?(request|it)?\b
 async function handlePostSubmissionMessage(
   convo: ConversationManager,
   text: string,
-  files: { id: string; name: string; permalink: string }[] | undefined,
+  files: { id: string; name: string; permalink: string; urlPrivate: string }[] | undefined,
   threadTs: string,
   say: SayFn,
   client: WebClient,
@@ -2016,11 +2016,20 @@ async function handlePostSubmissionMessage(
     }
 
     if (mondayItemId) {
-      try {
-        const fileNames = files.map((f) => f.name).join(', ');
-        await addMondayItemUpdate(mondayItemId, `[Files Added] from requester: ${fileNames}\n${files.map((f) => f.permalink).join('\n')}`);
-      } catch (err) {
-        console.error('[intake] Failed to add file info to Monday.com:', err);
+      // Upload each file to Monday.com's "Supporting Documents" file column
+      for (const file of files) {
+        if (file.urlPrivate) {
+          try {
+            await uploadFileToItem(mondayItemId, file.urlPrivate, file.name, config.slackBotToken);
+            console.log(`[intake] Uploaded file "${file.name}" to Monday.com item ${mondayItemId}`);
+          } catch (err) {
+            console.error(`[intake] Failed to upload file "${file.name}" to Monday.com:`, err);
+            // Fallback: add as a comment with the permalink
+            try {
+              await addMondayItemUpdate(mondayItemId, `[File] ${file.name}: ${file.permalink}`);
+            } catch { /* ignore fallback failure */ }
+          }
+        }
       }
     }
     return;

@@ -16,7 +16,12 @@ const COL = {
   desiredOutcomes: 'long_textrywmn305',   // "Desired Outcomes"
   deliverables: 'long_textljfnnagq',      // "Deliverable(s)"
   supportingLinks: 'long_textfktkwj3y',   // "Supporting Links"
-  approvalsConstraints: 'long_text8tv0hcfw', // "Approvals and Constraints"
+  supportingDocuments: 'files',            // "Supporting Documents" — file column
+  approvals: 'long_text',                 // "Approvals"
+  constraints: 'long_text39r056im',       // "Constraints"
+  approvalsConstraints: 'long_text8tv0hcfw', // "Approvals and Constraints" (legacy combined)
+  deliverableType: 'status_16',           // "Type of Deliverable"
+  priority: 'status_1',                   // "Priority"
   submissionLink: 'wf_edit_link_seldq',   // "Submission link" — link to originating Slack thread
 } as const;
 
@@ -117,6 +122,8 @@ export async function createRequestItem(params: {
   desiredOutcomes?: string | null;
   deliverables?: string[] | null;
   supportingLinks?: string | null;
+  approvals?: string | null;
+  constraints?: string | null;
   submissionLink?: string | null;
 }): Promise<MondayResult> {
   try {
@@ -146,6 +153,12 @@ export async function createRequestItem(params: {
     }
     if (params.supportingLinks) {
       columnValues[COL.supportingLinks] = { text: params.supportingLinks };
+    }
+    if (params.approvals) {
+      columnValues[COL.approvals] = { text: params.approvals };
+    }
+    if (params.constraints) {
+      columnValues[COL.constraints] = { text: params.constraints };
     }
     if (params.submissionLink) {
       columnValues[COL.submissionLink] = { url: params.submissionLink, text: 'Slack thread' };
@@ -326,6 +339,82 @@ export async function searchItems(query: string): Promise<MondaySearchResult[]> 
     const message = err instanceof Error ? err.message : 'Unknown Monday.com error';
     console.error('[monday] searchItems failed:', message);
     return [];
+  }
+}
+
+/**
+ * Upload a file to the "Supporting Documents" file column on a Monday.com item.
+ * Downloads the file from Slack (using bot token), then re-uploads to Monday.
+ */
+export async function uploadFileToItem(
+  itemId: string,
+  slackFileUrl: string,
+  fileName: string,
+  slackBotToken: string,
+): Promise<void> {
+  // Step 1: Download file from Slack (requires bot token auth)
+  const slackRes = await fetch(slackFileUrl, {
+    headers: { Authorization: `Bearer ${slackBotToken}` },
+  });
+
+  if (!slackRes.ok) {
+    throw new Error(`Failed to download file from Slack: ${slackRes.status} ${slackRes.statusText}`);
+  }
+
+  const fileBuffer = Buffer.from(await slackRes.arrayBuffer());
+
+  // Step 2: Upload to Monday.com via multipart form (add_file_to_column)
+  const query = `mutation ($itemId: ID!, $columnId: String!, $file: File!) {
+    add_file_to_column (item_id: $itemId, column_id: $columnId, file: $file) {
+      id
+    }
+  }`;
+
+  const boundary = `----MondayUpload${Date.now()}`;
+  const parts: Buffer[] = [];
+
+  // "query" part
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="query"\r\n\r\n${query}\r\n`
+  ));
+
+  // "variables" part — must include map for file variable
+  const variables = JSON.stringify({ itemId, columnId: COL.supportingDocuments });
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="variables"\r\n\r\n${variables}\r\n`
+  ));
+
+  // "map" part — tells Monday which variable is the file
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="map"\r\n\r\n{"image":"variables.file"}\r\n`
+  ));
+
+  // The actual file
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`
+  ));
+  parts.push(fileBuffer);
+  parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+  const body = Buffer.concat(parts);
+
+  const mondayRes = await fetch('https://api.monday.com/v2/file', {
+    method: 'POST',
+    headers: {
+      Authorization: config.mondayApiToken,
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    },
+    body,
+  });
+
+  if (!mondayRes.ok) {
+    const errText = await mondayRes.text();
+    throw new Error(`Monday.com file upload failed: ${mondayRes.status} ${errText}`);
+  }
+
+  const json = (await mondayRes.json()) as MondayApiResponse;
+  if (json.errors && json.errors.length > 0) {
+    throw new Error(`Monday.com file upload error: ${json.errors[0].message}`);
   }
 }
 

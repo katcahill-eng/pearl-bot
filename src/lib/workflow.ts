@@ -62,6 +62,8 @@ export async function createMondayItemForReview(opts: {
     desiredOutcomes: collectedData.desired_outcomes ?? undefined,
     deliverables: collectedData.deliverables.length > 0 ? collectedData.deliverables : undefined,
     supportingLinks,
+    approvals: collectedData.approvals ?? undefined,
+    constraints: collectedData.constraints ?? undefined,
     submissionLink: slackThreadLink,
   });
 }

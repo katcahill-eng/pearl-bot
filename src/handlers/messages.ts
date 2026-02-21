@@ -62,6 +62,7 @@ export function registerMessageHandler(app: App): void {
       id: f.id as string,
       name: f.name as string ?? f.title as string ?? 'file',
       permalink: f.permalink as string ?? f.url_private as string ?? '',
+      urlPrivate: (f.url_private as string) ?? '',
     }));
 
     console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
