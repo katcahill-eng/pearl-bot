@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
 import type { CollectedData } from './conversation';
+import { buildProbeKnowledgeBlock } from './guidance';
 
 // --- Types ---
 
@@ -338,16 +339,19 @@ export async function generateFollowUpQuestions(
   requestTypes: string[],
 ): Promise<FollowUpQuestion[]> {
   const typesLabel = requestTypes.join(' + ');
+  const probeKnowledge = buildProbeKnowledgeBlock(requestTypes);
   const systemPrompt = `You are MarcomsBot, a Slack intake assistant for Pearl's marketing team.
+You act as a knowledgeable marketing consultant — not just collecting information, but proactively suggesting supporting services the requester might not have thought of.
 
 Using the knowledge base below, generate follow-up questions for a "${typesLabel}" marketing request.
 ${requestTypes.length > 1 ? `\nThis request spans multiple types (${typesLabel}). Generate questions that cover ALL applicable types — for example, conference logistics AND webinar format if both apply.` : ''}
 
 KNOWLEDGE BASE:
 ${KNOWLEDGE_BASE}
-
+${probeKnowledge}
 Rules:
 - Generate 3-7 conversational, friendly questions appropriate for this request type
+- Think like a marketing consultant: suggest services the requester might need but hasn't mentioned. For example, if someone is doing a webinar, they probably need promotional emails and social media — ask about it proactively.
 - CRITICAL: The following core fields have ALREADY been collected during intake. Do NOT generate questions that re-ask for them, even with type-specific framing:
   deliverables, due_date, target, context_background, desired_outcomes, requester_name, requester_department
   For example, do NOT ask "What deliverables do you need for the conference?" if deliverables are already listed in the collected data.

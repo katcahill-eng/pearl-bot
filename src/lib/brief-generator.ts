@@ -204,6 +204,21 @@ function buildBriefPrompt(
     lines.push(`- Supporting links: ${data.supporting_links.join(', ')}`);
   }
 
+  // Include follow-up details (probe answers, type-specific logistics)
+  const additionalDetails = data.additional_details ?? {};
+  const detailEntries = Object.entries(additionalDetails)
+    .filter(([key]) => !key.startsWith('__'))  // Skip internal flags
+    .filter(([, value]) => value && value.trim() !== '');
+
+  if (detailEntries.length > 0) {
+    lines.push('');
+    lines.push('Additional details from follow-up questions:');
+    for (const [key, value] of detailEntries) {
+      const label = key.replace(/_/g, ' ');
+      lines.push(`- ${label}: ${value}`);
+    }
+  }
+
   lines.push('');
   lines.push('Generate the brief now.');
 

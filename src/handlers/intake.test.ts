@@ -64,6 +64,8 @@ vi.mock('../lib/config', () => ({
 
 vi.mock('../lib/guidance', () => ({
   generateFieldGuidance: vi.fn().mockResolvedValue("Here's some guidance for this field."),
+  generateDeliverablesOptions: vi.fn().mockReturnValue("Here are your options."),
+  getProbesForTypes: vi.fn().mockReturnValue([]),
 }));
 
 import { handleIntakeMessage } from './intake';

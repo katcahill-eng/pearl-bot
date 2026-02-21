@@ -3,7 +3,7 @@ import { generateProjectName, type CollectedData } from './conversation';
 import type { RequestClassification } from './claude';
 import { generateBrief } from './brief-generator';
 import { createFullProjectDrive, allocateNextMktNumber, type DriveResult } from './google-drive';
-import { createRequestItem, updateMondayItemStatus, updateMondayItemColumns, buildMondayUrl, MONDAY_COLUMNS, type MondayResult } from './monday';
+import { createRequestItem, updateMondayItemStatus, updateMondayItemColumns, addMondayItemUpdate, buildMondayUrl, MONDAY_COLUMNS, type MondayResult } from './monday';
 import { createProject } from './db';
 
 // --- Types ---
@@ -128,7 +128,7 @@ export async function executeApprovedWorkflow(opts: {
       }
     }
 
-    // Step 3: Update Monday.com item — status + supporting links with Drive folder URL
+    // Step 4: Update Monday.com item — status + supporting links with Drive folder URL
     try {
       const columnUpdates: Record<string, unknown> = {
         [MONDAY_COLUMNS.status]: { label: 'Working on it' },
@@ -142,6 +142,26 @@ export async function executeApprovedWorkflow(opts: {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('[workflow] Monday.com update failed:', message);
       errors.push('Monday.com update failed');
+    }
+
+    // Step 5: Post follow-up details as a Monday.com update/comment
+    try {
+      const additionalDetails = collectedData.additional_details ?? {};
+      const detailEntries = Object.entries(additionalDetails)
+        .filter(([key]) => !key.startsWith('__'))
+        .filter(([, value]) => value && value.trim() !== '');
+
+      if (detailEntries.length > 0) {
+        const detailLines = detailEntries.map(([key, value]) => {
+          const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+          return `• ${label}: ${value}`;
+        });
+        const updateBody = `Follow-up details from intake:\n\n${detailLines.join('\n')}`;
+        await addMondayItemUpdate(mondayItemId, updateBody);
+      }
+    } catch (err) {
+      console.error('[workflow] Failed to post follow-up details to Monday.com:', err);
+      // Non-critical — don't add to errors
     }
   } else {
     // Quick request — just update status

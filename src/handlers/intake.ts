@@ -3,7 +3,7 @@ import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
 import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
 import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
-import { generateFieldGuidance, generateDeliverablesOptions } from '../lib/guidance';
+import { generateFieldGuidance, generateDeliverablesOptions, getProbesForTypes, type TypeProbe } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
 import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics, logError } from '../lib/db';
@@ -1584,9 +1584,12 @@ async function enterFollowUpPhase(
     // Generate follow-up questions
     const rawQuestions = await generateFollowUpQuestions(collectedData, requestTypes);
 
+    // Deterministic post-check: inject critical probing questions Claude may have missed
+    const enrichedQuestions = injectMissingProbes(rawQuestions, requestTypes, collectedData);
+
     // Filter out follow-up questions that duplicate already-collected required fields
     const REQUIRED_FIELD_KEYS = ['deliverables', 'due_date', 'target', 'context_background', 'desired_outcomes', 'requester_name', 'requester_department'];
-    const questions = rawQuestions.filter((q) => {
+    const questions = enrichedQuestions.filter((q) => {
       if (REQUIRED_FIELD_KEYS.includes(q.field_key)) {
         console.log(`[intake] Filtered follow-up question with field_key="${q.field_key}" — already collected`);
         return false;
@@ -1788,6 +1791,64 @@ async function handleFollowUpAnswer(
 }
 
 // --- Follow-up helpers ---
+
+/**
+ * Deterministic post-check: inject critical probing questions that Claude's generation missed.
+ * Follows the same pattern as classifyRequestType's keyword post-check.
+ */
+function injectMissingProbes(
+  questions: FollowUpQuestion[],
+  requestTypes: string[],
+  collectedData: Partial<CollectedData>,
+): FollowUpQuestion[] {
+  const probes = getProbesForTypes(requestTypes);
+  if (probes.length === 0) return questions;
+
+  // Build a combined text of all Claude-generated questions to check coverage
+  const allQuestionText = questions.map((q) => q.question).join(' ');
+
+  // Also check if topics are already covered by collected data
+  const collectedText = [
+    collectedData.context_background ?? '',
+    collectedData.desired_outcomes ?? '',
+    (collectedData.deliverables ?? []).join(' '),
+    collectedData.target ?? '',
+  ].join(' ');
+
+  // Check already-answered detail keys
+  const additionalDetails = (collectedData as CollectedData).additional_details ?? {};
+
+  const injected: FollowUpQuestion[] = [];
+
+  for (const probe of probes) {
+    // Skip if Claude already generated a question about this topic
+    if (probe.keywords.test(allQuestionText)) continue;
+
+    // Skip if the topic is already covered in collected data
+    if (probe.keywords.test(collectedText)) continue;
+
+    // Skip if this field_key already has a stored answer
+    if (additionalDetails[probe.fieldKey]) continue;
+
+    // Skip if a question with the same field_key already exists
+    if (questions.some((q) => q.field_key === probe.fieldKey)) continue;
+
+    injected.push({
+      id: `probe_${probe.fieldKey}`,
+      question: probe.question,
+      field_key: probe.fieldKey,
+    });
+
+    console.log(`[intake] Injected missing probe: "${probe.fieldKey}" for type ${requestTypes.join(',')}`);
+  }
+
+  if (injected.length > 0) {
+    console.log(`[intake] Injected ${injected.length} probes after Claude generated ${questions.length} questions`);
+  }
+
+  // Append injected probes after Claude's questions
+  return [...questions, ...injected];
+}
 
 function storeFollowUpQuestions(convo: ConversationManager, questions: FollowUpQuestion[]): void {
   const details = convo.getCollectedData().additional_details;

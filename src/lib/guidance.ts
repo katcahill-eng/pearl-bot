@@ -170,6 +170,183 @@ ${KNOWLEDGE_BASE}`;
   }
 }
 
+// --- Type Probes: Critical probing questions per request type ---
+
+export interface TypeProbe {
+  fieldKey: string;       // snake_case key for storing the answer
+  question: string;       // conversational question text (Slack mrkdwn)
+  keywords: RegExp;       // regex to check if Claude already asked about this topic
+  priority: number;       // lower = asked earlier
+}
+
+export const TYPE_PROBES: Record<string, TypeProbe[]> = {
+  conference: [
+    {
+      fieldKey: 'conference_presenting',
+      question: 'Are we presenting at the conference or on a panel? If so, do you need help with presentation materials?',
+      keywords: /present|panel|speak|keynote|talk|podium/i,
+      priority: 1,
+    },
+    {
+      fieldKey: 'conference_private_event',
+      question: 'Are you planning to host a private event (like an executive dinner or reception) alongside the conference?',
+      keywords: /private\s*event|dinner|hospitality|reception|side\s*event/i,
+      priority: 2,
+    },
+    {
+      fieldKey: 'conference_sponsorship',
+      question: 'Do you need help evaluating or determining the right sponsorship level? Some tiers include specific deliverables we can help fulfill.',
+      keywords: /sponsor/i,
+      priority: 3,
+    },
+    {
+      fieldKey: 'conference_booth',
+      question: 'Will you have a booth? If so, do you need collateral, signage, or printed materials?\n\n_Note: Printed materials and production costs are charged back to your department._',
+      keywords: /booth|collateral|signage|exhibit/i,
+      priority: 4,
+    },
+    {
+      fieldKey: 'conference_digital_booth',
+      question: 'Would you be interested in our digital conference booth pilot? We have 4 iPads that can be pre-programmed with collateral, demo lap accounts, and video walkthroughs — they\'re portable and work great for meetings, dinners, or hallway conversations at the event.',
+      keywords: /digital\s*booth|ipad|pilot|demo\s*lap/i,
+      priority: 5,
+    },
+    {
+      fieldKey: 'conference_promo_campaigns',
+      question: 'Do you need pre-conference or post-conference promotional campaigns? We can help with emails, social media, or digital ads to drive booth traffic or follow up with leads.',
+      keywords: /pre.?conference|post.?conference|promot|campaign|follow.?up\s*(email|campaign)/i,
+      priority: 6,
+    },
+  ],
+  webinar: [
+    {
+      fieldKey: 'webinar_hosting',
+      question: 'Is Pearl hosting this webinar or are we a guest on someone else\'s?',
+      keywords: /host|guest|our\s*webinar|someone\s*else/i,
+      priority: 1,
+    },
+    {
+      fieldKey: 'webinar_promotion',
+      question: 'Do you need promotional support — like emails, social media posts, or digital ads — to drive registrations?',
+      keywords: /promot|registr|sign.?up|drive.*(attend|registr)|ads?\b/i,
+      priority: 2,
+    },
+    {
+      fieldKey: 'webinar_format',
+      question: 'What type of webinar are you thinking?\n\n• *Live* — real-time via Zoom, great for Q&A\n• *Pre-recorded* — polished and edited, automated playback via GoTo\n• *Evergreen* — record a live session, then run it on-demand as an automated encore\n\nYou can also start live and convert to evergreen later — not sure which fits? We can help you decide.',
+      keywords: /format|live|pre.?record|evergreen|zoom|goto/i,
+      priority: 3,
+    },
+    {
+      fieldKey: 'webinar_follow_up',
+      question: 'Do you need post-webinar follow-up emails to attendees and no-shows?',
+      keywords: /follow.?up|post.?webinar|no.?show|attendee/i,
+      priority: 4,
+    },
+  ],
+  insider_dinner: [
+    {
+      fieldKey: 'dinner_theme',
+      question: 'Is there a theme or specific topic for this dinner? This helps us shape the branding and any presentation materials.',
+      keywords: /theme|topic|agenda|subject/i,
+      priority: 1,
+    },
+    {
+      fieldKey: 'dinner_guest_count',
+      question: 'How many guests are expected? This helps us plan the right amount of printed materials and branding.',
+      keywords: /guest|attendee|invit|capacity|headcount|how\s*many/i,
+      priority: 2,
+    },
+    {
+      fieldKey: 'dinner_follow_up',
+      question: 'Do you need post-event follow-up emails to attendees?',
+      keywords: /follow.?up|post.?event|post.?dinner/i,
+      priority: 3,
+    },
+  ],
+  email: [
+    {
+      fieldKey: 'email_type',
+      question: 'What type of email is this?\n\n• *Promotional* — driving action (sign-ups, registrations)\n• *Newsletter* — regular update or digest\n• *Event invite* — webinar, dinner, conference\n• *Follow-up* — post-event or nurture sequence',
+      keywords: /type\s*of\s*email|promotional|newsletter|invite|sequence|nurture/i,
+      priority: 1,
+    },
+    {
+      fieldKey: 'email_sequence',
+      question: 'Is this a one-time send or part of a sequence? If it\'s a sequence, how many emails are you envisioning?',
+      keywords: /one.?time|sequence|series|drip|how\s*many\s*email/i,
+      priority: 2,
+    },
+  ],
+  graphic_design: [
+    {
+      fieldKey: 'design_usage',
+      question: 'Where will this be used — digital, print, social media, or a presentation? This helps us get the dimensions right.',
+      keywords: /where.*used|digital|print|dimension|size|format|resolution/i,
+      priority: 1,
+    },
+    {
+      fieldKey: 'design_existing_content',
+      question: 'Do you have existing content or copy for this, or do you need that written too?',
+      keywords: /existing\s*content|copy|draft|text|written/i,
+      priority: 2,
+    },
+  ],
+};
+
+/**
+ * Get all critical probing questions for the given request types.
+ * Sorted by priority within each type, with types in the order provided.
+ */
+export function getProbesForTypes(requestTypes: string[]): TypeProbe[] {
+  const probes: TypeProbe[] = [];
+  const seenFieldKeys = new Set<string>();
+
+  for (const type of requestTypes) {
+    const typeProbes = TYPE_PROBES[type];
+    if (!typeProbes) continue;
+    for (const probe of typeProbes) {
+      if (!seenFieldKeys.has(probe.fieldKey)) {
+        seenFieldKeys.add(probe.fieldKey);
+        probes.push(probe);
+      }
+    }
+  }
+
+  return probes.sort((a, b) => a.priority - b.priority);
+}
+
+/**
+ * Build a knowledge block describing the critical probing topics for each type.
+ * Injected into the generateFollowUpQuestions prompt so Claude naturally covers these.
+ */
+export function buildProbeKnowledgeBlock(requestTypes: string[]): string {
+  const blocks: string[] = [];
+
+  const typeLabels: Record<string, string> = {
+    conference: 'Conference',
+    webinar: 'Webinar',
+    insider_dinner: 'Insider Dinner',
+    email: 'Email',
+    graphic_design: 'Graphic Design',
+  };
+
+  for (const type of requestTypes) {
+    const probes = TYPE_PROBES[type];
+    if (!probes || probes.length === 0) continue;
+
+    const label = typeLabels[type] ?? type;
+    const items = probes.map((p) =>
+      `  - ${p.question.split('\n')[0]}`
+    ).join('\n');
+    blocks.push(`For ${label} requests, a good marketing consultant would proactively ask about:\n${items}`);
+  }
+
+  return blocks.length > 0
+    ? `\nPROACTIVE CONSULTANT GUIDANCE:\n${blocks.join('\n\n')}\n\nTry to naturally incorporate these topics into your follow-up questions. You don't need to ask them word-for-word — rephrase them conversationally and combine related ones where it makes sense.\n`
+    : '';
+}
+
 /**
  * Generate a context-aware list of available deliverables/services based on the request context.
  * Shown when users ask "What are my options?" during the deliverables step.
