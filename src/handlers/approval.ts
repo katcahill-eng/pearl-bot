@@ -230,6 +230,24 @@ function buildTriageBlocks(opts: {
     });
   }
 
+  // Unmatched deliverables warning — alerts marketing when a deliverable didn't map to any Monday type
+  try {
+    const unmatchedRaw = collectedData.additional_details['__unmatched_deliverables'];
+    if (unmatchedRaw) {
+      const unmatched = JSON.parse(unmatchedRaw) as string[];
+      if (unmatched.length > 0) {
+        const deliverableType = collectedData.additional_details['__deliverable_type'] ?? 'None';
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `:warning: *Unrecognized deliverable type* — The following deliverable(s) didn't match any "Type of Deliverable" option on Monday:\n${unmatched.map((d) => `• ${d}`).join('\n')}\n_Auto-assigned type: ${deliverableType}. Consider adding a new option to Monday if this comes up again._`,
+          },
+        });
+      }
+    }
+  } catch { /* ignore */ }
+
   // Monday.com link section
   if (mondayUrl) {
     blocks.push({

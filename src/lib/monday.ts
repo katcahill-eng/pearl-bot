@@ -22,6 +22,7 @@ const COL = {
   approvalsConstraints: 'long_text8tv0hcfw', // "Approvals and Constraints" (legacy combined)
   deliverableType: 'status_16',           // "Type of Deliverable"
   priority: 'status_1',                   // "Priority"
+  owner: 'person',                        // "Owner" — people column
   submissionLink: 'wf_edit_link_seldq',   // "Submission link" — link to originating Slack thread
 } as const;
 
@@ -107,6 +108,128 @@ export async function discoverBoardColumns(): Promise<void> {
   }
 }
 
+// --- Deliverable Type Mapping ---
+// Maps keywords from deliverables[] and request context to Monday's "Type of Deliverable" status labels.
+// When the user updates Monday labels, update this map to match.
+
+const DELIVERABLE_TYPE_KEYWORDS: { label: string; patterns: RegExp[] }[] = [
+  { label: 'Emails', patterns: [/\bemail/i, /\bnewsletter/i, /\bemail\s*campaign/i, /\bemail\s*sequence/i, /\bemail\s*template/i] },
+  { label: 'Presentation', patterns: [/\bpresentation/i, /\bslide\s*deck/i, /\bslides?\b/i, /\bkeynote/i, /\bpowerpoint/i, /\bgoogle\s*slides/i] },
+  { label: 'Social Media', patterns: [/\bsocial\s*media/i, /\bsocial\s*post/i, /\bsocial\s*graphic/i, /\blinkedin\s*post/i, /\binstagram/i, /\btwitter/i, /\bfacebook\s*post/i] },
+  { label: 'Landing Page', patterns: [/\blanding\s*page/i, /\bweb\s*page/i, /\bcampaign\s*page/i] },
+  { label: 'Advertising', patterns: [/\b(digital\s*)?ads?\b/i, /\badvertis/i, /\bad\s*creative/i, /\bad\s*campaign/i, /\bgoogle\s*ads?/i, /\blinkedin\s*ads?/i, /\bmeta\s*ads?/i, /\bfacebook\s*ads?/i] },
+  { label: 'Ebook/White Paper', patterns: [/\bebook/i, /\be-book/i, /\bwhite\s*paper/i, /\bwhitepaper/i, /\bguide\b/i] },
+  { label: 'Press Release', patterns: [/\bpress\s*release/i, /\bpr\s*release/i, /\bmedia\s*release/i] },
+  { label: 'B2B Blog Post', patterns: [/\bb2b\s*blog/i, /\bblog\s*post.*\b(agent|broker|partner|b2b)/i] },
+  { label: 'B2C Blog Post', patterns: [/\bb2c\s*blog/i, /\bblog\s*post.*\b(homeowner|consumer|b2c)/i] },
+  { label: 'Document', patterns: [/\bone[- ]?pager/i, /\bflyer/i, /\bbrochure/i, /\bhandout/i, /\bcollateral/i, /\bsignage/i, /\bbanner/i, /\bprint/i] },
+  { label: 'Research', patterns: [/\bresearch/i, /\breport\b/i, /\banalysis\b/i, /\bsurvey\b/i, /\bmarket\s*research/i] },
+  { label: 'Trade show Support', patterns: [/\btrade\s*show/i, /\bexpo\b/i, /\bexhibit/i, /\bbooth\b/i, /\bconference/i, /\bdigital\s*booth/i] },
+  { label: 'Webinar', patterns: [/\bwebinar/i, /\bweb\s*session/i, /\bonline\s*presentation/i] },
+  { label: 'Event', patterns: [/\bdinner/i, /\breception/i, /\bevent\s*brand/i, /\binvitation/i, /\binsider/i] },
+];
+
+/**
+ * Determine the best "Type of Deliverable" Monday status label from deliverables and context.
+ * Returns { label, unmatched } — unmatched contains deliverables that didn't map to any type.
+ */
+export function classifyDeliverableType(
+  deliverables: string[],
+  contextBackground: string | null,
+  requestTypes: string[] | null,
+): { label: string | null; unmatched: string[] } {
+  const allText = [...deliverables, contextBackground ?? ''].join(' ');
+  const matchedLabels = new Map<string, number>(); // label → match count
+  const matchedDeliverables = new Set<number>(); // indices of matched deliverables
+
+  // Score each label by how many pattern matches it gets
+  for (const { label, patterns } of DELIVERABLE_TYPE_KEYWORDS) {
+    for (const pattern of patterns) {
+      // Check against each deliverable
+      for (let i = 0; i < deliverables.length; i++) {
+        if (pattern.test(deliverables[i])) {
+          matchedLabels.set(label, (matchedLabels.get(label) ?? 0) + 2); // deliverable match weighs more
+          matchedDeliverables.add(i);
+        }
+      }
+      // Check against context
+      if (contextBackground && pattern.test(contextBackground)) {
+        matchedLabels.set(label, (matchedLabels.get(label) ?? 0) + 1);
+      }
+    }
+  }
+
+  // Also check request types from Claude classification
+  if (requestTypes) {
+    const typeToLabel: Record<string, string> = {
+      conference: 'Trade show Support',
+      webinar: 'Webinar',
+      insider_dinner: 'Event',
+      email: 'Emails',
+      graphic_design: 'Document',
+      blog_post: 'B2B Blog Post',  // default to B2B; keyword matching can override to B2C
+      ebook: 'Ebook/White Paper',
+      press_release: 'Press Release',
+      research: 'Research',
+      advertising: 'Advertising',
+      landing_page: 'Landing Page',
+      presentation: 'Presentation',
+      social_media: 'Social Media',
+    };
+    for (const rt of requestTypes) {
+      const mapped = typeToLabel[rt];
+      if (mapped && !matchedLabels.has(mapped)) {
+        matchedLabels.set(mapped, 1);
+      }
+    }
+  }
+
+  // Pick the label with the highest score
+  let bestLabel: string | null = null;
+  let bestScore = 0;
+  for (const [label, score] of matchedLabels) {
+    if (score > bestScore) {
+      bestLabel = label;
+      bestScore = score;
+    }
+  }
+
+  // Identify unmatched deliverables
+  const unmatched = deliverables.filter((_, i) => !matchedDeliverables.has(i));
+
+  return { label: bestLabel, unmatched };
+}
+
+// --- Monday User Lookup ---
+
+let mondayUsersCache: { id: number; email: string; name: string }[] | null = null;
+let mondayUsersCacheTime = 0;
+const MONDAY_USERS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Find a Monday.com user ID by email address.
+ * Caches the full user list (1-hour TTL) since the list is small.
+ */
+export async function findMondayUserByEmail(email: string): Promise<number | null> {
+  const now = Date.now();
+  if (!mondayUsersCache || now - mondayUsersCacheTime > MONDAY_USERS_CACHE_TTL) {
+    try {
+      const data = await mondayApi<{
+        users: Array<{ id: number; email: string; name: string }>;
+      }>('query { users { id email name } }');
+      mondayUsersCache = data.users;
+      mondayUsersCacheTime = now;
+    } catch (err) {
+      console.error('[monday] Failed to fetch Monday users:', err);
+      return null;
+    }
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  const match = mondayUsersCache.find((u) => u.email.toLowerCase() === normalizedEmail);
+  return match ? match.id : null;
+}
+
 // --- Public API ---
 
 /**
@@ -132,6 +255,8 @@ export async function createRequestItem(params: {
   supportingLinks?: string | null;
   approvals?: string | null;
   constraints?: string | null;
+  deliverableType?: string | null;
+  ownerUserId?: number | null;
   submissionLink?: string | null;
 }): Promise<MondayResult> {
   try {
@@ -167,6 +292,12 @@ export async function createRequestItem(params: {
     }
     if (params.constraints) {
       columnValues[COL.constraints] = { text: params.constraints };
+    }
+    if (params.deliverableType) {
+      columnValues[COL.deliverableType] = { label: params.deliverableType };
+    }
+    if (params.ownerUserId) {
+      columnValues[COL.owner] = { personsAndTeams: [{ id: params.ownerUserId, kind: 'person' }] };
     }
     if (params.submissionLink) {
       columnValues[COL.submissionLink] = { url: params.submissionLink, text: 'Slack thread' };

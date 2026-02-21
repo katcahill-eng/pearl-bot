@@ -130,7 +130,6 @@
 - Presentation design
 - Template creation
 - Brand asset management
-- Photo editing and headshots
 
 **What marketing does NOT handle:**
 - Printed material production costs (charged back to requesting department)
@@ -146,6 +145,88 @@
 - Are there brand guidelines or examples you'd like us to follow?
 - Where will this be used (digital, print, social, presentation)?
 - Note: Printed materials and production costs are charged back to your department.
+
+---
+
+### Blog Posts
+
+**Types:**
+- **B2B Blog Post** — Targeting agents, brokerages, and industry partners. Published on the company blog or LinkedIn.
+- **B2C Blog Post** — Targeting homeowners and consumers. Published on the company blog or consumer-facing channels.
+
+**What marketing handles:**
+- Blog post copywriting
+- SEO optimization and keyword research
+- Featured image or graphic design
+- Social media promotion for published posts
+
+**What marketing does NOT handle:**
+- CMS publishing (CX handles)
+- Technical or product documentation
+
+**Follow-up questions:**
+- Is this a B2B post (agents, partners) or B2C post (homeowners)?
+- What topic or theme should the post cover?
+- Do you have a draft or outline, or do you need it written from scratch?
+- Are there specific keywords or SEO targets?
+- Do you need a featured image or social promotion alongside the post?
+
+---
+
+### Ebooks & White Papers
+
+**What marketing handles:**
+- Long-form content writing (ebooks, white papers, guides)
+- Design and layout
+- Landing page copy for gated content
+- Promotional campaign copy (email, social, ads)
+
+**What marketing does NOT handle:**
+- HubSpot form setup for gated downloads (CX handles)
+- Ad campaign management (marketing provides creative, platforms are managed separately)
+
+**Follow-up questions:**
+- What topic or theme is the ebook/white paper about?
+- Who is the target audience (B2B or B2C)?
+- Do you have existing content or research to start from, or from scratch?
+- Will this be gated (requires registration to download)?
+- Do you need promotional support (emails, social, ads) to drive downloads?
+
+---
+
+### Press Releases
+
+**What marketing handles:**
+- Press release copywriting
+- Media distribution coordination
+- Supporting assets (quotes, images, fact sheets)
+
+**Follow-up questions:**
+- What is the announcement about?
+- What is the target publication date?
+- Are there specific media outlets or journalists to target?
+- Do you have approved quotes from leadership?
+
+---
+
+### Research & Reports
+
+**What marketing handles:**
+- Report design and layout
+- Data visualization and infographics
+- Executive summary writing
+- Promotional campaign copy for report launches
+
+**What marketing does NOT handle:**
+- Primary data collection or survey administration
+- Statistical analysis
+
+**Follow-up questions:**
+- What type of research or report is this?
+- Do you have the data/findings, or do you need help gathering them?
+- Who is the target audience?
+- Will this be gated or publicly available?
+- Do you need promotional support for the launch?
 
 ---
 

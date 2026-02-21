@@ -846,17 +846,29 @@ async function handleConfirmingState(
     let mondayUrl: string | null = null;
     let mondayFailed = false;
     try {
+      const requestTypes = collectedData.request_type ? collectedData.request_type.split(',') : undefined;
       const mondayResult = await createMondayItemForReview({
         collectedData,
         classification: effectiveClassification,
         requesterName,
+        requesterSlackId: convo.getUserId(),
+        requestTypes,
         channelId: convo.getChannelId(),
         threadTs: convo.getThreadTs(),
+        client,
       });
       if (mondayResult.success && mondayResult.itemId) {
         mondayItemId = mondayResult.itemId;
         mondayUrl = mondayResult.boardUrl ?? null;
         convo.setMondayItemId(mondayResult.itemId);
+        // Store deliverable type info for triage panel
+        if (mondayResult.deliverableTypeLabel) {
+          convo.getCollectedData().additional_details['__deliverable_type'] = mondayResult.deliverableTypeLabel;
+        }
+        if (mondayResult.unmatchedDeliverables && mondayResult.unmatchedDeliverables.length > 0) {
+          convo.getCollectedData().additional_details['__unmatched_deliverables'] = JSON.stringify(mondayResult.unmatchedDeliverables);
+        }
+        await convo.save();
       } else {
         mondayFailed = true;
         console.error('[intake] Monday.com item creation returned failure:', mondayResult);

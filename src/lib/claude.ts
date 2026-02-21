@@ -274,6 +274,14 @@ export async function classifyRequestType(
 - webinar
 - email
 - graphic_design
+- blog_post
+- ebook
+- press_release
+- research
+- advertising
+- landing_page
+- presentation
+- social_media
 - general
 
 Look at the context_background, deliverables, target audience, and desired_outcomes to determine the best fit.
@@ -281,7 +289,7 @@ A request can span multiple types — for example, a conference that also includ
 
 If it doesn't clearly match a specific type, return "general".
 
-Respond with ONLY the type string(s), comma-separated if multiple, nothing else. Examples: "conference", "conference,webinar", "email", "general"`;
+Respond with ONLY the type string(s), comma-separated if multiple, nothing else. Examples: "conference", "conference,webinar", "email", "blog_post", "general"`;
 
   const userPrompt = `Classify this marketing request:
 - Context/Background: ${collectedData.context_background ?? 'Not provided'}
@@ -297,7 +305,7 @@ Respond with ONLY the type string(s), comma-separated if multiple, nothing else.
   });
 
   const text = response.content[0].type === 'text' ? response.content[0].text.trim().toLowerCase() : 'general';
-  const validTypes = ['conference', 'insider_dinner', 'webinar', 'email', 'graphic_design', 'general'];
+  const validTypes = ['conference', 'insider_dinner', 'webinar', 'email', 'graphic_design', 'blog_post', 'ebook', 'press_release', 'research', 'advertising', 'landing_page', 'presentation', 'social_media', 'general'];
   const types = text.split(',').map((t) => t.trim()).filter((t) => validTypes.includes(t));
   const result = types.length > 0 ? types : ['general'];
 
@@ -314,6 +322,11 @@ Respond with ONLY the type string(s), comma-separated if multiple, nothing else.
     webinar: /\b(webinar|web\s*session|online\s*presentation|zoom\s*webinar|goto\s*webinar)\b/,
     insider_dinner: /\b(insider\s*dinner|pearl\s*dinner|executive\s*dinner)\b/,
     email: /\b(email\s*campaign|email\s*sequence|newsletter|email\s*blast|promotional\s*email)\b/,
+    blog_post: /\b(blog\s*post|blog\s*article|b2b\s*blog|b2c\s*blog)\b/,
+    ebook: /\b(ebook|e-book|white\s*paper|whitepaper)\b/,
+    press_release: /\b(press\s*release|media\s*release)\b/,
+    research: /\b(research\s*report|market\s*research)\b/,
+    landing_page: /\b(landing\s*page|campaign\s*page)\b/,
   };
 
   for (const [type, pattern] of Object.entries(typeKeywords)) {

@@ -275,8 +275,10 @@ async function handleIntakeWebhook(
       collectedData,
       classification: effectiveClassification,
       requesterName,
+      requesterSlackId: formData.slack_username ?? '',
       channelId: '',
       threadTs: '',
+      client: slackClient,
     });
   } catch (err) {
     console.error('[webhook] Monday.com item creation failed:', err);

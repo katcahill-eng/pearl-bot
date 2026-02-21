@@ -3,8 +3,9 @@ import { generateProjectName, type CollectedData } from './conversation';
 import type { RequestClassification } from './claude';
 import { generateBrief } from './brief-generator';
 import { createFullProjectDrive, allocateNextMktNumber, type DriveResult } from './google-drive';
-import { createRequestItem, updateMondayItemStatus, updateMondayItemColumns, addMondayItemUpdate, buildMondayUrl, MONDAY_COLUMNS, type MondayResult } from './monday';
+import { createRequestItem, updateMondayItemStatus, updateMondayItemColumns, addMondayItemUpdate, buildMondayUrl, classifyDeliverableType, findMondayUserByEmail, MONDAY_COLUMNS, type MondayResult } from './monday';
 import { createProject } from './db';
+import type { WebClient } from '@slack/web-api';
 
 // --- Types ---
 
@@ -24,14 +25,24 @@ export interface WorkflowResult {
  * Create a Monday.com item immediately at submission time (before approval).
  * Item is created with "Under Review" status.
  */
+export interface MondayItemResult extends MondayResult {
+  /** Unmatched deliverables that didn't map to any Monday "Type of Deliverable" label */
+  unmatchedDeliverables?: string[];
+  /** The deliverable type label that was auto-assigned */
+  deliverableTypeLabel?: string | null;
+}
+
 export async function createMondayItemForReview(opts: {
   collectedData: CollectedData;
   classification: 'quick' | 'full';
   requesterName: string;
+  requesterSlackId: string;
+  requestTypes?: string[];
   channelId: string;
   threadTs: string;
-}): Promise<MondayResult> {
-  const { collectedData, requesterName, channelId, threadTs } = opts;
+  client: WebClient;
+}): Promise<MondayItemResult> {
+  const { collectedData, requesterName, requesterSlackId, requestTypes, channelId, threadTs, client } = opts;
 
   const projectName = generateProjectName(collectedData);
 
@@ -52,7 +63,31 @@ export async function createMondayItemForReview(opts: {
     }
   } catch { /* ignore */ }
 
-  return createRequestItem({
+  // Auto-classify deliverable type for Monday's "Type of Deliverable" column
+  const deliverableClassification = classifyDeliverableType(
+    collectedData.deliverables,
+    collectedData.context_background,
+    requestTypes ?? null,
+  );
+
+  // Look up requester in Monday.com to set as Owner (best-effort)
+  let ownerUserId: number | null = null;
+  try {
+    const userInfo = await client.users.info({ user: requesterSlackId });
+    const email = userInfo.user?.profile?.email;
+    if (email) {
+      ownerUserId = await findMondayUserByEmail(email);
+      if (ownerUserId) {
+        console.log(`[workflow] Resolved Monday owner: ${email} → userId ${ownerUserId}`);
+      } else {
+        console.log(`[workflow] No Monday user found for email ${email}`);
+      }
+    }
+  } catch (err) {
+    console.error('[workflow] Failed to resolve Monday owner (non-critical):', err);
+  }
+
+  const result = await createRequestItem({
     name: projectName,
     dueDate: collectedData.due_date_parsed ?? undefined,
     requester: requesterName,
@@ -64,8 +99,16 @@ export async function createMondayItemForReview(opts: {
     supportingLinks,
     approvals: collectedData.approvals ?? undefined,
     constraints: collectedData.constraints ?? undefined,
+    deliverableType: deliverableClassification.label,
+    ownerUserId,
     submissionLink: slackThreadLink,
   });
+
+  return {
+    ...result,
+    unmatchedDeliverables: deliverableClassification.unmatched.length > 0 ? deliverableClassification.unmatched : undefined,
+    deliverableTypeLabel: deliverableClassification.label,
+  };
 }
 
 /**
