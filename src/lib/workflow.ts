@@ -2,7 +2,7 @@ import { config } from './config';
 import { generateProjectName, type CollectedData } from './conversation';
 import type { RequestClassification } from './claude';
 import { generateBrief } from './brief-generator';
-import { createFullProjectDrive, type DriveResult } from './google-drive';
+import { createFullProjectDrive, allocateNextMktNumber, type DriveResult } from './google-drive';
 import { createRequestItem, updateMondayItemStatus, updateMondayItemColumns, buildMondayUrl, MONDAY_COLUMNS, type MondayResult } from './monday';
 import { createProject } from './db';
 
@@ -89,21 +89,32 @@ export async function executeApprovedWorkflow(opts: {
   let folderUrl: string | undefined;
 
   if (classification === 'full') {
-    // Step 1: Generate brief
+    // Step 1: Allocate MKT project number (must happen first so brief can include it)
+    let projectNumber: string | undefined;
+    try {
+      projectNumber = await allocateNextMktNumber();
+      console.log(`[workflow] Allocated project number: ${projectNumber}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[workflow] MKT number allocation failed:', message);
+      errors.push('MKT number allocation failed');
+    }
+
+    // Step 2: Generate brief (now includes the MKT number in the header)
     let briefMarkdown: string | undefined;
     try {
-      briefMarkdown = await generateBrief(collectedData, classification, requesterName);
+      briefMarkdown = await generateBrief(collectedData, classification, requesterName, projectNumber);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('[workflow] Brief generation failed:', message);
       errors.push('Brief generation failed');
     }
 
-    // Step 2: Create Drive folder/doc
+    // Step 3: Create Drive folder/doc
     let driveResult: DriveResult = { success: false };
-    if (briefMarkdown) {
+    if (briefMarkdown && projectNumber) {
       try {
-        driveResult = await createFullProjectDrive(projectName, briefMarkdown);
+        driveResult = await createFullProjectDrive(projectName, briefMarkdown, projectNumber);
         if (driveResult.success) {
           briefDocUrl = driveResult.docUrl;
           folderUrl = driveResult.folderUrl;

@@ -63,36 +63,39 @@ Use this exact structure — the header table and sections A through L must all 
 |-------|---------|
 | **Department** | Marketing |
 | **Project** | [Project Name] |
-| **From** | [requester name] |
-| **Requesting Department** | [department] |
-| **Date** | [today's date] |
+| **From** | [requester initials — derive from the requester name, e.g. "KC" for Kat Cahill, "JS" for Jane Smith] |
+| **Date** | [today's date, formatted as Month DD, YYYY — e.g. "February 20, 2026"] |
 | **Project #** | [project number if provided, otherwise "TBD"] |
 | **Draft** | 1.0 |
 
 ## I. [Project Name]
 
 ## A. Background
+*How did we get here in a nutshell?*
 [2-3 sentences of context from the requester's Context & Background field: why does this project exist? What business need or opportunity prompted it?]
 
 ## B. Project Overview
-[1-2 paragraph overview of the project scope, what it involves, and how it fits into Pearl's broader goals]
+*Briefly describe the purpose of the exercise. Specifically address: who the instigator is, their need and motivation for this project, and what you want done succinctly.*
+[1-2 paragraph overview of the project scope, what it involves, who the target audience is, and how it fits into Pearl's broader goals]
 
 ## C. How it is Today
+*Define the situation as it is today — specifically, the problem you are trying to solve.*
 [Describe the current state — what exists now, what gap or problem this project addresses]
 
-## D. Target Audience
-[Who this project is targeting, based on the Target field]
+## D. Objective
+*What do you need to accomplish with this project?*
+[Bullet list of specific, measurable objectives derived from the Desired Outcomes field. Include who the target audience is and what we want them to do.]
 
-## E. Objective
-[Bullet list of specific, measurable objectives derived from the Desired Outcomes field]
-
-## F. Success Criteria
+## E. Success Criteria
+*How will you know if you accomplished it?*
 [How we will know this project succeeded — specific measurable outcomes]
 
-## G. Deliverables
+## F. Deliverables
+*List the specific deliverables you are expecting as a result of this project.*
 [Numbered list of all deliverables with specifications where known]
 
-## H. Activities / Phases
+## G. Activities / Phases
+*List the activities required to arrive at each of the deliverables.*
 
 | Phase | Description | Target Date |
 |-------|-------------|-------------|
@@ -100,23 +103,28 @@ Use this exact structure — the header table and sections A through L must all 
 | [Inferred phases based on deliverables and due date] | [description] | [dates] |
 | Final delivery | All deliverables complete | [due date] |
 
-## I. Risk Mitigation
+## H. Risk Mitigation
+*What factors pose the greatest risk of failure for this project?*
 [Identify 2-3 potential risks and how to mitigate them — e.g., timeline pressure, missing assets, stakeholder alignment]
 
-## J. Timing
+## I. Timing
+*Summarize key milestones and the overall timeline.*
 - **Due Date:** [due date]
 - **Key Milestones:** [any specific dates or dependencies mentioned]
 
-## K. Team / Reporting
+## J. Team / Reporting
+*Now that we know what needs to be done, who does what?*
 - **Requester:** [requester name]
 - **Department:** [department]
 - **Marketing Lead:** TBD (assigned at triage)
 - **Approvals Required:** [approvals or "None specified"]
 
-## L. Constraints & Guidelines
+## K. Guidelines or Suggestions
+*Any mandatories, tips, or requests?*
 [Any constraints specified by the requester. Also note: Pearl brand guidelines should be followed. Note any special requirements.]
 
-## M. Supporting Links & References
+## L. Attachments
+*Any documents attached related to this assignment?*
 [List of any links, references, or materials mentioned — or "None provided"]
 
 Rules:
@@ -124,6 +132,9 @@ Rules:
 - Infer reasonable objectives, success criteria, and risk factors from the request context
 - For Background and Project Overview, connect to Pearl's mission of making home performance matter where relevant
 - For Activities/Phases, create reasonable milestones between now and the due date
+- Weave target audience information naturally into sections B (Project Overview) and D (Objective) — there is no standalone Target Audience section
+- For the "From" field, derive initials from the requester name (e.g., "Jane Smith" becomes "JS", "Kat Cahill" becomes "KC")
+- Format the date in the header as "Month DD, YYYY" (e.g., "January 15, 2026")
 - If a field has no data, write "Not specified" rather than leaving it blank
 - Output ONLY the markdown brief, no preamble or explanation`;
 
@@ -137,6 +148,7 @@ export async function generateBrief(
   collectedData: CollectedData,
   classification: RequestClassification,
   requesterName?: string,
+  projectNumber?: string,
 ): Promise<string> {
   const today = new Date().toISOString().split('T')[0];
   const isQuick = classification === 'quick';
@@ -145,7 +157,7 @@ export async function generateBrief(
     ? MINI_BRIEF_SYSTEM_PROMPT
     : FULL_BRIEF_SYSTEM_PROMPT;
 
-  const userPrompt = buildBriefPrompt(collectedData, requesterName ?? 'Unknown', today);
+  const userPrompt = buildBriefPrompt(collectedData, requesterName ?? 'Unknown', today, projectNumber);
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -166,10 +178,12 @@ function buildBriefPrompt(
   data: CollectedData,
   requesterName: string,
   today: string,
+  projectNumber?: string,
 ): string {
   const lines: string[] = [
     `Today's date: ${today}`,
     `Requester: ${data.requester_name ?? requesterName}`,
+    `Project number: ${projectNumber ?? 'TBD'}`,
     '',
     'Collected intake data:',
     `- Department: ${data.requester_department ?? 'Not specified'}`,

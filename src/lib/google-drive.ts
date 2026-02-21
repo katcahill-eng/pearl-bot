@@ -91,14 +91,30 @@ async function createDoc(
 // --- Public API ---
 
 /**
+ * Allocate the next MKT number by scanning existing project folders.
+ * Returns the formatted string like "MKT-000042".
+ * Call this before generating the brief so the MKT number can appear in the brief header.
+ */
+export async function allocateNextMktNumber(): Promise<string> {
+  const drive = getDrive();
+  if (!drive) {
+    throw new Error('Google Drive not configured — missing GOOGLE_SERVICE_ACCOUNT_JSON');
+  }
+  const projectsFolderId = config.googleProjectsFolderId;
+  const nextNumber = await getNextMktNumber(drive, projectsFolderId);
+  return `MKT-${nextNumber.toString().padStart(6, '0')}`;
+}
+
+/**
  * Create Drive artifacts for a full project.
- * Creates folder in the configured projects folder with MKT-XXXXXX auto-increment naming.
+ * Creates folder in the configured projects folder using a pre-allocated MKT number.
  * Subfolders: Admin, Background, Brief, Deliverables, Production
- * Saves the Operational Brief doc in the Brief subfolder.
+ * Saves the brief doc in the Brief subfolder with YYMMDD-PERL naming convention.
  */
 export async function createFullProjectDrive(
   projectName: string,
   briefMarkdown: string,
+  projectNumber: string,
 ): Promise<DriveResult> {
   try {
     const drive = getDrive();
@@ -108,9 +124,8 @@ export async function createFullProjectDrive(
 
     const projectsFolderId = config.googleProjectsFolderId;
 
-    // Determine the next MKT number by listing existing folders
-    const nextNumber = await getNextMktNumber(drive, projectsFolderId);
-    const mktCode = `MKT-${nextNumber.toString().padStart(6, '0')}`;
+    // Use the pre-allocated project number
+    const mktCode = projectNumber;
     const folderName = `${mktCode}-${projectName}`;
 
     // Create project folder directly in the projects folder (no year subfolder)
@@ -127,8 +142,14 @@ export async function createFullProjectDrive(
       }
     }
 
-    // Create brief doc in Brief subfolder
-    const doc = await createDoc(drive, `Operational Brief — ${projectName}`, briefFolderId, briefMarkdown);
+    // Create brief doc in Brief subfolder with YYMMDD-PERL naming convention
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const datePrefix = `${yy}${mm}${dd}`;
+    const docName = `${datePrefix}-PERL-${projectName} Brief 1.0`;
+    const doc = await createDoc(drive, docName, briefFolderId, briefMarkdown);
 
     return {
       success: true,
