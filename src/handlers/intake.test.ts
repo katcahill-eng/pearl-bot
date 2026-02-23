@@ -535,7 +535,7 @@ describe('Intake conversation flows', () => {
   // RETURNING USER WITH COMPLETED PROJECT
   // ====================
   describe('Returning user with accepted project', () => {
-    it('should offer department from completed project during dup-check', async () => {
+    it('should offer previous target from completed project during dup-check (no department note)', async () => {
       (getActiveConversationForUser as Mock).mockResolvedValue({
         id: 99, user_id: 'U_TEST', thread_ts: 'other-thread',
         channel_id: 'C_INTAKE', status: 'gathering',
@@ -557,7 +557,9 @@ describe('Intake conversation flows', () => {
       await sendMessage({ text: 'here', say, client });
 
       const texts = getSayTexts(say);
-      expect(texts.some((t) => t.includes('Marketing') || t.includes('marketing'))).toBe(true);
+      // Should show the target audience question WITHOUT the department assumption note
+      expect(texts.some((t) => t.includes('HVAC contractors'))).toBe(true);
+      expect(texts.some((t) => t.includes("I'll assume you're requesting support"))).toBe(false);
     });
   });
 

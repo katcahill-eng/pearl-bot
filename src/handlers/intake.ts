@@ -1085,16 +1085,22 @@ async function startFreshFromDupCheck(
   const freshDetails: Record<string, string> = {};
   if (previousTarget) freshDetails['__previous_target'] = previousTarget;
   if (previousDepartment) freshDetails['__previous_department'] = previousDepartment;
-  convo.markFieldCollected('additional_details', freshDetails);
-  await convo.save();
 
   // Anyone who enters startFreshFromDupCheck already got "Welcome back, [Name]!"
   // so we never re-greet them with a verbose welcome.
-  // Pre-populate name + department so askNextQuestion skips them and goes straight to content.
+  // Pre-populate name so askNextQuestion skips it and goes straight to content.
   const knownName = convo.getCollectedData().requester_name ?? convo.getUserName();
   const dept = previousDepartment || convo.getCollectedData().requester_department;
   if (knownName) convo.markFieldCollected('requester_name', knownName);
-  if (dept) convo.markFieldCollected('requester_department', dept);
+  // For returning users with a previousTarget, defer the department — don't pre-fill
+  // until after they respond to the target question. For users without a previousTarget,
+  // pre-fill now so the department assumption note can be shown with the first question.
+  if (dept && !previousTarget) {
+    convo.markFieldCollected('requester_department', dept);
+  } else if (dept && previousTarget) {
+    freshDetails['__deferred_department'] = dept;
+  }
+  convo.markFieldCollected('additional_details', freshDetails);
   await convo.save();
 
   // Offer the previous audience as a follow-up (from accepted projects only)
@@ -1105,9 +1111,8 @@ async function startFreshFromDupCheck(
     // target (because it's still unpopulated), producing a duplicate question.
     convo.setCurrentStep('target');
     await convo.save();
-    const deptNoteForTarget = dept ? `_I'll assume you're requesting support for *${dept}* — let me know if that's not right._\n\n` : '';
     await say({
-      text: `${deptNoteForTarget}Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
+      text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
       thread_ts: threadTs,
     });
     return;
@@ -1202,23 +1207,27 @@ async function handleGatheringState(
     const staleDept = staleData.additional_details['__previous_department'] ?? staleData.requester_department;
     const staleTarget = staleData.additional_details['__previous_target'] ?? null;
 
-    if (staleDept) {
+    if (staleTarget && staleDept) {
+      // Defer department — don't pre-fill until after target question is answered
+      const details = convo.getCollectedData().additional_details;
+      details['__deferred_department'] = staleDept;
+      convo.markFieldCollected('additional_details', details);
+    } else if (staleDept) {
       convo.markFieldCollected('requester_department', staleDept);
-      await convo.save();
     }
-
-    const staleDeptNote = staleDept ? `_I'll assume you're requesting support for *${staleDept}* — let me know if that's not right._\n\n` : '';
+    await convo.save();
 
     if (staleTarget) {
       convo.setCurrentStep('target');
       await convo.save();
       await say({
-        text: `${staleDeptNote}Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
+        text: `Your last request was targeting *${staleTarget}*. Is this for the same audience, or a different one?`,
         thread_ts: threadTs,
       });
       return;
     }
 
+    const staleDeptNote = staleDept ? `_I'll assume you're requesting support for *${staleDept}* — let me know if that's not right._\n\n` : '';
     const staleNext = convo.getNextQuestion();
     if (staleNext) {
       await convo.save();
@@ -1242,9 +1251,13 @@ async function handleGatheringState(
     ];
     if (matchesAny(text, SAME_AUDIENCE_PATTERNS)) {
       convo.markFieldCollected('target', previousTarget);
-      // Clean up the __previous_target flag
+      // Clean up the __previous_target flag and auto-fill deferred department
       const details = convo.getCollectedData().additional_details;
       delete details['__previous_target'];
+      if (details['__deferred_department']) {
+        convo.markFieldCollected('requester_department', details['__deferred_department']);
+        delete details['__deferred_department'];
+      }
       convo.markFieldCollected('additional_details', details);
       await convo.save();
       // Combine ack + next question into single message
@@ -1578,6 +1591,12 @@ async function handleGatheringState(
     // Clean up the __previous_target flag either way
     if (postDetails['__previous_target']) {
       delete postDetails['__previous_target'];
+      convo.markFieldCollected('additional_details', postDetails);
+    }
+    // Auto-fill deferred department now that target has been answered
+    if (postDetails['__deferred_department']) {
+      convo.markFieldCollected('requester_department', postDetails['__deferred_department']);
+      delete postDetails['__deferred_department'];
       convo.markFieldCollected('additional_details', postDetails);
     }
 
