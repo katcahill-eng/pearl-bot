@@ -1016,6 +1016,20 @@ async function handleDuplicateCheckResponse(
 
   console.log(`[intake] dup_check: existingConvoId=${existingConvoId}, existingChannel=${existingChannelId}, existingThread=${existingThreadTs}`);
 
+  // User wants to cancel — drop this thread, leave existing thread untouched
+  if (matchesAny(text, CANCEL_PATTERNS)) {
+    convo.setStatus('cancelled');
+    await convo.save();
+    if (convo.getId()) {
+      logConversationMetrics({ conversationId: convo.getId()!, userId: convo.getUserId(), finalStatus: 'cancelled', durationSeconds: convo.getDurationSeconds(), classification: convo.getClassification() }).catch(() => {});
+    }
+    await say({
+      text: "No problem — I've cancelled this request. If you need anything in the future, just start a new conversation!",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
   // User wants to continue in the other thread
   if (matchesAny(text, CONTINUE_THERE_PATTERNS)) {
     convo.setStatus('cancelled');

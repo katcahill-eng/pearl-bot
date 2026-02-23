@@ -469,6 +469,66 @@ describe('Intake conversation flows', () => {
       const texts = getSayTexts(say);
       expect(texts.some((t) => t.includes('thread') || t.includes('continue') || t.includes('there'))).toBe(true);
     });
+
+    it('should cancel on "cancel" during dup-check', async () => {
+      (getActiveConversationForUser as Mock).mockResolvedValue({
+        id: 99, user_id: 'U_TEST', thread_ts: 'other-thread',
+        channel_id: 'C_INTAKE', status: 'gathering', collected_data: '{}',
+      });
+
+      await sendMessage({ text: 'new project', say, client });
+      say.mockClear();
+
+      await sendMessage({ text: 'cancel', say, client });
+      const texts = getSayTexts(say);
+      expect(texts.some((t) => t.includes('cancel'))).toBe(true);
+      // Should NOT start a fresh intake or re-ask the dup-check question
+      expect(texts.some((t) => t.includes('continue there') || t.includes('start fresh') || t.includes('target audience'))).toBe(false);
+    });
+
+    it('should cancel on "nevermind" during dup-check', async () => {
+      (getActiveConversationForUser as Mock).mockResolvedValue({
+        id: 99, user_id: 'U_TEST', thread_ts: 'other-thread',
+        channel_id: 'C_INTAKE', status: 'gathering', collected_data: '{}',
+      });
+
+      await sendMessage({ text: 'I need something', say, client });
+      say.mockClear();
+
+      await sendMessage({ text: 'nevermind', say, client });
+      const texts = getSayTexts(say);
+      expect(texts.some((t) => t.includes('cancel'))).toBe(true);
+    });
+
+    it('should cancel on "stop" during dup-check', async () => {
+      (getActiveConversationForUser as Mock).mockResolvedValue({
+        id: 99, user_id: 'U_TEST', thread_ts: 'other-thread',
+        channel_id: 'C_INTAKE', status: 'gathering', collected_data: '{}',
+      });
+
+      await sendMessage({ text: 'help me with something', say, client });
+      say.mockClear();
+
+      await sendMessage({ text: 'stop', say, client });
+      const texts = getSayTexts(say);
+      expect(texts.some((t) => t.includes('cancel'))).toBe(true);
+    });
+
+    it('should treat long message as fresh intake during dup-check', async () => {
+      (getActiveConversationForUser as Mock).mockResolvedValue({
+        id: 99, user_id: 'U_TEST', thread_ts: 'other-thread',
+        channel_id: 'C_INTAKE', status: 'gathering', collected_data: '{}',
+      });
+
+      await sendMessage({ text: 'hi', say, client });
+      say.mockClear();
+
+      await sendMessage({ text: 'I need a presentation deck for the upcoming conference in March about our new product line', say, client });
+      const texts = getSayTexts(say);
+      // Should start fresh (not re-ask dup-check)
+      expect(texts.some((t) => t.includes('continue there') && t.includes('start fresh'))).toBe(false);
+      expect(texts.length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   // ====================
