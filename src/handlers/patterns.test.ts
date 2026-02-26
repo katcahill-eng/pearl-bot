@@ -249,6 +249,24 @@ describe('QUICK_INFO_PATTERNS', () => {
     'color hex codes',
     'colour codes',
     'What is our brand font?',
+    // Natural requests for existing brand assets
+    'Can you give me the Pearl logo?',
+    'give me the logo',
+    'send me our logo',
+    "get me Pearl's logo",
+    'I need the Pearl logo',
+    'I need the logo',
+    'our logo',
+    'Pearl logo',
+    'give me the brand colors',
+    'send me our fonts',
+    'get me the guidelines',
+    'slide template',
+    'presentation template',
+    'master deck',
+    'master slide',
+    'email signature',
+    'what is our tagline',
   ];
 
   const shouldNotMatch = [
@@ -260,6 +278,8 @@ describe('QUICK_INFO_PATTERNS', () => {
     'status of the newsletter',
     'I want 3 emails',
     'create a new style for the website',
+    'design me a new logo',
+    'create a presentation for the conference',
   ];
 
   for (const text of shouldMatch) {

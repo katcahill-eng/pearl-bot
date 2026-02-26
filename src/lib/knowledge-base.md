@@ -318,33 +318,39 @@ Some requests span multiple types (e.g., a conference that includes a webinar, o
 
 | Name | Hex | Usage |
 |------|-----|-------|
-| Pearl Navy | #002B5C | Primary brand color — headings, buttons, nav |
-| Pearl Teal | #00A8A8 | Accent — CTAs, links, highlights |
-| Pearl White | #FFFFFF | Backgrounds, reverse text |
-| Pearl Light Gray | #F4F4F4 | Section backgrounds, dividers |
-| Pearl Dark Gray | #333333 | Body text |
+| Grass | #04b290 | Accent — CTAs, highlights |
+| Pearl Blue | #1c4c75 | Primary brand color — headings, buttons, nav |
+| Alert | #c92c25 | Error states, alerts |
+| Secondary #1 | #fcaf1f | Secondary accent — badges, callouts |
+| Secondary #2 | #2597ec | Secondary accent — links, interactive elements |
+| White | #ffffff | Backgrounds, reverse text |
+| Dark Blue | #0c3860 | Dark backgrounds, footers |
+| Medium Blue | #5c7b96 | Muted text, secondary content |
+| Light Blue | #e5eaf4 | Section backgrounds, cards |
+| Light Grey | #f5f6f8 | Page backgrounds, dividers |
 
 ### Logo Files
 
 | Label | Link |
 |-------|------|
-| Primary Logo (color) | https://drive.google.com/PLACEHOLDER-primary-logo |
-| Primary Logo (white) | https://drive.google.com/PLACEHOLDER-white-logo |
-| Icon Only | https://drive.google.com/PLACEHOLDER-icon |
-| Full Brand Kit | https://drive.google.com/PLACEHOLDER-brand-kit |
+| Logo Files (white, blue, and black variants) | https://drive.google.com/drive/folders/1OsfB1H_sRtiaWdcwI-kxYpSF82nWu6Kf |
+| Logo with Tagline | https://drive.google.com/drive/folders/1YLXUnXPle3v2ofAhCJVv5XyFNdB87DnP |
+| App Logos — Pearl App (blue, homeowner audience) and Pearl for Professionals (white, professional audience) | https://drive.google.com/drive/folders/1OoHMChnTMsl7jDyOaF32Cj-Lm-n5ipzS |
+| Pearl Recognized Professional Badge | https://drive.google.com/drive/folders/1dxebl86q-fRazykQqtCVNoTIzCotjZ2c |
 
 ### Brand Guidelines
 
 | Label | Link |
 |-------|------|
-| Brand Guidelines PDF | https://drive.google.com/PLACEHOLDER-brand-guidelines |
-| Slide Master Template | https://drive.google.com/PLACEHOLDER-slide-template |
+| Email Signature Instructions | https://docs.google.com/presentation/d/1pVoj9LcVbpUnG5-lT6uzPWgKlENq30QeQNjIdD_1mBs/edit?slide=id.p2#slide=id.p2 |
+| Brand Assets Folder | https://drive.google.com/drive/folders/1duNsCSKoocVhMmduqkHoLwA5oCzk8nwn |
+| Brand Guidelines PDF | Currently being updated — check back soon |
+| Slide Master Template | Available in Google Slides — go to File > New > From template, search for "Pearl_Master Slide Deck_Template_FINAL_2025" |
 | Canva Brand Kit | https://www.canva.com/PLACEHOLDER-brand-kit |
 
 ### Fonts
 
 | Usage | Font | Notes |
 |-------|------|-------|
-| Headings | Montserrat | Bold / SemiBold weights |
-| Body | Open Sans | Regular / Light weights |
-| Monospace | Source Code Pro | Data tables, code snippets |
+| Headings & subheadings | Lato | Bold, Dark Blue (#0c3860) where possible |
+| Body | Lato | Regular |

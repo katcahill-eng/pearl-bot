@@ -1,7 +1,7 @@
 import type { SayFn } from '@slack/bolt';
 import { getBrandInfo, type BrandInfo } from '../lib/brand-info';
 
-type Topic = 'colors' | 'logos' | 'guidelines' | 'fonts' | 'all';
+type Topic = 'colors' | 'logos' | 'guidelines' | 'fonts' | 'tagline' | 'all';
 
 const FOOTER = '\n_Need something else? Just ask, or say *help* to see what I can do._';
 
@@ -25,6 +25,8 @@ export function detectTopic(rawText: string): Topic {
   if (/\blogos?\b/.test(text)) return 'logos';
   if (/\bguidelines?\b/.test(text) || /\bstyle\s+guide\b/.test(text)) return 'guidelines';
   if (/\bfonts?\b/.test(text) || /\btypography\b/.test(text)) return 'fonts';
+  if (/\btagline\b/.test(text) || /\b(slogan|motto)\b/.test(text)) return 'tagline';
+  if (/\b(template|master\s+(slide|deck)|email\s+signature)\b/.test(text)) return 'guidelines';
 
   return 'all';
 }
@@ -39,6 +41,8 @@ function formatResponse(topic: Topic, info: BrandInfo): string {
       return formatGuidelines(info);
     case 'fonts':
       return formatFonts(info);
+    case 'tagline':
+      return formatTagline();
     case 'all':
       return formatAll(info);
   }
@@ -66,6 +70,10 @@ function formatFonts(info: BrandInfo): string {
   if (info.fonts.length === 0) return ':pencil2: No font info on file yet.';
   const rows = info.fonts.map((f) => `• *${f.usage}:* ${f.font} — ${f.notes}`);
   return [':pencil2: *Fonts*', '', ...rows].join('\n');
+}
+
+function formatTagline(): string {
+  return ':speech_balloon: *Tagline:* "Making Home Performance Matter."';
 }
 
 function formatAll(info: BrandInfo): string {
