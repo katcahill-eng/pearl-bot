@@ -326,7 +326,8 @@ Respond with ONLY the type string(s), comma-separated if multiple, nothing else.
     ebook: /\b(ebook|e-book|white\s*paper|whitepaper)\b/,
     press_release: /\b(press\s*release|media\s*release)\b/,
     research: /\b(research\s*report|market\s*research)\b/,
-    landing_page: /\b(landing\s*page|campaign\s*page)\b/,
+    landing_page: /\b(landing\s*page|campaign\s*page|sign[- ]?up\s*page)\b/,
+    advertising: /\b(early\s*access|beta|launch|rollout|release)\s+(applications?|programs?|testing|phase|sign[- ]?ups?|registrations?)\b/,
   };
 
   for (const [type, pattern] of Object.entries(typeKeywords)) {

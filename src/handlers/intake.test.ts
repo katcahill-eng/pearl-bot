@@ -284,6 +284,22 @@ describe('Intake conversation flows', () => {
       await sendMessage({ text: 'hi', say, client });
       expect(interpretMessage).not.toHaveBeenCalled();
     });
+
+    it('should use product launch pattern fallback when Claude returns 0 fields for initial message', async () => {
+      // Claude returns confidence > 0 but no extractable fields
+      (interpretMessage as Mock).mockResolvedValueOnce(
+        emptyExtracted({ confidence: 0.6 }),
+      );
+      await sendMessage({ text: 'Applications to Early Access Programs', say, client });
+      expect(interpretMessage).toHaveBeenCalledTimes(1);
+      const texts = getSayTexts(say);
+      // Should acknowledge the product launch pattern
+      expect(texts.some((t) => t.includes('product launch'))).toBe(true);
+      // Should store desired_outcomes in the conversation
+      const saved = conversationStore['U_TEST::thread-1'];
+      const data = JSON.parse(saved.collected_data);
+      expect(data.desired_outcomes).toBe('Applications to Early Access Programs');
+    });
   });
 
   // ====================
@@ -593,6 +609,28 @@ describe('Intake conversation flows', () => {
       // Should advance (raw text fallback) — not loop
       const texts = getSayTexts(say);
       expect(texts.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should recognize product launch patterns when Claude fails to extract during gathering', async () => {
+      seedGatheringConversation({
+        current_step: 'desired_outcomes',
+        collectedDataOverrides: {
+          target: 'Real estate agents',
+          context_background: 'Early access program for home performance platform',
+        },
+      });
+
+      // Claude returns 0 fields for "early access applications"
+      (interpretMessage as Mock).mockResolvedValueOnce(emptyExtracted({ confidence: 0.4 }));
+
+      await sendMessage({ text: 'Early access applications', say, client });
+
+      // Should store in desired_outcomes (product launch pattern match) and advance
+      const saved = conversationStore['U_TEST::thread-1'];
+      const data = JSON.parse(saved.collected_data);
+      expect(data.desired_outcomes).toBe('Early access applications');
+      const texts = getSayTexts(say);
+      expect(texts.some((t) => t.includes('Got it'))).toBe(true);
     });
 
     it('should not match "yep thats wrong" as confirmation (bug fix)', async () => {

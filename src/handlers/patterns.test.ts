@@ -225,3 +225,58 @@ describe('UNCERTAINTY_PATTERNS (mid-sentence detection)', () => {
     });
   }
 });
+
+// --- Product Launch Patterns (from intake.ts) ---
+const PRODUCT_LAUNCH_PATTERNS = [
+  /(early access|beta|launch|rollout|release)\s+(applications?|programs?|testing|phase)/i,
+  /\b(applications?\s+to\s+)(early access|beta|pilot)\s+(programs?)/i,
+  /\b(increase|drive|grow|boost)\s+(early access|beta|program)\s+(sign[- ]?ups?|applications?|registrations?|enrollments?)/i,
+  /\b(early access|beta|pilot|pre[- ]?launch)\s+(sign[- ]?ups?|applications?|registrations?|enrollments?|awareness)/i,
+];
+
+function matchesProductLaunch(text: string): boolean {
+  return PRODUCT_LAUNCH_PATTERNS.some((p) => p.test(text));
+}
+
+describe('PRODUCT_LAUNCH_PATTERNS', () => {
+  const shouldMatch = [
+    'Applications to Early Access Programs',
+    'Early access applications',
+    'Increase early access sign-ups',
+    'Drive beta program applications',
+    'early access program',
+    'beta applications',
+    'launch program',
+    'rollout phase',
+    'release testing',
+    'Boost early access registrations',
+    'Grow beta sign-ups',
+    'pre-launch awareness',
+    'pilot registrations',
+    'beta enrollments',
+    'application to early access program',
+  ];
+
+  const shouldNotMatch = [
+    'I need a one-pager',
+    'social media posts',
+    'help',
+    'yes',
+    'ASAP',
+    'conference in March',
+    'email campaign',
+    'hello?',
+  ];
+
+  for (const text of shouldMatch) {
+    it(`matches product launch: "${text}"`, () => {
+      expect(matchesProductLaunch(text)).toBe(true);
+    });
+  }
+
+  for (const text of shouldNotMatch) {
+    it(`does not match product launch: "${text}"`, () => {
+      expect(matchesProductLaunch(text)).toBe(false);
+    });
+  }
+});

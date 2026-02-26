@@ -190,6 +190,23 @@ const GATHERING_FIELDS: (keyof CollectedData)[] = [
   'desired_outcomes', 'deliverables', 'due_date',
 ];
 
+/**
+ * Product launch / program patterns — recognizes messages about early access programs,
+ * beta launches, rollouts, etc. as valid marketing outcomes or context.
+ * These are legitimate marketing requests that Claude sometimes fails to classify.
+ */
+const PRODUCT_LAUNCH_PATTERNS = [
+  /(early access|beta|launch|rollout|release)\s+(applications?|programs?|testing|phase)/i,
+  /\b(applications?\s+to\s+)(early access|beta|pilot)\s+(programs?)/i,
+  /\b(increase|drive|grow|boost)\s+(early access|beta|program)\s+(sign[- ]?ups?|applications?|registrations?|enrollments?)/i,
+  /\b(early access|beta|pilot|pre[- ]?launch)\s+(sign[- ]?ups?|applications?|registrations?|enrollments?|awareness)/i,
+];
+
+/** Check if a message matches product launch patterns. */
+function matchesProductLaunchPattern(text: string): boolean {
+  return PRODUCT_LAUNCH_PATTERNS.some((p) => p.test(text));
+}
+
 const CONVERSATIONAL_PREFIX = /^(let['']?s\s+|let\s+us\s+|i['']?d\s+like\s+to\s+|i\s+want\s+to\s+|can\s+we\s+|please\s+|i\s+want\s+|we\s+should\s+|we\s+can\s+)/i;
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
@@ -705,7 +722,20 @@ async function handleIntakeMessageInner(opts: {
               await convo.save();
               // Use deterministic template for the acknowledgment — never Claude's text
               initialAck = buildFieldAcknowledgment(convo, initialExtracted) ?? '';
+            } else if (matchesProductLaunchPattern(strippedInitial)) {
+              // Claude didn't extract fields but the message matches product launch patterns
+              // (e.g., "Applications to Early Access Programs") — store as desired_outcomes
+              console.log(`[intake] Product launch pattern matched in initial message — storing as desired_outcomes`);
+              convo.markFieldCollected('desired_outcomes', strippedInitial);
+              await convo.save();
+              initialAck = `Got it — sounds like a product launch initiative!`;
             }
+          } else if (matchesProductLaunchPattern(strippedInitial)) {
+            // Zero confidence but matches product launch patterns — still capture it
+            console.log(`[intake] Product launch pattern matched in initial message (zero confidence) — storing as desired_outcomes`);
+            convo.markFieldCollected('desired_outcomes', strippedInitial);
+            await convo.save();
+            initialAck = `Got it — sounds like a product launch initiative!`;
           }
         } catch (err) {
           console.error('[intake] Failed to extract fields from initial message (non-fatal):', err);
@@ -1493,6 +1523,25 @@ async function handleGatheringState(
             // Combine "Got it!" + next question into single message
             await askNextQuestion(convo, threadTs, say, 'Got it!');
           }
+        }
+      } else if (matchesProductLaunchPattern(text)) {
+        // Product launch patterns (e.g., "early access applications", "beta program sign-ups")
+        // recognized even when Claude fails to extract — route to the best-fit field
+        const targetField = !convo.getCollectedData().desired_outcomes ? 'desired_outcomes'
+          : !convo.getCollectedData().context_background ? 'context_background'
+          : null;
+        if (targetField) {
+          console.log(`[intake] Product launch pattern matched — storing as ${targetField}`);
+          convo.markFieldCollected(targetField as keyof CollectedData, text);
+          await convo.save();
+          if (convo.isComplete()) {
+            await say({ text: 'Got it!', thread_ts: threadTs });
+            await enterFollowUpPhase(convo, 1, threadTs, say);
+          } else {
+            await askNextQuestion(convo, threadTs, say, 'Got it!');
+          }
+        } else {
+          await askNextQuestion(convo, threadTs, say, "I didn't quite catch that. Could you rephrase?");
         }
       } else {
         console.log(`[intake] No fields applied (confidence=${extracted.confidence}, currentStep=${step}, substantive=${isSubstantive})`);
