@@ -226,6 +226,55 @@ describe('UNCERTAINTY_PATTERNS (mid-sentence detection)', () => {
   }
 });
 
+// --- Quick Info Patterns (from intent.ts) ---
+import { QUICK_INFO_PATTERNS } from './intent';
+
+describe('QUICK_INFO_PATTERNS', () => {
+  const shouldMatch = [
+    'brand colors',
+    'what are our brand colors',
+    'what are our brand colours',
+    'where are the logos',
+    'where is the logo',
+    'brand logo',
+    'logo files',
+    'logo assets',
+    'brand guidelines',
+    'style guide',
+    'brand fonts',
+    'brand assets',
+    'brand resources',
+    'brand kit',
+    'color palette',
+    'color hex codes',
+    'colour codes',
+    'What is our brand font?',
+  ];
+
+  const shouldNotMatch = [
+    'I need a logo designed',
+    'design a color scheme',
+    'I need a logo designed for our event',
+    'help',
+    'yes',
+    'status of the newsletter',
+    'I want 3 emails',
+    'create a new style for the website',
+  ];
+
+  for (const text of shouldMatch) {
+    it(`matches "${text}"`, () => {
+      expect(QUICK_INFO_PATTERNS.some((p) => p.test(text))).toBe(true);
+    });
+  }
+
+  for (const text of shouldNotMatch) {
+    it(`does NOT match "${text}"`, () => {
+      expect(QUICK_INFO_PATTERNS.some((p) => p.test(text))).toBe(false);
+    });
+  }
+});
+
 // --- Product Launch Patterns (from intake.ts) ---
 const PRODUCT_LAUNCH_PATTERNS = [
   /(early access|beta|launch|rollout|release)\s+(applications?|programs?|testing|phase)/i,

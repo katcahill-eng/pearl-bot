@@ -309,3 +309,42 @@ Some requests span multiple types (e.g., a conference that includes a webinar, o
 - **Brainstorm/calendar option:** Available for all request types. If requesters aren't sure what they need, marketing can do a brainstorm session or help plan a content calendar.
 - **Presentation timelines:** Work backwards from the presentation date. Ask about the approval chain and build in buffer time for reviews.
 - **Expectation setting:** When discussing requests, naturally mention relevant boundaries (e.g., "printed materials are charged back to your department" or "CX handles the HubSpot build — we'll write the copy").
+
+---
+
+## Brand Quick Reference
+
+### Brand Colors
+
+| Name | Hex | Usage |
+|------|-----|-------|
+| Pearl Navy | #002B5C | Primary brand color — headings, buttons, nav |
+| Pearl Teal | #00A8A8 | Accent — CTAs, links, highlights |
+| Pearl White | #FFFFFF | Backgrounds, reverse text |
+| Pearl Light Gray | #F4F4F4 | Section backgrounds, dividers |
+| Pearl Dark Gray | #333333 | Body text |
+
+### Logo Files
+
+| Label | Link |
+|-------|------|
+| Primary Logo (color) | https://drive.google.com/PLACEHOLDER-primary-logo |
+| Primary Logo (white) | https://drive.google.com/PLACEHOLDER-white-logo |
+| Icon Only | https://drive.google.com/PLACEHOLDER-icon |
+| Full Brand Kit | https://drive.google.com/PLACEHOLDER-brand-kit |
+
+### Brand Guidelines
+
+| Label | Link |
+|-------|------|
+| Brand Guidelines PDF | https://drive.google.com/PLACEHOLDER-brand-guidelines |
+| Slide Master Template | https://drive.google.com/PLACEHOLDER-slide-template |
+| Canva Brand Kit | https://www.canva.com/PLACEHOLDER-brand-kit |
+
+### Fonts
+
+| Usage | Font | Notes |
+|-------|------|-------|
+| Headings | Montserrat | Bold / SemiBold weights |
+| Body | Open Sans | Regular / Light weights |
+| Monospace | Source Code Pro | Data tables, code snippets |

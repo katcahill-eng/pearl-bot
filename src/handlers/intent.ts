@@ -1,4 +1,4 @@
-export type Intent = 'help' | 'status' | 'search' | 'intake';
+export type Intent = 'help' | 'quick_info' | 'status' | 'search' | 'intake';
 
 const STATUS_PATTERNS = [
   /\bstatus\s+of\b/i,
@@ -14,6 +14,19 @@ const SEARCH_PATTERNS = [
   /\bfind\b.*\bbrief\b/i,
   /\bfind\b.*\bfolder\b/i,
   /\bfind\b.*\bproject\b/i,
+];
+
+export const QUICK_INFO_PATTERNS = [
+  /\bbrand\s+colou?rs?\b/i,
+  /\bcolou?r\s+(palette|hex|codes?)\b/i,
+  /\bwhere\s+(are|is)\s+(the\s+)?logos?\b/i,
+  /\bbrand\s+logos?\b/i,
+  /\blogo\s+(files?|assets?|downloads?)\b/i,
+  /\bbrand\s+guidelines?\b/i,
+  /\bstyle\s+guide\b/i,
+  /\bbrand\s+fonts?\b/i,
+  /\bbrand\s+(assets?|resources?|kit)\b/i,
+  /\bwhat\s+(are|is)\s+our\s+(brand|colou?r|font|logo)/i,
 ];
 
 // Only match explicit help-only messages (not "I need help with X")
@@ -37,6 +50,10 @@ export function detectIntent(rawText: string): Intent {
 
   for (const pattern of HELP_PATTERNS) {
     if (pattern.test(text)) return 'help';
+  }
+
+  for (const pattern of QUICK_INFO_PATTERNS) {
+    if (pattern.test(text)) return 'quick_info';
   }
 
   for (const pattern of STATUS_PATTERNS) {

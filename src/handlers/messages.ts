@@ -3,6 +3,7 @@ import { detectIntent, getHelpMessage } from './intent';
 import { handleIntakeMessage, recoverConversationFromHistory } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
+import { handleQuickInfo } from './quick-info';
 import { ConversationManager } from '../lib/conversation';
 import { cancelStaleConversationsForUser } from '../lib/db';
 
@@ -177,6 +178,10 @@ export function registerMessageHandler(app: App): void {
       switch (intent) {
         case 'help':
           await say({ text: getHelpMessage(), thread_ts });
+          break;
+
+        case 'quick_info':
+          await handleQuickInfo({ text, threadTs: thread_ts, say });
           break;
 
         case 'status':

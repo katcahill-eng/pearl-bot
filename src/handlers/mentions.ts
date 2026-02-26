@@ -3,6 +3,7 @@ import { detectIntent, getHelpMessage } from './intent';
 import { handleIntakeMessage } from './intake';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
+import { handleQuickInfo } from './quick-info';
 import { ConversationManager } from '../lib/conversation';
 
 export function registerMentionHandler(app: App): void {
@@ -44,6 +45,10 @@ export function registerMentionHandler(app: App): void {
       switch (intent) {
         case 'help':
           await say({ text: getHelpMessage(), thread_ts });
+          break;
+
+        case 'quick_info':
+          await handleQuickInfo({ text, threadTs: thread_ts, say });
           break;
 
         case 'status':
