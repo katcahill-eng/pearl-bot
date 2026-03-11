@@ -9,7 +9,7 @@ import { sendApprovalRequest } from './approval';
 import { getHelpMessage } from './intent';
 import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics, logError } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
-import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems, uploadFileToItem } from '../lib/monday';
+import { addMondayItemUpdate, updateMondayItemStatus, updateMondayItemColumns, buildMondayUrl, searchItems, uploadFileToItem, MONDAY_COLUMNS } from '../lib/monday';
 import { searchProjects } from '../lib/db';
 import { getWorkspaceUsers, resolveNames, extractNamesFromText } from '../lib/slack-users';
 
@@ -2033,10 +2033,22 @@ async function handlePostSubmissionMessage(
   }
 
   if (mondayItemId) {
+    // Post as a comment for visibility
     try {
       await addMondayItemUpdate(mondayItemId, `[${label}] from requester:\n${text}`);
     } catch (err) {
       console.error('[intake] Failed to add Monday.com update:', err);
+    }
+
+    // Also update the supporting links column if URLs were detected
+    if (hasUrls) {
+      try {
+        await updateMondayItemColumns(mondayItemId, {
+          [MONDAY_COLUMNS.supportingLinks]: { text },
+        });
+      } catch (err) {
+        console.error('[intake] Failed to update Monday.com supporting links:', err);
+      }
     }
   }
 }

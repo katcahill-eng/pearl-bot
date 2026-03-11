@@ -278,6 +278,20 @@ export const TYPE_PROBES: Record<string, TypeProbe[]> = {
       priority: 2,
     },
   ],
+  presentation: [
+    {
+      fieldKey: 'presentation_draft',
+      question: "Just so we're on the same page — marketing handles messaging, brand compliance, and sourcing graphics, but we'll need your team to put together the first draft of the deck, even if it's just bullet points on each slide. Do you have a draft started, or do you need a template to get going?",
+      keywords: /draft|template|bullet|started|from\s*scratch/i,
+      priority: 1,
+    },
+    {
+      fieldKey: 'presentation_presenter',
+      question: 'Will there be any presentations or panels you\'re speaking at? If so, do you need help with slide deck design?',
+      keywords: /present|speak|panel|slide|deck/i,
+      priority: 2,
+    },
+  ],
   graphic_design: [
     {
       fieldKey: 'design_usage',
