@@ -417,7 +417,7 @@ export async function interpretFollowUpAnswer(
   question: FollowUpQuestion,
   collectedData: Partial<CollectedData>,
   upcomingQuestions?: FollowUpQuestion[],
-): Promise<{ value: string; additional_fields?: Record<string, string> }> {
+): Promise<{ value: string; acknowledgment?: string; additional_fields?: Record<string, string> }> {
   const upcomingList = upcomingQuestions && upcomingQuestions.length > 0
     ? `\n\nUpcoming questions the user hasn't been asked yet:\n${upcomingQuestions.map((q) => `- field_key: "${q.field_key}" — "${q.question}"`).join('\n')}\n\nIf the user's answer also addresses any of these upcoming questions, include them in additional_fields using their field_key.`
     : '';
@@ -431,6 +431,7 @@ Extract the answer to the asked question. If the user also provides information 
 
 Return a JSON object with:
 - "value": the answer to the current question (string)
+- "acknowledgment": a brief, natural 1-sentence confirmation of what the user said (e.g., "Got it — organic social only.", "Noted, no paid ads.", "Sounds good — live webinar format."). Must be a STATEMENT, never a question.
 - "additional_fields": optional object mapping field_key → value for any extra info provided
 
 If the user's message doesn't answer the question (off-topic, unclear), set value to an empty string.
@@ -448,14 +449,72 @@ Respond with ONLY a JSON object, no markdown formatting, no code blocks.`;
 
   try {
     const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    const parsed = JSON.parse(cleaned) as { value: string; additional_fields?: Record<string, string> };
+    const parsed = JSON.parse(cleaned) as { value: string; acknowledgment?: string; additional_fields?: Record<string, string> };
     return {
       value: parsed.value ?? '',
+      acknowledgment: parsed.acknowledgment ?? undefined,
       additional_fields: parsed.additional_fields,
     };
   } catch {
     // Fallback: use the raw message as the value
     return { value: message };
+  }
+}
+
+/**
+ * Interpret a user correction to a previously collected field.
+ * Returns which field(s) should be updated and with what values.
+ */
+export async function interpretCorrection(
+  message: string,
+  collectedData: Partial<CollectedData>,
+): Promise<{ corrections: Record<string, string>; acknowledgment: string } | null> {
+  const collected = Object.entries(collectedData)
+    .filter(([k, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0) && k !== 'additional_details')
+    .map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join(', ') : v}`);
+
+  // Include follow-up details too
+  const details = (collectedData as CollectedData).additional_details ?? {};
+  for (const [k, v] of Object.entries(details)) {
+    if (!k.startsWith('__') && v && v !== '_needs discussion_') {
+      collected.push(`- ${k}: ${v}`);
+    }
+  }
+
+  const systemPrompt = `You are interpreting a user's correction in a marketing intake conversation. The user wants to fix something they previously said.
+
+Here is everything collected so far:
+${collected.join('\n')}
+
+The user's message is a correction. Determine:
+1. Which field(s) they want to correct (use the field keys shown above)
+2. What the new value should be
+
+Return a JSON object with:
+- "corrections": an object mapping field_key → corrected_value (for the fields being corrected)
+- "acknowledgment": a brief, friendly confirmation of the correction (e.g., "Got it — updated to organic social posts.", "Fixed — no advertising, just social media.")
+
+If you cannot determine what is being corrected, return null.
+
+Respond with ONLY a JSON object (or the word "null"), no markdown formatting, no code blocks.`;
+
+  try {
+    const response = await fastClient.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: `User's correction: "${message}"` }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : 'null';
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    if (cleaned === 'null') return null;
+
+    const parsed = JSON.parse(cleaned) as { corrections: Record<string, string>; acknowledgment: string };
+    if (!parsed.corrections || Object.keys(parsed.corrections).length === 0) return null;
+    return parsed;
+  } catch {
+    return null;
   }
 }
 

@@ -2,7 +2,7 @@ import type { App, SayFn } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
 import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
-import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
+import { interpretMessage, classifyRequest, classifyRequestType, generateFollowUpQuestions, interpretFollowUpAnswer, interpretCorrection, type ExtractedFields, type FollowUpQuestion } from '../lib/claude';
 import { generateFieldGuidance, generateDeliverablesOptions, getProbesForTypes, type TypeProbe } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
@@ -57,6 +57,16 @@ const DISCUSS_PATTERNS = [
   /^flag\s*(this|it)?/i, /^needs?\s*discussion/i, /^talk\s*(about\s*)?(this|it)/i,
   /^let['\u2019]?s\s*talk/i, /^come\s*back\s*to\s*(this|it)/i,
   /^not\s*sure.*talk/i, /^circle\s*back/i,
+];
+const CORRECTION_PATTERNS = [
+  /^(no|nope|wait),?\s*(i\s*(didn['\u2019]?t|never)\s*say|that['\u2019]?s?\s*(wrong|incorrect|not\s*(right|what)))/i,
+  /^i\s*(didn['\u2019]?t|never)\s*say/i,
+  /^(actually|wait),?\s*(it['\u2019]?s|i\s*(said|meant|need))\b/i,
+  /^that['\u2019]?s?\s*(not|wrong|incorrect)/i,
+  /\bnot\s+\w+[,;]\s*(i\s*(said|meant|need)|it['\u2019]?s)\b/i,
+  /^correction\b/i,
+  /^i\s*(said|meant)\s+\w+.*(not|instead\s*of)\b/i,
+  /\binstead\s*of\b/i,
 ];
 const NUDGE_PATTERNS = [
   /^h(ello|i|ey|owdy)\b/i, /^yo\b/i, /^sup\b/i, /^what['\u2019]?s\s*up/i,
@@ -1702,9 +1712,44 @@ async function handleFollowUpAnswer(
     return;
   }
 
+  // Check for corrections to previously collected fields
+  if (matchesAny(text, CORRECTION_PATTERNS)) {
+    try {
+      const correctionResult = await interpretCorrection(text, convo.getCollectedData());
+      if (correctionResult) {
+        // Apply corrections to the right fields
+        const coreFields = ['requester_name', 'requester_department', 'target', 'context_background', 'desired_outcomes', 'due_date', 'approvals', 'constraints'];
+        const details = convo.getCollectedData().additional_details;
+        for (const [key, value] of Object.entries(correctionResult.corrections)) {
+          if (coreFields.includes(key)) {
+            convo.markFieldCollected(key as keyof CollectedData, key === 'deliverables' ? value.split(',').map((s: string) => s.trim()) : value);
+          } else if (key === 'deliverables') {
+            convo.markFieldCollected('deliverables', value.split(',').map((s: string) => s.trim()));
+          } else {
+            details[key] = value;
+            convo.markFieldCollected('additional_details', details);
+          }
+        }
+        await convo.save();
+
+        // Acknowledge the correction and re-ask the current question
+        const currentQuestion = questions[currentIndex];
+        await say({
+          text: `${correctionResult.acknowledgment}\n\n${currentQuestion.question}`,
+          thread_ts: threadTs,
+        });
+        return;
+      }
+    } catch (err) {
+      console.error('[intake] Correction interpretation failed, treating as normal answer:', err);
+    }
+    // If correction parsing failed, fall through to normal interpretation
+  }
+
   // Interpret the answer — pass upcoming questions so Claude can detect pre-answers
   const currentQuestion = questions[currentIndex];
   const upcomingQuestions = questions.slice(currentIndex + 1);
+  let ack: string | undefined;
   try {
     const result = await interpretFollowUpAnswer(text, currentQuestion, convo.getCollectedData(), upcomingQuestions);
 
@@ -1722,6 +1767,9 @@ async function handleFollowUpAnswer(
     }
 
     convo.markFieldCollected('additional_details', details);
+
+    // Capture acknowledgment for combining with the next question
+    ack = result.acknowledgment;
 
     // Merge any deliverable-like items mentioned in the follow-up answer into the core deliverables array
     mergeFollowUpDeliverables(convo, result.value ?? text);
@@ -1792,11 +1840,12 @@ async function handleFollowUpAnswer(
   }
 
   if (nextIndex >= questions.length) {
+    if (ack) await say({ text: ack, thread_ts: threadTs });
     await transitionToConfirming(convo, threadTs, say);
   } else {
     convo.setFollowUpIndex(nextIndex);
     await convo.save();
-    await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say);
+    await askFollowUpQuestion(convo, nextIndex, questions, threadTs, say, ack);
   }
 }
 
@@ -1883,6 +1932,7 @@ async function askFollowUpQuestion(
   questions: FollowUpQuestion[],
   threadTs: string,
   say: SayFn,
+  ackPrefix?: string,
 ): Promise<void> {
   const question = questions[index];
   const remaining = questions.length - index;
@@ -1894,8 +1944,9 @@ async function askFollowUpQuestion(
     progressText = `\n_Last one!_`;
   }
 
+  const prefix = ackPrefix ? `${ackPrefix}\n\n` : '';
   await say({
-    text: `${question.question}${progressText}`,
+    text: `${prefix}${question.question}${progressText}`,
     thread_ts: threadTs,
   });
 }
