@@ -145,10 +145,11 @@ export function registerMessageHandler(app: App): void {
           return;
         }
 
-        // No existing conversation — run intent detection before defaulting to intake
-        if (!existingConvo) {
+        // No active conversation — run intent detection before defaulting to intake
+        const isTerminal = existingConvo && ['cancelled', 'complete', 'withdrawn'].includes(existingConvo.getStatus());
+        if (!existingConvo || isTerminal) {
           const threadIntent = detectIntent(text);
-          console.log(`[messages] Thread reply with no conversation, intent=${threadIntent}, thread=${thread_ts}`);
+          console.log(`[messages] Thread reply with ${isTerminal ? 'terminal' : 'no'} conversation, intent=${threadIntent}, thread=${thread_ts}`);
 
           if (threadIntent === 'quick_info') {
             await handleQuickInfo({ text, threadTs: thread_ts, say });
