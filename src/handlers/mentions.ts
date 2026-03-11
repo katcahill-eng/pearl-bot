@@ -1,6 +1,7 @@
 import type { App } from '@slack/bolt';
 import { detectIntent, getHelpMessage } from './intent';
 import { handleIntakeMessage } from './intake';
+import { handleDocumentReviewMessage } from './document-review';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { handleQuickInfo } from './quick-info';
@@ -22,13 +23,6 @@ export function registerMentionHandler(app: App): void {
     }));
 
     console.log(`[mentions] Received app_mention from ${userId} in channel ${event.channel}: "${text.substring(0, 80)}" event.ts=${event.ts} event.thread_ts=${event.thread_ts ?? 'NONE'} → using thread_ts=${thread_ts}`);
-
-    // Channel restriction — only respond in the allowed channel (if configured)
-    const allowedChannel = process.env.ALLOWED_CHANNEL_ID;
-    if (allowedChannel && event.channel !== allowedChannel) {
-      console.log(`[mentions] Ignoring mention in channel ${event.channel} (allowed: ${allowedChannel})`);
-      return;
-    }
 
     try {
       // For threaded mentions, check if the thread already has a conversation owned by another user
@@ -57,6 +51,19 @@ export function registerMentionHandler(app: App): void {
 
         case 'search':
           await handleSearchRequest({ text, threadTs: thread_ts, say });
+          break;
+
+        case 'document_review':
+          await handleDocumentReviewMessage({
+            userId: event.user ?? '',
+            userName: event.user ?? '',
+            channelId: event.channel,
+            threadTs: thread_ts,
+            text,
+            files,
+            say,
+            client,
+          });
           break;
 
         case 'intake':

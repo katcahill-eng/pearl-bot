@@ -1,10 +1,12 @@
 import type { App } from '@slack/bolt';
+import type { WebClient } from '@slack/web-api';
 import { config } from '../lib/config';
 import { getConversationById, updateTriageInfo, resetTriageReminderCount } from '../lib/db';
 import { ConversationManager, generateProjectName, type CollectedData } from '../lib/conversation';
 import { executeApprovedWorkflow, buildCompletionMessage } from '../lib/workflow';
 import { buildNotificationMessage } from '../lib/notifications';
 import { updateMondayItemStatus, addMondayItemUpdate, buildMondayUrl } from '../lib/monday';
+import type { QCResult } from '../lib/qc-runner';
 
 // --- Types ---
 
@@ -390,6 +392,233 @@ function triageGuideText(): string {
     '• *Full Project* — Generates a brief + Google Drive folder on approval.\n\n' +
     '_You can reclassify at any time. Use "Notify Requester" to send an extra message with context._'
   );
+}
+
+// --- QC Document Review Triage ---
+
+/**
+ * Build triage blocks specifically for document reviews.
+ * Shows document info, QC grade, and issue summary without classification dropdown.
+ */
+function buildQCTriageBlocks(opts: {
+  conversationId: number;
+  docTitle: string;
+  docUrl: string;
+  docType: string;
+  requesterName: string;
+  qcGrade: string | null;
+  qcSummary: string | null;
+  qcError: string | null;
+  criticalCount: number;
+  importantCount: number;
+  minorCount: number;
+  status: TriageStatus;
+  lockedBy?: string;
+}): any[] {
+  const { conversationId, docTitle, docUrl, docType, requesterName, qcGrade, qcSummary, qcError, criticalCount, importantCount, minorCount, status, lockedBy } = opts;
+
+  const gradeDisplay = qcGrade ?? 'N/A';
+  const gradeEmoji = qcGrade === 'A' ? ':white_check_mark:' : qcGrade === 'B' ? ':large_green_circle:' : qcGrade === 'C' ? ':warning:' : qcGrade === 'D' ? ':red_circle:' : qcGrade === 'F' ? ':no_entry:' : ':question:';
+
+  const blocks: any[] = [
+    {
+      type: 'header',
+      text: {
+        type: 'plain_text',
+        text: `Document Review: ${docTitle}`.slice(0, 150),
+      },
+    },
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Requester:*\n${requesterName}` },
+        { type: 'mrkdwn', text: `*Document Type:*\n${docType}` },
+        { type: 'mrkdwn', text: `*QC Grade:*\n${gradeEmoji} ${gradeDisplay}` },
+        { type: 'mrkdwn', text: `*Status:*\n${status}` },
+      ],
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:link: <${docUrl}|View Document>`,
+      },
+    },
+  ];
+
+  // QC Summary
+  if (qcSummary) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*QC Summary:*\n${qcSummary}`,
+      },
+    });
+  }
+
+  // Error note (if QC failed)
+  if (qcError) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:warning: *QC Error:*\n${qcError}`,
+      },
+    });
+  }
+
+  // Issue counts
+  if (qcGrade) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Issues:* ${criticalCount} critical, ${importantCount} important, ${minorCount} minor`,
+      },
+    });
+  }
+
+  // Terminal states — show locked message
+  if (status === 'Completed' || status === 'Declined' || status === 'Withdrawn') {
+    const icon = status === 'Completed' ? ':white_check_mark:' : status === 'Withdrawn' ? ':no_entry:' : ':no_entry_sign:';
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `${icon} *${status}* by ${lockedBy ?? 'Unknown'}`,
+      },
+    });
+    return blocks;
+  }
+
+  // Active states — show status dropdown + notify button (no classification dropdown)
+  const actionValue = JSON.stringify({ conversationId });
+
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'static_select',
+        placeholder: { type: 'plain_text', text: 'Change Status' },
+        action_id: 'approval_status_change',
+        initial_option: {
+          text: { type: 'plain_text', text: status },
+          value: status,
+        },
+        options: [
+          { text: { type: 'plain_text', text: 'Under Review' }, value: 'Under Review' },
+          { text: { type: 'plain_text', text: 'Discussion Needed' }, value: 'Discussion Needed' },
+          { text: { type: 'plain_text', text: 'In Progress' }, value: 'In Progress' },
+          { text: { type: 'plain_text', text: 'On Hold' }, value: 'On Hold' },
+          { text: { type: 'plain_text', text: 'Completed' }, value: 'Completed' },
+          { text: { type: 'plain_text', text: 'Declined' }, value: 'Declined' },
+          { text: { type: 'plain_text', text: 'Withdrawn' }, value: 'Withdrawn' },
+        ],
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Notify Requester' },
+        action_id: 'approval_notify',
+        value: actionValue,
+      },
+    ],
+  });
+
+  return blocks;
+}
+
+/**
+ * Post a QC triage panel to #mktg-triage with full report card and Excel.
+ */
+export async function postQCTriagePanel(opts: {
+  client: WebClient;
+  conversationId: number;
+  docTitle: string;
+  docUrl: string;
+  docType: string;
+  requesterName: string;
+  qcResult: QCResult | null;
+  qcError: string | null;
+  excelBuffer: Buffer | null;
+}): Promise<void> {
+  const { client, conversationId, docTitle, docUrl, docType, requesterName, qcResult, qcError, excelBuffer } = opts;
+
+  const blocks = buildQCTriageBlocks({
+    conversationId,
+    docTitle,
+    docUrl,
+    docType,
+    requesterName,
+    qcGrade: qcResult?.grade ?? null,
+    qcSummary: qcResult?.summary ?? null,
+    qcError,
+    criticalCount: qcResult?.criticalIssues.length ?? 0,
+    importantCount: qcResult?.importantIssues.length ?? 0,
+    minorCount: qcResult?.minorIssues.length ?? 0,
+    status: 'Under Review',
+  });
+
+  // Post the triage panel
+  const result = await client.chat.postMessage({
+    channel: config.slackNotificationChannelId,
+    text: `Document Review for triage: ${docTitle}`,
+    metadata: {
+      event_type: 'triage_panel',
+      event_payload: { conversationId, projectName: `Doc Review: ${docTitle}`, classification: 'quick' },
+    },
+    blocks,
+  });
+
+  // Store triage message timestamp
+  if (result.ts) {
+    try {
+      await updateTriageInfo(conversationId, result.ts, config.slackNotificationChannelId);
+    } catch (err) {
+      console.error('[approval] Failed to store QC triage info:', err);
+    }
+
+    // Post full report card as threaded reply
+    if (qcResult) {
+      try {
+        const { buildFullReportCardText } = await import('./document-review-report');
+        const reportCardText = buildFullReportCardText(qcResult);
+        await client.chat.postMessage({
+          channel: config.slackNotificationChannelId,
+          thread_ts: result.ts,
+          text: reportCardText,
+        });
+      } catch (err) {
+        console.error('[approval] Failed to post QC report card:', err);
+      }
+    }
+
+    // Upload Excel file as threaded reply
+    if (excelBuffer) {
+      try {
+        await client.files.uploadV2({
+          channel_id: config.slackNotificationChannelId,
+          thread_ts: result.ts,
+          file: excelBuffer,
+          filename: `QC_Report_${docTitle.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 50)}.xlsx`,
+          title: `QC Report: ${docTitle}`,
+        });
+      } catch (err) {
+        console.error('[approval] Failed to upload QC Excel file:', err);
+      }
+    }
+
+    // Post triage guide
+    try {
+      await client.chat.postMessage({
+        channel: config.slackNotificationChannelId,
+        thread_ts: result.ts,
+        text: triageGuideText(),
+      });
+    } catch (err) {
+      console.error('[approval] Failed to post triage guide:', err);
+    }
+  }
 }
 
 /**

@@ -1,11 +1,12 @@
 import type { App } from '@slack/bolt';
 import { detectIntent, getHelpMessage } from './intent';
-import { handleIntakeMessage, recoverConversationFromHistory } from './intake';
+import { handleIntakeMessage } from './intake';
+import { handleDocumentReviewMessage } from './document-review';
 import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { handleQuickInfo } from './quick-info';
 import { ConversationManager } from '../lib/conversation';
-import { cancelStaleConversationsForUser } from '../lib/db';
+import { config } from '../lib/config';
 
 // --- Per-thread message debounce ---
 // When users send multiple messages quickly ("Yeah" + "here"), only process
@@ -47,17 +48,14 @@ export function registerMessageHandler(app: App): void {
     if ('bot_id' in event && event.bot_id) return; // Skip bot messages without subtype
 
     const isDM = event.channel_type === 'im';
+    const isInBotChannel = event.channel === config.slackMarketingChannelId;
     const isThreadReply = 'thread_ts' in event && event.thread_ts !== undefined;
-
-    // Only handle DMs and thread replies in channels (where conversations happen)
-    if (!isDM && !isThreadReply) return;
-
     const text = event.text ?? '';
     const messageTs = event.ts;
     const thread_ts = event.thread_ts ?? event.ts;
     const userId = 'user' in event ? (event.user as string) : '';
 
-    // Extract file attachments from Slack event (for post-submission file sharing)
+    // Extract file attachments from Slack event
     const rawFiles = 'files' in event ? (event as any).files as any[] : undefined;
     const files = rawFiles?.map((f: any) => ({
       id: f.id as string,
@@ -66,46 +64,35 @@ export function registerMessageHandler(app: App): void {
       urlPrivate: (f.url_private as string) ?? '',
     }));
 
-    console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
+    console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}, inBotChannel=${isInBotChannel}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
 
-    // Debounce: if the user sends multiple messages quickly, only process the last one.
-    // This prevents double-processing when users split their response across messages
-    // (e.g., "Yeah" + "here" should only process "here").
-    if (isThreadReply) {
-      const shouldProcess = await debounceMessage(thread_ts, userId);
-      if (!shouldProcess) {
-        console.log(`[messages] Skipping superseded message "${text.substring(0, 40)}" in thread ${thread_ts}`);
-        return;
-      }
-    }
-
-    // --- Channel thread replies: route directly to handleIntakeMessage ---
-    // handleIntakeMessage already handles conversation loading, dup-check detection,
-    // recovery, and all state management. Duplicating that logic here caused race
-    // conditions and bugs. The only thing we check here is thread ownership.
-    if (!isDM) {
+    // --- DM handling: redirect to channel ---
+    if (isDM) {
       try {
-        // Check ownership: only respond if this thread belongs to this user
-        const existingConvo = await ConversationManager.load(userId, thread_ts);
-        if (existingConvo && existingConvo.getUserId() !== userId) {
-          console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
+        const intent = detectIntent(text);
+
+        // Quick info works anywhere — one-shot answers
+        if (intent === 'quick_info') {
+          await handleQuickInfo({ text, threadTs: thread_ts, say });
           return;
         }
 
-        console.log(`[messages] Routing channel thread reply to intake handler, thread=${thread_ts}`);
-        await handleIntakeMessage({
-          userId,
-          userName: userId,
-          channelId: event.channel,
-          threadTs: thread_ts,
-          messageTs,
-          text,
-          files,
-          say,
-          client,
+        // Help: show help message + channel redirect
+        if (intent === 'help') {
+          await say({
+            text: getHelpMessage() + `\n\nHead to <#${config.slackMarketingChannelId}> to get started — no @mention needed!`,
+            thread_ts,
+          });
+          return;
+        }
+
+        // Everything else: redirect to the bot channel
+        await say({
+          text: `Hey! I work best in <#${config.slackMarketingChannelId}>. Head over there and tell me what you need — no @mention needed, I'll pick it up automatically.`,
+          thread_ts,
         });
       } catch (err) {
-        console.error(`[messages] Error handling channel thread reply in ${thread_ts}:`, err);
+        console.error('[messages] Error handling DM:', err);
         try {
           await say({
             text: "Something went wrong on my end. Your info hasn't been lost — you can try again, use the intake form, or tag someone from the marketing team in #marcoms-requests for help.",
@@ -118,29 +105,37 @@ export function registerMessageHandler(app: App): void {
       return;
     }
 
-    // --- DM handling below ---
-    try {
-      // Check if there's an active conversation in this thread — if so, route directly to intake
-      let existingConvo = await ConversationManager.load(userId, thread_ts);
+    // --- Only respond in the dedicated bot channel ---
+    if (!isInBotChannel) return;
 
-      // Retry with increasing delays for thread replies — handles race conditions
-      if (!existingConvo && isThreadReply) {
-        for (const delayMs of [1500, 2500, 3000]) {
-          await new Promise((r) => setTimeout(r, delayMs));
-          existingConvo = await ConversationManager.load(userId, thread_ts);
-          if (existingConvo) break;
+    try {
+      // Debounce rapid messages in threads
+      if (isThreadReply) {
+        const shouldProcess = await debounceMessage(thread_ts, userId);
+        if (!shouldProcess) {
+          console.log(`[messages] Skipping superseded message "${text.substring(0, 40)}" in thread ${thread_ts}`);
+          return;
         }
       }
 
-      if (existingConvo) {
-        const status = existingConvo.getStatus();
-        if (status === 'gathering' || status === 'confirming' || status === 'pending_approval' || status === 'complete') {
-          await handleIntakeMessage({
+      // --- Thread replies: route to existing conversation ---
+      if (isThreadReply) {
+        const existingConvo = await ConversationManager.load(userId, thread_ts);
+
+        // Check ownership: only respond if this thread belongs to this user
+        if (existingConvo && existingConvo.getUserId() !== userId) {
+          console.log(`[messages] Ignoring message from non-owner ${userId} in thread ${thread_ts} (owner: ${existingConvo.getUserId()})`);
+          return;
+        }
+
+        // Route to document review if that's what this conversation is
+        if (existingConvo && existingConvo.getCurrentStep()?.startsWith('doc_review:')) {
+          console.log(`[messages] Routing thread reply to document-review handler, thread=${thread_ts}`);
+          await handleDocumentReviewMessage({
             userId,
             userName: userId,
             channelId: event.channel,
             threadTs: thread_ts,
-            messageTs,
             text,
             files,
             say,
@@ -148,48 +143,54 @@ export function registerMessageHandler(app: App): void {
           });
           return;
         }
-      }
 
-      // If this is a DM thread reply with no DB conversation, try to recover from history
-      if (!existingConvo && isThreadReply) {
-        const cancelled = await cancelStaleConversationsForUser(userId, thread_ts);
-        if (cancelled > 0) {
-          console.log(`[messages] Cancelled ${cancelled} stale DM conversation(s) for user ${userId} before recovery`);
-        }
-        const recovered = await recoverConversationFromHistory({
+        // Route to intake handler (handles all states including recovery)
+        console.log(`[messages] Routing thread reply to intake handler, thread=${thread_ts}`);
+        await handleIntakeMessage({
           userId,
+          userName: userId,
           channelId: event.channel,
           threadTs: thread_ts,
+          messageTs,
+          text,
+          files,
           say,
           client,
-        });
-        if (recovered) return;
-        // Recovery failed — tell the user so they don't just get silence
-        await say({
-          text: "I lost track of our conversation after a restart. Could you start a new request by tagging me in <#" + process.env.SLACK_MARKETING_CHANNEL_ID + ">? Your previous answers weren't saved, sorry about that.",
-          thread_ts,
         });
         return;
       }
 
-      // No active conversation — use intent detection
+      // --- New top-level message in the bot channel ---
       const intent = detectIntent(text);
 
       switch (intent) {
         case 'help':
-          await say({ text: getHelpMessage(), thread_ts });
+          await say({ text: getHelpMessage(), thread_ts: messageTs });
           break;
 
         case 'quick_info':
-          await handleQuickInfo({ text, threadTs: thread_ts, say });
+          await handleQuickInfo({ text, threadTs: messageTs, say });
           break;
 
         case 'status':
-          await handleStatusCheck({ text, threadTs: thread_ts, say });
+          await handleStatusCheck({ text, threadTs: messageTs, say });
           break;
 
         case 'search':
-          await handleSearchRequest({ text, threadTs: thread_ts, say });
+          await handleSearchRequest({ text, threadTs: messageTs, say });
+          break;
+
+        case 'document_review':
+          await handleDocumentReviewMessage({
+            userId,
+            userName: userId,
+            channelId: event.channel,
+            threadTs: messageTs,
+            text,
+            files,
+            say,
+            client,
+          });
           break;
 
         case 'intake':
@@ -198,7 +199,7 @@ export function registerMessageHandler(app: App): void {
             userId,
             userName: userId,
             channelId: event.channel,
-            threadTs: thread_ts,
+            threadTs: messageTs,
             messageTs,
             text,
             files,

@@ -1,4 +1,4 @@
-export type Intent = 'help' | 'quick_info' | 'status' | 'search' | 'intake';
+export type Intent = 'help' | 'quick_info' | 'status' | 'search' | 'intake' | 'document_review';
 
 const STATUS_PATTERNS = [
   /\bstatus\s+of\b/i,
@@ -14,6 +14,18 @@ const SEARCH_PATTERNS = [
   /\bfind\b.*\bbrief\b/i,
   /\bfind\b.*\bfolder\b/i,
   /\bfind\b.*\bproject\b/i,
+];
+
+const DOCUMENT_REVIEW_PATTERNS = [
+  /\breview\s+(this|a|my|the|our)\s+(doc|document|draft|copy|content|article|blog|post|page|email)/i,
+  /\b(doc|document|draft|copy|content|article|blog|post)\s+(review|check|qc|quality)/i,
+  /\b(qc|quality\s*check|quality\s*control|quality\s*review)\s+(this|a|my|the|our)/i,
+  /\bneed(s)?\s+(a\s+)?(content|copy|document|doc)\s+review/i,
+  /\bcheck\s+(this|my|the|our)\s+(doc|document|draft|copy|content)\s+(for|against)/i,
+  /\breview\s+against\s+(brand|guidelines|positioning)/i,
+  /\bbrand\s+(compliance|review|check)/i,
+  /\bcontent\s+qc\b/i,
+  /\brun\s+(a\s+)?qc\b/i,
 ];
 
 export const QUICK_INFO_PATTERNS = [
@@ -56,6 +68,9 @@ const HELP_PATTERNS = [
   /\bwhat\s+are\s+you\b/i,
   /\bwho\s+are\s+you\b/i,
   /\bget\s+started\b/i,
+  /^\s*(hello|hi|hey|hey there|hi there|howdy)\s*[!.]?\s*$/i,
+  /^\s*(yo|sup|what'?s\s*up)\s*[!.]?\s*$/i,
+  /^\s*(good\s+(morning|afternoon|evening))\s*[!.]?\s*$/i,
 ];
 
 function stripMention(text: string): string {
@@ -65,9 +80,9 @@ function stripMention(text: string): string {
 export function detectIntent(rawText: string): Intent {
   const text = stripMention(rawText);
 
-  // Empty messages or bare greetings → treat as intake (bot will start questions)
+  // Empty messages or bare greetings → show help
   if (!text || text.length === 0) {
-    return 'intake';
+    return 'help';
   }
 
   for (const pattern of HELP_PATTERNS) {
@@ -86,26 +101,29 @@ export function detectIntent(rawText: string): Intent {
     if (pattern.test(text)) return 'search';
   }
 
+  // Document review — check before generic intake fallback
+  for (const pattern of DOCUMENT_REVIEW_PATTERNS) {
+    if (pattern.test(text)) return 'document_review';
+  }
+
+  // If message contains a Google Docs link + review-related words
+  const hasGoogleDocLink = /docs\.google\.com\/document\/d\//.test(text);
+  const hasReviewIntent = /\b(review|check|qc|feedback|look\s+at|look\s+over)\b/i.test(text);
+  if (hasGoogleDocLink && hasReviewIntent) return 'document_review';
+
   return 'intake';
 }
 
 export function getHelpMessage(): string {
   return [
-    "Hey there! I'm MarcomsBot, the marketing team's intake assistant. Here's what I can help with:",
+    "Hey! I'm MarcomsBot, the marketing team's assistant. Here's what I can help with:",
     '',
-    '*Brand resources* — just ask:',
-    '• "What are our brand colors?" — hex codes and usage',
-    '• "Where are the logos?" — logo files, app logos, tagline logos, and badges',
-    '• "What\'s our brand font?" — font and weight info',
-    '• "Brand guidelines" — links to guidelines, templates, and brand assets',
-    '• "Where\'s the slide template?" — how to find the master deck in Google Slides',
-    '• "What\'s our tagline?"',
+    "*Submit a request* — just tell me what you need (conference support, email campaign, one-pager, etc.) and I'll walk you through it",
     '',
-    '*Project info:*',
-    '• "Status of [project name]" — check on a project\'s progress',
-    '• "Find the brief for [project name]" — get links to briefs and folders',
+    '*Review a document* — share a link to something you\'d like marketing to review for brand consistency, terminology, and positioning',
     '',
-    '*Submit a request:*',
-    "• Just tell me what you need and I'll walk you through a few quick questions to get your request to the right people.",
+    '*Brand resources* — ask me things like "what are our brand colors?" or "where are the logos?"',
+    '',
+    "_Just tell me what you need and I'll take it from here!_",
   ].join('\n');
 }
