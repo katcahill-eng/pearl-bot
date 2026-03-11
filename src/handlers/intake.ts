@@ -6,6 +6,7 @@ import { interpretMessage, classifyRequest, classifyRequestType, generateFollowU
 import { generateFieldGuidance, generateDeliverablesOptions, getProbesForTypes, type TypeProbe } from '../lib/guidance';
 import { generateProductionTimeline } from '../lib/timeline';
 import { sendApprovalRequest } from './approval';
+import { getHelpMessage } from './intent';
 import { getActiveConversationForUser, getMostRecentCompletedConversation, getConversationById, cancelConversation, updateTriageInfo, isMessageProcessed, hasConversationInThread, logUnrecognizedMessage, logConversationMetrics, logError } from '../lib/db';
 import { createMondayItemForReview } from '../lib/workflow';
 import { addMondayItemUpdate, updateMondayItemStatus, buildMondayUrl, searchItems, uploadFileToItem } from '../lib/monday';
@@ -1016,63 +1017,32 @@ async function startFreshFromDupCheck(
   if (previousTarget) freshDetails['__previous_target'] = previousTarget;
   if (previousDepartment) freshDetails['__previous_department'] = previousDepartment;
 
-  // Anyone who enters startFreshFromDupCheck already got "Welcome back, [Name]!"
-  // so we never re-greet them with a verbose welcome.
-  // Pre-populate name so askNextQuestion skips it and goes straight to content.
-  const knownName = convo.getCollectedData().requester_name ?? convo.getUserName();
-  const dept = previousDepartment || convo.getCollectedData().requester_department;
-  if (knownName) convo.markFieldCollected('requester_name', knownName);
-  // For returning users with a previousTarget, defer the department — don't pre-fill
-  // until after they respond to the target question. For users without a previousTarget,
-  // pre-fill now so the department assumption note can be shown with the first question.
-  if (dept && !previousTarget) {
-    convo.markFieldCollected('requester_department', dept);
-  } else if (dept && previousTarget) {
-    freshDetails['__deferred_department'] = dept;
-  }
+  // Cancel the dup conversation record so the user's next message gets fresh intent detection.
+  // Show the services menu so they can choose what to do (intake, doc review, brand resources, etc.)
+  convo.setStatus('cancelled');
   convo.markFieldCollected('additional_details', freshDetails);
   await convo.save();
 
-  // Offer the previous audience as a follow-up (from accepted projects only)
-  // This is shown as its own message since it needs a direct response.
-  if (previousTarget) {
-    // Set currentStep so handleGatheringState knows the bot just asked about target.
-    // Without this, the user's next reply would cause askNextQuestion to re-ask about
-    // target (because it's still unpopulated), producing a duplicate question.
-    convo.setCurrentStep('target');
-    await convo.save();
-    await say({
-      text: `Your last request was targeting *${previousTarget}*. Is this for the same audience, or a different one?`,
-      thread_ts: threadTs,
-    });
-    return;
-  }
-
-  // If the user typed their actual request inline, process it now instead of losing it
-  if (initialMessage) {
-    // Ensure currentStep is set so Claude knows what field the user is answering.
-    // Without this, Claude gets currentStep=null and often fails to extract fields.
-    convo.getNextQuestion(); // sets convo.currentStep to the first unpopulated field
+  // If the user typed an actual request inline, process it as a fresh intake
+  if (initialMessage && initialMessage.length > 20) {
+    // Re-create as a fresh gathering conversation
+    convo.setStatus('gathering');
+    const knownName = convo.getCollectedData().requester_name ?? convo.getUserName();
+    const dept = previousDepartment || convo.getCollectedData().requester_department;
+    if (knownName) convo.markFieldCollected('requester_name', knownName);
+    if (dept) convo.markFieldCollected('requester_department', dept);
+    convo.getNextQuestion(); // sets currentStep
     await convo.save();
     await handleGatheringState(convo, initialMessage, threadTs, say, client);
     return;
   }
 
-  // Combine the dept assumption and the first question into one message so the
-  // user doesn't see two consecutive messages that both look like questions.
-  const next = convo.getNextQuestion();
-  const deptNote = dept ? `_I'll assume you're requesting support for *${dept}* — let me know if that's not right._\n\n` : '';
-  if (next) {
-    await convo.save();
-    await say({
-      text: `${deptNote}${next.question}\n_${next.example}_`,
-      thread_ts: threadTs,
-    });
-  } else {
-    // All fields somehow already complete — move to follow-up
-    if (deptNote) await say({ text: deptNote.trim(), thread_ts: threadTs });
-    await enterFollowUpPhase(convo, 0, threadTs, say);
-  }
+  const firstName = getFirstName(convo.getCollectedData().requester_name ?? convo.getUserName());
+  const greeting = firstName ? `Fresh start, ${firstName}! ` : 'Fresh start! ';
+  await say({
+    text: `${greeting}${getHelpMessage()}`,
+    thread_ts: threadTs,
+  });
 }
 
 async function handleGatheringState(
