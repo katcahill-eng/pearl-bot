@@ -405,12 +405,13 @@ function buildQCTriageBlocks(opts: {
   docType: string;
   reviewType: string;
   dueDate: string;
+  sendTo: string;
   requesterName: string;
   status: TriageStatus;
   lockedBy?: string;
   mondayUrl?: string | null;
 }): any[] {
-  const { conversationId, docUrl, docType, reviewType, dueDate, requesterName, status, lockedBy, mondayUrl } = opts;
+  const { conversationId, docUrl, docType, reviewType, dueDate, sendTo, requesterName, status, lockedBy, mondayUrl } = opts;
 
   const blocks: any[] = [
     {
@@ -427,6 +428,7 @@ function buildQCTriageBlocks(opts: {
         { type: 'mrkdwn', text: `*Document Type:*\n${docType}` },
         { type: 'mrkdwn', text: `*Review Requested:*\n${reviewType}` },
         { type: 'mrkdwn', text: `*Due:*\n${dueDate}` },
+        { type: 'mrkdwn', text: `*Send Feedback To:*\n${sendTo}` },
         { type: 'mrkdwn', text: `*Status:*\n${status}` },
       ],
     },
@@ -519,10 +521,11 @@ export async function postQCTriagePanel(opts: {
   docType: string;
   reviewType: string;
   dueDate: string;
+  sendTo: string;
   requesterName: string;
   mondayUrl?: string | null;
 }): Promise<void> {
-  const { client, conversationId, docUrl, docType, reviewType, dueDate, requesterName, mondayUrl } = opts;
+  const { client, conversationId, docUrl, docType, reviewType, dueDate, sendTo, requesterName, mondayUrl } = opts;
 
   const blocks = buildQCTriageBlocks({
     conversationId,
@@ -530,6 +533,7 @@ export async function postQCTriagePanel(opts: {
     docType,
     reviewType,
     dueDate,
+    sendTo,
     requesterName,
     status: 'Under Review',
     mondayUrl,

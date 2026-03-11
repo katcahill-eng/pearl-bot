@@ -23,6 +23,75 @@ function extractDocUrl(text: string): string | null {
   return match ? match[0] : null;
 }
 
+/**
+ * Try to parse a human-readable date into YYYY-MM-DD.
+ * Handles: "Friday", "next Friday", "March 15", "3/15", "end of week", "ASAP", etc.
+ */
+function parseDueDate(input: string): string | null {
+  const trimmed = input.trim().toLowerCase();
+
+  // Skip non-date responses
+  if (/^(asap|no rush|whenever|no deadline|flexible|tbd|n\/a)$/i.test(trimmed)) {
+    return null;
+  }
+
+  // Try direct ISO date
+  const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (isoMatch) return isoMatch[1];
+
+  // Try MM/DD or MM/DD/YYYY
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (slashMatch) {
+    const month = parseInt(slashMatch[1], 10);
+    const day = parseInt(slashMatch[2], 10);
+    let year = slashMatch[3] ? parseInt(slashMatch[3], 10) : new Date().getFullYear();
+    if (year < 100) year += 2000;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  // Day of week
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  for (let i = 0; i < days.length; i++) {
+    if (trimmed.includes(days[i])) {
+      const today = new Date();
+      const todayDay = today.getDay();
+      let diff = i - todayDay;
+      if (diff <= 0) diff += 7; // next occurrence
+      const target = new Date(today);
+      target.setDate(today.getDate() + diff);
+      return target.toISOString().split('T')[0];
+    }
+  }
+
+  // "end of week" / "end of day friday" / "eow"
+  if (/end\s+of\s+(the\s+)?week|eow/i.test(trimmed)) {
+    const today = new Date();
+    const diff = 5 - today.getDay();
+    const friday = new Date(today);
+    friday.setDate(today.getDate() + (diff <= 0 ? diff + 7 : diff));
+    return friday.toISOString().split('T')[0];
+  }
+
+  // Month + day: "March 15", "Mar 15"
+  const months: Record<string, number> = {
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+    aug: 8, august: 8, sep: 9, september: 9, oct: 10, october: 10,
+    nov: 11, november: 11, dec: 12, december: 12,
+  };
+  const monthMatch = trimmed.match(/^(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?$/);
+  if (monthMatch) {
+    const monthNum = months[monthMatch[1]];
+    if (monthNum) {
+      const day = parseInt(monthMatch[2], 10);
+      const year = monthMatch[3] ? parseInt(monthMatch[3], 10) : new Date().getFullYear();
+      return `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
+}
+
 function isCancelMessage(text: string): boolean {
   const trimmed = text.trim();
   return CANCEL_PATTERNS.some((p) => p.test(trimmed));
@@ -177,11 +246,32 @@ export async function handleDocumentReviewMessage(opts: {
   // --- Step: Waiting for due date ---
   if (currentStep === 'doc_review:due_date') {
     const dueDate = text.trim();
+    const parsedDate = parseDueDate(dueDate);
     const data = convo.getCollectedData();
 
     convo.markFieldCollected('additional_details', {
       ...data.additional_details,
       __due_date: dueDate,
+      __due_date_parsed: parsedDate ?? '',
+    });
+    convo.setCurrentStep('doc_review:send_to');
+    await convo.save();
+
+    await say({
+      text: "Last question — should we send the feedback back to you, or is there someone else who should be looped in?\n\n_e.g., \"send it to me\", \"loop in Sarah and Mike\", \"send to the whole team\"_",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  // --- Step: Waiting for feedback recipient ---
+  if (currentStep === 'doc_review:send_to') {
+    const sendTo = text.trim();
+    const data = convo.getCollectedData();
+
+    convo.markFieldCollected('additional_details', {
+      ...data.additional_details,
+      __send_to: sendTo,
     });
     convo.setCurrentStep('doc_review:running');
     await convo.save();
@@ -238,6 +328,8 @@ async function executeDocumentReview(opts: {
   const docType = data.additional_details['__doc_type'];
   const reviewType = data.additional_details['__review_type'] ?? 'Full review';
   const dueDate = data.additional_details['__due_date'] ?? 'Not specified';
+  const dueDateParsed = data.additional_details['__due_date_parsed'] || null;
+  const sendTo = data.additional_details['__send_to'] ?? 'Requester';
 
   // Step 1: Post confirmation to user
   await say({
@@ -260,10 +352,11 @@ async function executeDocumentReview(opts: {
   let mondayUrl: string | null = null;
   try {
     const collectedData = convo.getCollectedData();
-    collectedData.context_background = `Document review: ${docType ?? 'document'}`;
+    collectedData.context_background = `Document review (${docType ?? 'document'}): ${reviewType}`;
     collectedData.deliverables = ['Document Review'];
     collectedData.target = 'Internal — Marketing';
     collectedData.desired_outcomes = `${reviewType} review requested`;
+    collectedData.due_date_parsed = dueDateParsed;
     collectedData.due_date = dueDate;
 
     const mondayResult = await createMondayItemForReview({
@@ -284,6 +377,23 @@ async function executeDocumentReview(opts: {
       if (convId) {
         await updateMondayItemId(convId, mondayResult.itemId);
       }
+
+      // Post review details as a Monday update
+      try {
+        const { addMondayItemUpdate } = await import('../lib/monday');
+        const updateBody = [
+          `Document Review Details:`,
+          ``,
+          `• Document type: ${docType ?? 'Not specified'}`,
+          `• Review requested: ${reviewType}`,
+          `• Due: ${dueDate}`,
+          `• Send feedback to: ${sendTo}`,
+          `• Document: ${docUrl}`,
+        ].join('\n');
+        await addMondayItemUpdate(mondayResult.itemId, updateBody);
+      } catch (err) {
+        console.error('[document-review] Failed to add Monday update:', err);
+      }
     }
   } catch (err) {
     console.error('[document-review] Failed to create Monday item:', err);
@@ -300,6 +410,7 @@ async function executeDocumentReview(opts: {
         docType: docType ?? 'Not specified',
         reviewType,
         dueDate,
+        sendTo,
         requesterName: displayName,
         mondayUrl,
       });
