@@ -404,11 +404,12 @@ function buildQCTriageBlocks(opts: {
   docUrl: string;
   docType: string;
   reviewType: string;
+  dueDate: string;
   requesterName: string;
   status: TriageStatus;
   lockedBy?: string;
 }): any[] {
-  const { conversationId, docUrl, docType, reviewType, requesterName, status, lockedBy } = opts;
+  const { conversationId, docUrl, docType, reviewType, dueDate, requesterName, status, lockedBy } = opts;
 
   const blocks: any[] = [
     {
@@ -424,6 +425,7 @@ function buildQCTriageBlocks(opts: {
         { type: 'mrkdwn', text: `*Requester:*\n${requesterName}` },
         { type: 'mrkdwn', text: `*Document Type:*\n${docType}` },
         { type: 'mrkdwn', text: `*Review Requested:*\n${reviewType}` },
+        { type: 'mrkdwn', text: `*Due:*\n${dueDate}` },
         { type: 'mrkdwn', text: `*Status:*\n${status}` },
       ],
     },
@@ -432,6 +434,16 @@ function buildQCTriageBlocks(opts: {
       text: {
         type: 'mrkdwn',
         text: `:link: <${docUrl}|View Document>`,
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: ':clipboard: *Workflow:*\n' +
+          '1. Open document and run QC check (`pearl-content-qc`)\n' +
+          '2. Review report card and prepare suggested edits\n' +
+          '3. Send feedback to requester using the *Notify Requester* button',
       },
     },
   ];
@@ -494,15 +506,17 @@ export async function postQCTriagePanel(opts: {
   docUrl: string;
   docType: string;
   reviewType: string;
+  dueDate: string;
   requesterName: string;
 }): Promise<void> {
-  const { client, conversationId, docUrl, docType, reviewType, requesterName } = opts;
+  const { client, conversationId, docUrl, docType, reviewType, dueDate, requesterName } = opts;
 
   const blocks = buildQCTriageBlocks({
     conversationId,
     docUrl,
     docType,
     reviewType,
+    dueDate,
     requesterName,
     status: 'Under Review',
   });

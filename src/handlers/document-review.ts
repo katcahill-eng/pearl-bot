@@ -163,6 +163,25 @@ export async function handleDocumentReviewMessage(opts: {
       ...data.additional_details,
       __review_type: reviewType,
     });
+    convo.setCurrentStep('doc_review:due_date');
+    await convo.save();
+
+    await say({
+      text: "When do you need this review completed by?\n\n_e.g., end of day Friday, March 15, no rush, ASAP_",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  // --- Step: Waiting for due date ---
+  if (currentStep === 'doc_review:due_date') {
+    const dueDate = text.trim();
+    const data = convo.getCollectedData();
+
+    convo.markFieldCollected('additional_details', {
+      ...data.additional_details,
+      __due_date: dueDate,
+    });
     convo.setCurrentStep('doc_review:running');
     await convo.save();
 
@@ -217,6 +236,7 @@ async function executeDocumentReview(opts: {
   const docUrl = data.additional_details['__doc_url'];
   const docType = data.additional_details['__doc_type'];
   const reviewType = data.additional_details['__review_type'] ?? 'Full review';
+  const dueDate = data.additional_details['__due_date'] ?? 'Not specified';
 
   // Step 1: Post confirmation to user
   await say({
@@ -245,6 +265,7 @@ async function executeDocumentReview(opts: {
         docUrl,
         docType: docType ?? 'Not specified',
         reviewType,
+        dueDate,
         requesterName: displayName,
       });
     }
