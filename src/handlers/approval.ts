@@ -705,7 +705,7 @@ export function registerApprovalHandler(app: App): void {
         try {
           await client.chat.postMessage({
             channel: convo.getChannelId(),
-            text: ':tada: *All set! Your request has been approved and is now in progress.*\n\nThe marketing team has been notified and will begin working on your request.\nReply to me anytime to check on status.\n\n_I\'m your intake assistant — the marketing team will take it from here!_',
+            text: `<@${row.user_id}> :tada: *All set! Your request has been approved and is now in progress.*\n\nThe marketing team has been notified and will begin working on your request.\nReply to me anytime to check on status.\n\n_I'm your intake assistant — the marketing team will take it from here!_`,
             thread_ts: convo.getThreadTs(),
           });
         } catch (err) {
@@ -745,7 +745,7 @@ export function registerApprovalHandler(app: App): void {
       try {
         await client.chat.postMessage({
           channel: convo.getChannelId(),
-          text: 'Your request has been put on hold temporarily. The marketing team will let you know when work resumes.',
+          text: `<@${row.user_id}> Your request has been put on hold temporarily. The marketing team will let you know when work resumes.`,
           thread_ts: convo.getThreadTs(),
         });
       } catch (err) {
@@ -770,7 +770,7 @@ export function registerApprovalHandler(app: App): void {
       try {
         await client.chat.postMessage({
           channel: convo.getChannelId(),
-          text: ':white_check_mark: Great news — your request has been completed! If you have any feedback or need anything else, feel free to start a new request anytime.',
+          text: `<@${row.user_id}> :white_check_mark: Great news — your request has been completed! If you have any feedback or need anything else, feel free to start a new request anytime.`,
           thread_ts: convo.getThreadTs(),
         });
       } catch (err) {
@@ -786,7 +786,7 @@ export function registerApprovalHandler(app: App): void {
       try {
         await client.chat.postMessage({
           channel: convo.getChannelId(),
-          text: 'Your request was reviewed and was not approved at this time.',
+          text: `<@${row.user_id}> Your request was reviewed and was not approved at this time.`,
           thread_ts: convo.getThreadTs(),
         });
       } catch (err) {
@@ -816,7 +816,7 @@ export function registerApprovalHandler(app: App): void {
       try {
         await client.chat.postMessage({
           channel: convo.getChannelId(),
-          text: 'Your request has been withdrawn by the marketing team.',
+          text: `<@${row.user_id}> Your request has been withdrawn by the marketing team.`,
           thread_ts: convo.getThreadTs(),
         });
       } catch (err) {

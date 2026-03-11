@@ -1274,11 +1274,8 @@ async function handleGatheringState(
         const details = convo.getCollectedData().additional_details;
         details[currentQuestion.field_key] = '_needs discussion_';
         convo.markFieldCollected('additional_details', details);
-        const calendarLink = config.marketingLeadCalendarUrl
-          ? ` If it would help, you can <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk through the details.`
-          : '';
         await say({
-          text: `:speech_balloon: Flagged for discussion — the marketing team will follow up.${calendarLink}`,
+          text: ':speech_balloon: Flagged for discussion — the marketing team will follow up.',
           thread_ts: threadTs,
         });
         const nextIndex = idx + 1;
@@ -1688,11 +1685,8 @@ async function handleFollowUpAnswer(
     details[currentQuestion.field_key] = '_needs discussion_';
     convo.markFieldCollected('additional_details', details);
 
-    const calendarLink = config.marketingLeadCalendarUrl
-      ? ` If it would help, you can <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk through the details.`
-      : '';
     await say({
-      text: `:speech_balloon: Flagged for discussion — the marketing team will follow up.${calendarLink}`,
+      text: ':speech_balloon: Flagged for discussion — the marketing team will follow up.',
       thread_ts: threadTs,
     });
 
@@ -1743,7 +1737,10 @@ async function handleFollowUpAnswer(
   // Resolve approver names against Slack user directory
   if (currentQuestion.field_key === 'approvers_list') {
     try {
-      const names = extractNamesFromText(text);
+      // Replace "me" / "myself" with the requester's name before resolution
+      const requesterName = convo.getCollectedData().requester_name ?? convo.getUserName();
+      const meReplaced = text.replace(/\bme\b(?!\w)/gi, requesterName).replace(/\bmyself\b/gi, requesterName);
+      const names = extractNamesFromText(meReplaced);
       if (names.length > 0) {
         const users = await getWorkspaceUsers(client);
         const resolution = resolveNames(names, users);
@@ -1919,6 +1916,17 @@ async function transitionToConfirming(
     text: convo.toSummary(),
     thread_ts: threadTs,
   });
+
+  // If any items were flagged for discussion, show the calendar link now (at the end)
+  try {
+    const discussionFlags = JSON.parse(convo.getCollectedData().additional_details['__needs_discussion'] ?? '[]');
+    if (discussionFlags.length > 0 && config.marketingLeadCalendarUrl) {
+      await say({
+        text: `:speech_balloon: Some items were flagged for discussion. If it would help, you can <${config.marketingLeadCalendarUrl}|schedule time with marketing> to talk through the details.`,
+        thread_ts: threadTs,
+      });
+    }
+  } catch { /* ignore */ }
 }
 
 // --- Post-submission handling ---
@@ -2459,6 +2467,9 @@ function applyExtractedFields(
  * Flag a field as needing discussion. Stores in additional_details under __needs_discussion.
  */
 function flagForDiscussion(convo: ConversationManager, fieldKey: string, label: string): void {
+  // Truncate to just the first question/sentence
+  const firstQuestion = label.split(/[?\n]/)[0]?.trim();
+  label = firstQuestion ? firstQuestion + '?' : label;
   const details = convo.getCollectedData().additional_details;
   let flags: { field: string; label: string }[] = [];
   try {
