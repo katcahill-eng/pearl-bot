@@ -408,8 +408,9 @@ function buildQCTriageBlocks(opts: {
   requesterName: string;
   status: TriageStatus;
   lockedBy?: string;
+  mondayUrl?: string | null;
 }): any[] {
-  const { conversationId, docUrl, docType, reviewType, dueDate, requesterName, status, lockedBy } = opts;
+  const { conversationId, docUrl, docType, reviewType, dueDate, requesterName, status, lockedBy, mondayUrl } = opts;
 
   const blocks: any[] = [
     {
@@ -447,6 +448,17 @@ function buildQCTriageBlocks(opts: {
       },
     },
   ];
+
+  // Monday.com link
+  if (mondayUrl) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:link: <${mondayUrl}|View on Monday.com>`,
+      },
+    });
+  }
 
   // Terminal states — show locked message
   if (status === 'Completed' || status === 'Declined' || status === 'Withdrawn') {
@@ -508,8 +520,9 @@ export async function postQCTriagePanel(opts: {
   reviewType: string;
   dueDate: string;
   requesterName: string;
+  mondayUrl?: string | null;
 }): Promise<void> {
-  const { client, conversationId, docUrl, docType, reviewType, dueDate, requesterName } = opts;
+  const { client, conversationId, docUrl, docType, reviewType, dueDate, requesterName, mondayUrl } = opts;
 
   const blocks = buildQCTriageBlocks({
     conversationId,
@@ -519,6 +532,7 @@ export async function postQCTriagePanel(opts: {
     dueDate,
     requesterName,
     status: 'Under Review',
+    mondayUrl,
   });
 
   const projectName = `Doc Review: ${docType}`;

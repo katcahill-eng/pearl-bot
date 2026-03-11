@@ -4,6 +4,7 @@ import { config } from '../lib/config';
 import { ConversationManager } from '../lib/conversation';
 import { postQCTriagePanel } from './approval';
 import { createMondayItemForReview } from '../lib/workflow';
+import { buildMondayUrl } from '../lib/monday';
 import { updateMondayItemId } from '../lib/db';
 
 // --- Patterns ---
@@ -255,31 +256,15 @@ async function executeDocumentReview(opts: {
 
   convo.markFieldCollected('requester_name', displayName);
 
-  // Step 3: Post to triage
-  try {
-    const conversationId = convo.getId();
-    if (conversationId) {
-      await postQCTriagePanel({
-        client,
-        conversationId,
-        docUrl,
-        docType: docType ?? 'Not specified',
-        reviewType,
-        dueDate,
-        requesterName: displayName,
-      });
-    }
-  } catch (err) {
-    console.error('[document-review] Failed to post triage panel:', err);
-  }
-
-  // Step 4: Create Monday item
+  // Step 3: Create Monday item
+  let mondayUrl: string | null = null;
   try {
     const collectedData = convo.getCollectedData();
     collectedData.context_background = `Document review: ${docType ?? 'document'}`;
     collectedData.deliverables = ['Document Review'];
     collectedData.target = 'Internal — Marketing';
     collectedData.desired_outcomes = `${reviewType} review requested`;
+    collectedData.due_date = dueDate;
 
     const mondayResult = await createMondayItemForReview({
       collectedData,
@@ -294,6 +279,7 @@ async function executeDocumentReview(opts: {
 
     if (mondayResult.success && mondayResult.itemId) {
       convo.setMondayItemId(mondayResult.itemId);
+      mondayUrl = buildMondayUrl(mondayResult.itemId);
       const convId = convo.getId();
       if (convId) {
         await updateMondayItemId(convId, mondayResult.itemId);
@@ -301,6 +287,25 @@ async function executeDocumentReview(opts: {
     }
   } catch (err) {
     console.error('[document-review] Failed to create Monday item:', err);
+  }
+
+  // Step 4: Post to triage (with Monday URL if available)
+  try {
+    const conversationId = convo.getId();
+    if (conversationId) {
+      await postQCTriagePanel({
+        client,
+        conversationId,
+        docUrl,
+        docType: docType ?? 'Not specified',
+        reviewType,
+        dueDate,
+        requesterName: displayName,
+        mondayUrl,
+      });
+    }
+  } catch (err) {
+    console.error('[document-review] Failed to post triage panel:', err);
   }
 
   // Step 5: Mark conversation complete
