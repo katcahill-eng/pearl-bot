@@ -245,6 +245,30 @@ export async function handleDocumentReviewMessage(opts: {
       ...data.additional_details,
       __doc_type: docType,
     });
+    convo.setCurrentStep('doc_review:review_type');
+    await convo.save();
+
+    await say({
+      text: "What would you like marketing to focus on?\n\n" +
+        "• *Brand compliance* — terminology, messaging, positioning\n" +
+        "• *Design review* — layout, graphics, product photos, formatting\n" +
+        "• *Content flow* — structure, readability, narrative\n" +
+        "• *Full review* — all of the above\n\n" +
+        "_You can pick one or describe what you need._",
+      thread_ts: threadTs,
+    });
+    return;
+  }
+
+  // --- Step: Waiting for review type ---
+  if (currentStep === 'doc_review:review_type') {
+    const reviewType = text.trim();
+    const data = convo.getCollectedData();
+
+    convo.markFieldCollected('additional_details', {
+      ...data.additional_details,
+      __review_type: reviewType,
+    });
     convo.setCurrentStep('doc_review:running');
     await convo.save();
 
@@ -298,6 +322,7 @@ async function executeDocumentReview(opts: {
   const data = convo.getCollectedData();
   const docUrl = data.additional_details['__doc_url'];
   const docType = data.additional_details['__doc_type'];
+  const reviewType = data.additional_details['__review_type'] ?? 'Full review';
 
   let docTitle = 'Unknown Document';
   let qcResult: QCResult | null = null;
@@ -381,6 +406,7 @@ async function executeDocumentReview(opts: {
         docTitle,
         docUrl,
         docType: docType ?? 'Not specified',
+        reviewType,
         requesterName: displayName,
         qcResult,
         qcError,

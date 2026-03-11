@@ -6,6 +6,7 @@ import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { handleQuickInfo } from './quick-info';
 import { ConversationManager } from '../lib/conversation';
+import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
 
 // --- Per-thread message debounce ---
@@ -144,6 +145,46 @@ export function registerMessageHandler(app: App): void {
           return;
         }
 
+        // No existing conversation — run intent detection before defaulting to intake
+        if (!existingConvo) {
+          const threadIntent = detectIntent(text);
+          console.log(`[messages] Thread reply with no conversation, intent=${threadIntent}, thread=${thread_ts}`);
+
+          if (threadIntent === 'quick_info') {
+            await handleQuickInfo({ text, threadTs: thread_ts, say });
+            return;
+          }
+
+          if (threadIntent === 'help') {
+            await say({ text: getHelpMessage(), thread_ts });
+            return;
+          }
+
+          if (threadIntent === 'status') {
+            await handleStatusCheck({ text, threadTs: thread_ts, say });
+            return;
+          }
+
+          if (threadIntent === 'search') {
+            await handleSearchRequest({ text, threadTs: thread_ts, say });
+            return;
+          }
+
+          if (threadIntent === 'document_review') {
+            await handleDocumentReviewMessage({
+              userId,
+              userName: userId,
+              channelId: event.channel,
+              threadTs: thread_ts,
+              text,
+              files,
+              say,
+              client,
+            });
+            return;
+          }
+        }
+
         // Route to intake handler (handles all states including recovery)
         console.log(`[messages] Routing thread reply to intake handler, thread=${thread_ts}`);
         await handleIntakeMessage({
@@ -162,6 +203,27 @@ export function registerMessageHandler(app: App): void {
 
       // --- New top-level message in the bot channel ---
       const intent = detectIntent(text);
+
+      // For greetings/help: if the user has an active open request elsewhere,
+      // route to intake so the duplicate-check flow kicks in ("continue there or start fresh?")
+      if (intent === 'help') {
+        const activeConvo = await getActiveConversationForUser(userId, messageTs);
+        if (activeConvo) {
+          console.log(`[messages] User has active conversation (id=${activeConvo.id}), routing hello to intake for dup check`);
+          await handleIntakeMessage({
+            userId,
+            userName: userId,
+            channelId: event.channel,
+            threadTs: messageTs,
+            messageTs,
+            text,
+            files,
+            say,
+            client,
+          });
+          return;
+        }
+      }
 
       switch (intent) {
         case 'help':

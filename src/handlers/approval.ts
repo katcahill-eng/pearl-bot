@@ -405,6 +405,7 @@ function buildQCTriageBlocks(opts: {
   docTitle: string;
   docUrl: string;
   docType: string;
+  reviewType: string;
   requesterName: string;
   qcGrade: string | null;
   qcSummary: string | null;
@@ -415,7 +416,7 @@ function buildQCTriageBlocks(opts: {
   status: TriageStatus;
   lockedBy?: string;
 }): any[] {
-  const { conversationId, docTitle, docUrl, docType, requesterName, qcGrade, qcSummary, qcError, criticalCount, importantCount, minorCount, status, lockedBy } = opts;
+  const { conversationId, docTitle, docUrl, docType, reviewType, requesterName, qcGrade, qcSummary, qcError, criticalCount, importantCount, minorCount, status, lockedBy } = opts;
 
   const gradeDisplay = qcGrade ?? 'N/A';
   const gradeEmoji = qcGrade === 'A' ? ':white_check_mark:' : qcGrade === 'B' ? ':large_green_circle:' : qcGrade === 'C' ? ':warning:' : qcGrade === 'D' ? ':red_circle:' : qcGrade === 'F' ? ':no_entry:' : ':question:';
@@ -433,6 +434,7 @@ function buildQCTriageBlocks(opts: {
       fields: [
         { type: 'mrkdwn', text: `*Requester:*\n${requesterName}` },
         { type: 'mrkdwn', text: `*Document Type:*\n${docType}` },
+        { type: 'mrkdwn', text: `*Review Requested:*\n${reviewType}` },
         { type: 'mrkdwn', text: `*QC Grade:*\n${gradeEmoji} ${gradeDisplay}` },
         { type: 'mrkdwn', text: `*Status:*\n${status}` },
       ],
@@ -537,18 +539,20 @@ export async function postQCTriagePanel(opts: {
   docTitle: string;
   docUrl: string;
   docType: string;
+  reviewType: string;
   requesterName: string;
   qcResult: QCResult | null;
   qcError: string | null;
   excelBuffer: Buffer | null;
 }): Promise<void> {
-  const { client, conversationId, docTitle, docUrl, docType, requesterName, qcResult, qcError, excelBuffer } = opts;
+  const { client, conversationId, docTitle, docUrl, docType, reviewType, requesterName, qcResult, qcError, excelBuffer } = opts;
 
   const blocks = buildQCTriageBlocks({
     conversationId,
     docTitle,
     docUrl,
     docType,
+    reviewType,
     requesterName,
     qcGrade: qcResult?.grade ?? null,
     qcSummary: qcResult?.summary ?? null,
