@@ -363,7 +363,7 @@ export async function cancelStaleConversationsForUser(userId: string, excludeThr
 
 export async function getActiveConversationForUser(userId: string, excludeThreadTs: string): Promise<Conversation | undefined> {
   const result = await pool.query(
-    `SELECT * FROM conversations WHERE user_id = $1 AND status IN ('gathering', 'confirming', 'pending_approval') AND thread_ts != $2 AND updated_at > NOW() - INTERVAL '30 minutes' ORDER BY updated_at DESC LIMIT 1`,
+    `SELECT * FROM conversations WHERE user_id = $1 AND status IN ('gathering', 'confirming', 'pending_approval') AND thread_ts != $2 AND updated_at > NOW() - INTERVAL '90 minutes' ORDER BY updated_at DESC LIMIT 1`,
     [userId, excludeThreadTs]
   );
   return result.rows[0] ? normalizeConversationRow(result.rows[0]) : undefined;
