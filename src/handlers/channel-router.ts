@@ -34,6 +34,7 @@ import { handleLightQC } from './light-qc';
 import { postOpenModalButton } from './intake-modal';
 import { getHelpMessage } from './intent';
 import { handleVisibilityQuery } from './visibility-query';
+import { handlePostSubmissionFollowUp } from './post-submission';
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -115,11 +116,18 @@ export function isHelpRequest(rawText: string): boolean {
  *   5. Stub-routes to a handler (real handlers wired in later stories).
  */
 export function registerChannelRouter(app: App): void {
-  app.event('app_mention', async ({ event, say }) => {
+  app.event('app_mention', async ({ event, say, client }) => {
     const channelId = event.channel;
     const text = event.text ?? '';
     const threadTs = event.thread_ts ?? event.ts;
     const userId = event.user ?? '';
+    const rawFiles = 'files' in event ? ((event as any).files as any[]) : undefined;
+    const files = (rawFiles ?? []).map((f: any) => ({
+      id: f.id as string,
+      name: (f.name as string) ?? (f.title as string) ?? 'file',
+      permalink: (f.permalink as string) ?? '',
+      url_private: (f.url_private as string) ?? '',
+    }));
 
     const role = roleForChannel(channelId);
     if (role === null) {
@@ -169,20 +177,24 @@ export function registerChannelRouter(app: App): void {
         }
         return;
 
-      case 'follow_up':
-        // Stub — wired up in US-022 (free-form post-submission follow-up).
-        await say({
-          text: '_[stub] Follow-up to existing request received. Real handler comes in US-022._',
-          thread_ts: threadTs,
-        });
-        await logRequestEvent({
-          eventType: 'follow_up_received',
+      case 'follow_up': {
+        const { getRequestByThread } = await import('../lib/db');
+        const record = await getRequestByThread(channelId, threadTs);
+        if (!record) {
+          // Shouldn't happen — isExistingSageThread already passed.
+          await say({ text: 'Follow-up detected but the request record is missing.', thread_ts: threadTs });
+          return;
+        }
+        await handlePostSubmissionFollowUp({
+          client,
+          record,
+          text,
           userId,
-          channelId,
-          channelRole: role,
-          intent,
+          files,
+          threadTs,
         });
         return;
+      }
 
       case 'route':
         // Stubs — real handlers replace these in US-006/007/009/016.
