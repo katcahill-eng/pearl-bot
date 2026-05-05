@@ -33,6 +33,7 @@ import { getQuickInfoResponse } from './quick-info';
 import { handleLightQC } from './light-qc';
 import { postOpenModalButton } from './intake-modal';
 import { getHelpMessage } from './intent';
+import { handleVisibilityQuery } from './visibility-query';
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -222,7 +223,14 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
       await postOpenModalButton({ channelId, threadTs, text, say });
       break;
     case 'status_query':
-      await say({ text: `_[stub] status_query — wires to visibility-query in US-016._`, thread_ts: threadTs });
+      await handleVisibilityQuery({
+        text,
+        channelId,
+        threadTs,
+        userSlackId: userId,
+        role,
+        say,
+      });
       break;
     case 'light_qc':
       await handleLightQC({ text, threadTs, say });
