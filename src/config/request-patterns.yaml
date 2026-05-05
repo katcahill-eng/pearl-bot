@@ -1,0 +1,56 @@
+# Director-brain rules for the Sage v2 request modal.
+#
+# When a user describes a request via @Sage, the modal pre-fill parser
+# (US-009) extracts a parsedFields object. The matchRecommendations loader
+# (US-008) walks these rules in order, matches their trigger keywords
+# against parsedFields.requestType + parsedFields.deliverable, and surfaces
+# any matched suggestions as pre-checked checkboxes in the modal.
+#
+# Schema per rule:
+#   trigger:    string | string[]   - one or more keywords (case-insensitive)
+#   suggest:    list of recommendations
+#                 name:        short label shown next to the checkbox
+#                 deliverable: default deliverable text Sage uses if the
+#                              recommendation gets checked and a sub-item
+#                              is created
+#   reasoning:  one-line rationale shown below the checkbox label
+#
+# Edit this file to add, remove, or refine rules. Changes take effect
+# on the next deploy (no code change needed).
+
+rules:
+  - trigger: webinar
+    suggest:
+      - name: registration-email
+        deliverable: Registration email campaign promoting the webinar
+      - name: social-promo
+        deliverable: Pre-event social posts driving registrations
+      - name: graphics-kit
+        deliverable: Slides / event graphics / Zoom backgrounds
+      - name: post-event-followup
+        deliverable: Follow-up email to registrants with the recording link
+    reasoning: Webinars usually need a registration push, social, slide kit, and follow-up.
+
+  - trigger: [conference, event, tradeshow, expo]
+    suggest:
+      - name: pre-event-social
+        deliverable: Pre-event social campaign teasing Pearl's presence
+      - name: on-site-graphics
+        deliverable: On-site signage, badges, and digital displays
+      - name: booth-collateral
+        deliverable: One-pagers, flyers, and giveaways for the booth
+      - name: post-event-recap
+        deliverable: Post-event recap email and social wrap-up
+    reasoning: Conferences usually pull in pre-event awareness, on-site assets, collateral, and a wrap-up.
+
+  - trigger: [product launch, launch, release]
+    suggest:
+      - name: press-release
+        deliverable: Press release announcing the launch
+      - name: social-series
+        deliverable: Multi-post social series across LinkedIn, Twitter/X, IG
+      - name: sales-enablement
+        deliverable: One-pager or talking points for the BD/CX teams
+      - name: landing-page-update
+        deliverable: Landing-page or website copy update reflecting the launch
+    reasoning: Product launches usually need a PR push, social series, sales-enablement copy, and a website update.

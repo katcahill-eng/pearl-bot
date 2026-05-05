@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "npx tsc -p tsconfig.json && cp src/lib/knowledge-base.md dist/lib/",
+    "build": "npx tsc -p tsconfig.json && cp src/lib/knowledge-base.md dist/lib/ && mkdir -p dist/config && cp src/config/*.yaml dist/config/",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -19,11 +19,13 @@
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
     "googleapis": "^171.0.0",
+    "js-yaml": "^4.1.1",
     "pg": "^8.13.1",
     "typescript": "^5.7.0"
   },
   "devDependencies": {
     "@slack-wrench/jest-bolt-receiver": "^3.0.0",
+    "@types/js-yaml": "^4.0.9",
     "tsx": "^4.19.0",
     "vitest": "^4.0.18"
   }

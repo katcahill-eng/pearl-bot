@@ -6,9 +6,17 @@ import { handleStatusCheck } from './status';
 import { handleSearchRequest } from './search';
 import { handleQuickInfo } from './quick-info';
 import { ConversationManager } from '../lib/conversation';
+import { roleForChannel } from '../lib/division-lookup';
 
 export function registerMentionHandler(app: App): void {
   app.event('app_mention', async ({ event, say, client }) => {
+    // v2 channel router (channel-router.ts) owns app_mention events for
+    // channels configured in src/config/channels.yaml. Skip those here
+    // to avoid double-handling.
+    if (roleForChannel(event.channel) !== null) {
+      return;
+    }
+
     const text = event.text ?? '';
     const thread_ts = event.thread_ts ?? event.ts;
     const userId = event.user ?? '';

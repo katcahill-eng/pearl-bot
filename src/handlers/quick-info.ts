@@ -11,11 +11,19 @@ export async function handleQuickInfo(opts: {
   say: SayFn;
 }): Promise<void> {
   const { text, threadTs, say } = opts;
+  const response = getQuickInfoResponse(text);
+  await say({ text: response + FOOTER, thread_ts: threadTs });
+}
+
+/**
+ * Pure function variant — returns just the response body without
+ * the v3 footer. v2 callers (channel-router) wrap this with the
+ * AI disclaimer instead.
+ */
+export function getQuickInfoResponse(text: string): string {
   const brandInfo = getBrandInfo();
   const topic = detectTopic(text);
-  const response = formatResponse(topic, brandInfo);
-
-  await say({ text: response + FOOTER, thread_ts: threadTs });
+  return formatResponse(topic, brandInfo);
 }
 
 export function detectTopic(rawText: string): Topic {

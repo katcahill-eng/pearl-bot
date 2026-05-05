@@ -120,6 +120,60 @@ export async function initDb(): Promise<void> {
       applied_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS request_events (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT,
+      channel_id TEXT,
+      channel_role TEXT,
+      event_type TEXT NOT NULL,
+      intent TEXT,
+      parsed_fields_json JSONB,
+      recommendations_offered_json JSONB,
+      recommendations_accepted_json JSONB,
+      monday_item_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS request_records (
+      id SERIAL PRIMARY KEY,
+      monday_item_id TEXT NOT NULL UNIQUE,
+      originating_channel_id TEXT NOT NULL,
+      originating_thread_ts TEXT NOT NULL,
+      alert_channel_id TEXT,
+      alert_message_ts TEXT,
+      requester_user_id TEXT NOT NULL,
+      requesting_for_user_id TEXT,
+      approver_user_ids TEXT[] NOT NULL DEFAULT '{}',
+      division TEXT NOT NULL,
+      request_type TEXT,
+      deliverable_summary TEXT,
+      status TEXT NOT NULL DEFAULT 'pending_approval',
+      submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_request_records_monday
+      ON request_records(monday_item_id);
+    CREATE INDEX IF NOT EXISTS idx_request_records_thread
+      ON request_records(originating_channel_id, originating_thread_ts);
+
+    CREATE TABLE IF NOT EXISTS request_approver_actions (
+      id SERIAL PRIMARY KEY,
+      request_id INTEGER NOT NULL REFERENCES request_records(id) ON DELETE CASCADE,
+      approver_user_id TEXT NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('approved','requested_changes')),
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(request_id, approver_user_id, action)
+    );
+
+    CREATE TABLE IF NOT EXISTS request_approver_nudges (
+      id SERIAL PRIMARY KEY,
+      request_id INTEGER NOT NULL REFERENCES request_records(id) ON DELETE CASCADE,
+      approver_user_id TEXT NOT NULL,
+      nudged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(request_id, approver_user_id)
+    );
   `);
 
   // Add triage_reminder_count column (migration — safe to run repeatedly)
@@ -723,5 +777,233 @@ export async function resetTriageReminderCount(conversationId: number): Promise<
   await pool.query(
     `UPDATE conversations SET triage_reminder_count = 0, updated_at = NOW() WHERE id = $1`,
     [conversationId]
+  );
+}
+
+// --- Sage v2 request_events ---
+
+export interface RequestEventRow {
+  user_id: string | null;
+  channel_id: string | null;
+  channel_role: string | null;
+  event_type: string;
+  intent: string | null;
+  parsed_fields_json: unknown;
+  recommendations_offered_json: unknown;
+  recommendations_accepted_json: unknown;
+  monday_item_id: string | null;
+}
+
+// --- request_records (Sage v2 lifecycle persistence) ---
+
+export interface RequestRecord {
+  id: number;
+  monday_item_id: string;
+  originating_channel_id: string;
+  originating_thread_ts: string;
+  alert_channel_id: string | null;
+  alert_message_ts: string | null;
+  requester_user_id: string;
+  requesting_for_user_id: string | null;
+  approver_user_ids: string[];
+  division: string;
+  request_type: string | null;
+  deliverable_summary: string | null;
+  status: string;
+  submitted_at: Date;
+}
+
+export interface InsertRequestRecordInput {
+  monday_item_id: string;
+  originating_channel_id: string;
+  originating_thread_ts: string;
+  requester_user_id: string;
+  requesting_for_user_id?: string | null;
+  approver_user_ids: string[];
+  division: string;
+  request_type?: string | null;
+  deliverable_summary?: string | null;
+}
+
+export async function insertRequestRecord(
+  input: InsertRequestRecordInput,
+): Promise<RequestRecord> {
+  const result = await pool.query(
+    `INSERT INTO request_records (
+       monday_item_id, originating_channel_id, originating_thread_ts,
+       requester_user_id, requesting_for_user_id, approver_user_ids,
+       division, request_type, deliverable_summary
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING *`,
+    [
+      input.monday_item_id,
+      input.originating_channel_id,
+      input.originating_thread_ts,
+      input.requester_user_id,
+      input.requesting_for_user_id ?? null,
+      input.approver_user_ids,
+      input.division,
+      input.request_type ?? null,
+      input.deliverable_summary ?? null,
+    ],
+  );
+  return result.rows[0] as RequestRecord;
+}
+
+export async function updateRequestAlertInfo(
+  requestId: number,
+  alertChannelId: string,
+  alertMessageTs: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE request_records
+       SET alert_channel_id = $1, alert_message_ts = $2
+     WHERE id = $3`,
+    [alertChannelId, alertMessageTs, requestId],
+  );
+}
+
+export async function getRequestById(
+  id: number,
+): Promise<RequestRecord | null> {
+  const result = await pool.query(
+    `SELECT * FROM request_records WHERE id = $1 LIMIT 1`,
+    [id],
+  );
+  return (result.rows[0] as RequestRecord) ?? null;
+}
+
+export async function getRequestByThread(
+  channelId: string,
+  threadTs: string,
+): Promise<RequestRecord | null> {
+  const result = await pool.query(
+    `SELECT * FROM request_records
+       WHERE originating_channel_id = $1 AND originating_thread_ts = $2
+       LIMIT 1`,
+    [channelId, threadTs],
+  );
+  return (result.rows[0] as RequestRecord) ?? null;
+}
+
+export async function getRequestByMondayItemId(
+  mondayItemId: string,
+): Promise<RequestRecord | null> {
+  const result = await pool.query(
+    `SELECT * FROM request_records WHERE monday_item_id = $1 LIMIT 1`,
+    [mondayItemId],
+  );
+  return (result.rows[0] as RequestRecord) ?? null;
+}
+
+export async function setRequestStatus(
+  requestId: number,
+  status: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE request_records SET status = $1 WHERE id = $2`,
+    [status, requestId],
+  );
+}
+
+export async function recordApproverAction(
+  requestId: number,
+  approverUserId: string,
+  action: 'approved' | 'requested_changes',
+  notes: string | null = null,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO request_approver_actions (request_id, approver_user_id, action, notes)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (request_id, approver_user_id, action) DO NOTHING`,
+    [requestId, approverUserId, action, notes],
+  );
+}
+
+export async function getApproverActions(
+  requestId: number,
+): Promise<{ approver_user_id: string; action: string; created_at: Date }[]> {
+  const result = await pool.query(
+    `SELECT approver_user_id, action, created_at
+       FROM request_approver_actions
+       WHERE request_id = $1`,
+    [requestId],
+  );
+  return result.rows;
+}
+
+export async function getPendingApproverNudges(
+  hoursThreshold = 48,
+): Promise<{ request: RequestRecord; pending_approver_user_ids: string[] }[]> {
+  const result = await pool.query(
+    `SELECT r.*
+       FROM request_records r
+       WHERE r.status = 'pending_approval'
+         AND r.submitted_at < NOW() - INTERVAL '${hoursThreshold} hours'
+         AND array_length(r.approver_user_ids, 1) > 0`,
+  );
+  const out: { request: RequestRecord; pending_approver_user_ids: string[] }[] = [];
+  for (const row of result.rows as RequestRecord[]) {
+    const actions = await pool.query(
+      `SELECT approver_user_id FROM request_approver_actions WHERE request_id = $1`,
+      [row.id],
+    );
+    const acted = new Set(actions.rows.map((a: any) => a.approver_user_id as string));
+    const nudged = await pool.query(
+      `SELECT approver_user_id FROM request_approver_nudges WHERE request_id = $1`,
+      [row.id],
+    );
+    const alreadyNudged = new Set(
+      nudged.rows.map((a: any) => a.approver_user_id as string),
+    );
+    const pending = row.approver_user_ids.filter(
+      (uid) => !acted.has(uid) && !alreadyNudged.has(uid),
+    );
+    if (pending.length > 0) out.push({ request: row, pending_approver_user_ids: pending });
+  }
+  return out;
+}
+
+export async function recordApproverNudge(
+  requestId: number,
+  approverUserId: string,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO request_approver_nudges (request_id, approver_user_id)
+     VALUES ($1, $2)
+     ON CONFLICT (request_id, approver_user_id) DO NOTHING`,
+    [requestId, approverUserId],
+  );
+}
+
+/**
+ * Insert a single request_events row. Throws on database errors —
+ * callers should wrap in try/catch (or use the non-throwing
+ * logRequestEvent helper in src/lib/event-log.ts).
+ */
+export async function insertRequestEvent(event: RequestEventRow): Promise<void> {
+  await pool.query(
+    `INSERT INTO request_events (
+       user_id, channel_id, channel_role, event_type, intent,
+       parsed_fields_json, recommendations_offered_json,
+       recommendations_accepted_json, monday_item_id
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      event.user_id,
+      event.channel_id,
+      event.channel_role,
+      event.event_type,
+      event.intent,
+      event.parsed_fields_json !== undefined && event.parsed_fields_json !== null
+        ? JSON.stringify(event.parsed_fields_json)
+        : null,
+      event.recommendations_offered_json !== undefined && event.recommendations_offered_json !== null
+        ? JSON.stringify(event.recommendations_offered_json)
+        : null,
+      event.recommendations_accepted_json !== undefined && event.recommendations_accepted_json !== null
+        ? JSON.stringify(event.recommendations_accepted_json)
+        : null,
+      event.monday_item_id,
+    ]
   );
 }
