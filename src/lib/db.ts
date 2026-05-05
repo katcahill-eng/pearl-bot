@@ -120,6 +120,20 @@ export async function initDb(): Promise<void> {
       applied_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS request_events (
+      id SERIAL PRIMARY KEY,
+      user_id TEXT,
+      channel_id TEXT,
+      channel_role TEXT,
+      event_type TEXT NOT NULL,
+      intent TEXT,
+      parsed_fields_json JSONB,
+      recommendations_offered_json JSONB,
+      recommendations_accepted_json JSONB,
+      monday_item_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   // Add triage_reminder_count column (migration — safe to run repeatedly)
@@ -723,5 +737,51 @@ export async function resetTriageReminderCount(conversationId: number): Promise<
   await pool.query(
     `UPDATE conversations SET triage_reminder_count = 0, updated_at = NOW() WHERE id = $1`,
     [conversationId]
+  );
+}
+
+// --- Sage v2 request_events ---
+
+export interface RequestEventRow {
+  user_id: string | null;
+  channel_id: string | null;
+  channel_role: string | null;
+  event_type: string;
+  intent: string | null;
+  parsed_fields_json: unknown;
+  recommendations_offered_json: unknown;
+  recommendations_accepted_json: unknown;
+  monday_item_id: string | null;
+}
+
+/**
+ * Insert a single request_events row. Throws on database errors —
+ * callers should wrap in try/catch (or use the non-throwing
+ * logRequestEvent helper in src/lib/event-log.ts).
+ */
+export async function insertRequestEvent(event: RequestEventRow): Promise<void> {
+  await pool.query(
+    `INSERT INTO request_events (
+       user_id, channel_id, channel_role, event_type, intent,
+       parsed_fields_json, recommendations_offered_json,
+       recommendations_accepted_json, monday_item_id
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      event.user_id,
+      event.channel_id,
+      event.channel_role,
+      event.event_type,
+      event.intent,
+      event.parsed_fields_json !== undefined && event.parsed_fields_json !== null
+        ? JSON.stringify(event.parsed_fields_json)
+        : null,
+      event.recommendations_offered_json !== undefined && event.recommendations_offered_json !== null
+        ? JSON.stringify(event.recommendations_offered_json)
+        : null,
+      event.recommendations_accepted_json !== undefined && event.recommendations_accepted_json !== null
+        ? JSON.stringify(event.recommendations_accepted_json)
+        : null,
+      event.monday_item_id,
+    ]
   );
 }
