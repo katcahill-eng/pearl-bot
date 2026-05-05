@@ -69,6 +69,9 @@ export function startWebhookServer(opts: {
         res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
       } else if (req.method === 'POST' && req.url === '/webhook/intake') {
         await handleIntakeWebhook(req, res, slackClient);
+      } else if (req.method === 'POST' && req.url === '/webhook/monday') {
+        const { handleMondayWebhook } = await import('../handlers/monday-webhook');
+        await handleMondayWebhook(req, res, slackClient);
       } else if (req.method === 'GET' && req.url === '/debug/logs') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end(getRecentLogs().join('\n'));

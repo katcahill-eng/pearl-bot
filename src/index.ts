@@ -10,6 +10,7 @@ import { registerChannelRouter } from './handlers/channel-router';
 import { registerOpenModalAction } from './handlers/intake-modal';
 import { registerViewSubmissionHandler } from './handlers/view-submission';
 import { registerApprovalActionsV2 } from './handlers/approval-actions';
+import { startMondayPoller } from './lib/monday-poller';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
 import { initDb, getInstanceId, logError, cleanOldErrors, cleanOldMetrics } from './lib/db';
@@ -127,6 +128,9 @@ process.on('SIGTERM', async () => {
   } catch (err) {
     console.error('[startup] v2 channel topic setting failed (non-critical):', err);
   }
+
+  // Start v2 Monday poller (only fires if MONDAY_USE_POLLING=true).
+  startMondayPoller(app.client);
 
   // Start periodic timeout check
   setInterval(() => {

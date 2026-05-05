@@ -52,7 +52,7 @@ interface MondayApiResponse<T = unknown> {
 
 // --- GraphQL Client ---
 
-async function mondayApi<T = unknown>(
+export async function mondayApi<T = unknown>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
