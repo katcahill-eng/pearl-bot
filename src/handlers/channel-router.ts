@@ -32,6 +32,7 @@ import { withDisclaimer } from '../lib/disclaimer';
 import { getQuickInfoResponse } from './quick-info';
 import { handleLightQC } from './light-qc';
 import { postOpenModalButton } from './intake-modal';
+import { getHelpMessage } from './intent';
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -73,15 +74,34 @@ export function decideRoute(input: RouteInput): RoutingDecision {
 
 /**
  * Look up whether a (channel, thread) pair already has a Sage-owned
- * request. Stub implementation for US-005 — returns false until US-011
- * persists the v2 request records. Once US-011 is in, this becomes
- * a query against that table.
+ * request. Returns true once US-011 has persisted a request_record
+ * for that channel + thread; false otherwise.
  */
 export async function isExistingSageThread(
-  _channelId: string,
-  _threadTs: string | undefined,
+  channelId: string,
+  threadTs: string | undefined,
 ): Promise<boolean> {
-  return false;
+  if (!threadTs) return false;
+  const { getRequestByThread } = await import('../lib/db');
+  const record = await getRequestByThread(channelId, threadTs);
+  return record !== null;
+}
+
+/**
+ * True when the @mention text is a request for help / capabilities.
+ * Matched as a fast-path before the LLM classifier.
+ */
+export function isHelpRequest(rawText: string): boolean {
+  const text = rawText
+    .replace(/^<@[A-Z0-9]+>\s*/, '')
+    .trim()
+    .toLowerCase();
+  if (!text) return false;
+  return (
+    text === 'help' ||
+    /^what\s+can\s+you\s+do\b/.test(text) ||
+    /^how\s+(do\s+i|can\s+i|to)\s+use\b/.test(text)
+  );
 }
 
 /**
@@ -105,6 +125,13 @@ export function registerChannelRouter(app: App): void {
       // Not a v2-managed channel — let the existing v3 mention handler
       // (which guards against double-handling by ALSO checking
       // roleForChannel and returning if non-null) take it.
+      return;
+    }
+
+    // Help command — match before LLM classification to save a Haiku
+    // call for the trivial case.
+    if (isHelpRequest(text)) {
+      await say({ text: getHelpMessage(role), thread_ts: threadTs });
       return;
     }
 

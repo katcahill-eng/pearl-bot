@@ -81,15 +81,51 @@ process.on('SIGTERM', async () => {
   await app.start();
   console.log(`⚡ Sage is running in socket mode (BUILD 2026-02-20T2330 — deliverable-types+owner+kb) instance=${getInstanceId().substring(0, 8)}`);
 
-  // Set channel topic for discoverability
+  // Set channel topic for discoverability — legacy v3 channel.
   try {
     await app.client.conversations.setTopic({
       channel: config.slackMarketingChannelId,
       topic: "Need something from marketing? Just type here — Sage handles the rest. Say hello to get started!",
     });
-    console.log('[startup] Channel topic set');
+    console.log('[startup] Legacy channel topic set');
   } catch (err) {
-    console.error('[startup] Failed to set channel topic (non-critical):', err);
+    console.error('[startup] Failed to set legacy channel topic (non-critical):', err);
+  }
+
+  // Set role-appropriate topics on each v2-configured channel.
+  // Best-effort — silently skipped if channels:manage scope is missing.
+  try {
+    const { findChannelsByRole } = await import('./lib/division-lookup');
+    const intakeTopic =
+      'Need something from marketing? @Sage with what you need. See pinned message for examples.';
+    const alertsTopic =
+      'Sage posts new request alerts here. @Sage for cross-division reports — channel chatter without @Sage is ignored.';
+    const testTopic = '[TEST mode] Sage shakedown channel. Production paths skipped.';
+
+    for (const cid of findChannelsByRole('intake')) {
+      try {
+        await app.client.conversations.setTopic({ channel: cid, topic: intakeTopic });
+      } catch {
+        /* missing channels:manage */
+      }
+    }
+    for (const cid of findChannelsByRole('alerts')) {
+      try {
+        await app.client.conversations.setTopic({ channel: cid, topic: alertsTopic });
+      } catch {
+        /* missing channels:manage */
+      }
+    }
+    for (const cid of findChannelsByRole('test')) {
+      try {
+        await app.client.conversations.setTopic({ channel: cid, topic: testTopic });
+      } catch {
+        /* missing channels:manage */
+      }
+    }
+    console.log('[startup] v2 channel topics processed');
+  } catch (err) {
+    console.error('[startup] v2 channel topic setting failed (non-critical):', err);
   }
 
   // Start periodic timeout check

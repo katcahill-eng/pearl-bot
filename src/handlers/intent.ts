@@ -114,16 +114,41 @@ export function detectIntent(rawText: string): Intent {
   return 'intake';
 }
 
-export function getHelpMessage(): string {
+export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): string {
+  if (channelRole === 'alerts') {
+    return [
+      "Hey — I'm Sage. This is the marketing alerts channel — I post here when new requests come in and reply with status updates as they progress.",
+      '',
+      "• *Marketing's reply threads here are private to the team* — I don't listen to anything that isn't @-mentioned. Use those threads for internal coordination.",
+      '• *@Sage what\'s BD working on?* or *@Sage show me open Product requests* — cross-division status reports.',
+      "• *@Sage what's our logo URL?* — brand info works here too.",
+      '',
+      'To *file* a new request, head to your division\'s `#mktg_{division}_requests` channel. This channel is alerts-only.',
+    ].join('\n');
+  }
+
+  if (channelRole === 'test') {
+    return [
+      "Hey — I'm Sage running in *[TEST mode]*. This channel mirrors the production intake flow, but Monday writes and approver DMs are skipped so you can play freely.",
+      '',
+      '• *@Sage I need [a thing]* — opens the request modal pre-filled from what you said.',
+      "• *@Sage what's our logo URL?* — quick brand info.",
+      "• *@Sage is this on-brand: [paste]* — light QC check.",
+      "• *@Sage where's my request?* — status lookup.",
+    ].join('\n');
+  }
+
+  // Default: intake channel — also covers undefined for backwards
+  // compatibility with the v3 mention handler.
   return [
-    "Hey! I'm Sage, the marketing team's assistant. Here's what I can help with:",
+    "Hey — I'm Sage, the marketing team's intake helper. In this channel:",
     '',
-    "*Submit a request* — just tell me what you need (conference support, email campaign, one-pager, etc.) and I'll walk you through it",
+    "• *@Sage I need [a thing]* — I'll open a pre-filled request modal and turn it into a tracked Monday item.",
+    "• *@Sage what's our logo / tagline / brand colors?* — quick brand info from our resource docs.",
+    '• *@Sage is this on-brand: [paste]* — light QC against brand guidelines.',
+    "• *@Sage where's my request?* — status lookup from Monday.",
+    '• *In an existing request thread:* `@Sage here\'s the supporting doc` or `@Sage move the deadline to May 20` — I\'ll update the Monday item.',
     '',
-    '*Review a document* — share a link to something you\'d like marketing to review for brand consistency, terminology, and positioning',
-    '',
-    '*Brand resources* — ask me things like "what are our brand colors?" or "where are the logos?"',
-    '',
-    "_Just tell me what you need and I'll take it from here!_",
+    'I only respond when you @mention me — channel chatter without @Sage is ignored. See the pinned message for your division\'s Monday view.',
   ].join('\n');
 }
