@@ -1,0 +1,210 @@
+/**
+ * Sage v2 post-submission Slack messages.
+ *
+ * After view-submission (US-011) creates the Monday item, two Slack
+ * messages go out:
+ *
+ *   US-012: customer-service-style confirmation reply on the
+ *           originating channel thread, with calendar link, next-step
+ *           guidance, and Approve / Request changes buttons for the
+ *           tagged approvers.
+ *   US-013: one-line top-level notification in the alerts channel
+ *           (#mktg_incoming_requests) so marketing can see new
+ *           requests landing.
+ *
+ * Both are wrapped here in postSubmissionReplies. On success, the
+ * alert message's channel + ts is persisted on the request record so
+ * lifecycle replies (US-019/US-020) can mirror to the alert thread.
+ */
+
+import type { WebClient } from '@slack/web-api';
+import { findChannelsByRole } from '../lib/division-lookup';
+import {
+  updateRequestAlertInfo,
+  type RequestRecord,
+} from '../lib/db';
+import { logRequestEvent } from '../lib/event-log';
+import { trackError } from '../lib/error-tracker';
+
+const MARKETING_CALENDAR_URL = process.env.MARKETING_LEAD_CALENDAR_URL;
+
+export const APPROVE_ACTION_ID = 'sage_v2_approve_request';
+export const REQUEST_CHANGES_ACTION_ID = 'sage_v2_request_changes';
+
+interface PostSubmissionRepliesInput {
+  client: WebClient;
+  record: RequestRecord;
+  mondayUrl: string;
+  approverSlackIds: string[];
+  deliverableSummary: string;
+  deadline: string | null;
+  requesterName: string;
+  division: string;
+  requestTypeLabel: string;
+}
+
+export async function postSubmissionReplies(
+  input: PostSubmissionRepliesInput,
+): Promise<void> {
+  await Promise.all([
+    postConfirmationReply(input),
+    postAlertsNotification(input),
+  ]);
+}
+
+async function postConfirmationReply(
+  input: PostSubmissionRepliesInput,
+): Promise<void> {
+  const { client, record, mondayUrl, approverSlackIds, deliverableSummary } = input;
+
+  const reqId = `REQ-${record.monday_item_id}`;
+  const approverMentions = approverSlackIds.length > 0
+    ? approverSlackIds.map((id) => `<@${id}>`).join(' ')
+    : '';
+
+  const calendarLine = MARKETING_CALENDAR_URL
+    ? `\n  • Want to walk through it with marketing? <${MARKETING_CALENDAR_URL}|Schedule a call>`
+    : '';
+
+  const text =
+    `Got it — tracking your request as <${mondayUrl}|${reqId}>.\n\n` +
+    `*What happens next:*\n` +
+    `  • Marketing will triage this and assign an owner. You'll see status updates posted here as it progresses.\n` +
+    `  • Need to add a supporting doc or change something? Just @Sage in this thread.${calendarLine}` +
+    (approverMentions ? `\n\n${approverMentions} — please review when you have a moment.` : '');
+
+  const blocks: any[] = [
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text },
+    },
+  ];
+
+  if (approverSlackIds.length > 0) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          action_id: APPROVE_ACTION_ID,
+          text: { type: 'plain_text', text: '✅ Approve' },
+          style: 'primary',
+          value: String(record.id),
+        },
+        {
+          type: 'button',
+          action_id: REQUEST_CHANGES_ACTION_ID,
+          text: { type: 'plain_text', text: '✏️ Request changes' },
+          value: String(record.id),
+        },
+      ],
+    });
+  }
+
+  try {
+    await client.chat.postMessage({
+      channel: record.originating_channel_id,
+      thread_ts: record.originating_thread_ts,
+      text: `Got it — tracking your request as ${reqId}.`, // notification text
+      blocks,
+    });
+  } catch (err) {
+    console.error('[submission-replies] Confirmation reply failed:', err);
+    await trackError(err, undefined, {
+      source: 'submission-confirmation',
+      monday: record.monday_item_id,
+    });
+  }
+}
+
+async function postAlertsNotification(
+  input: PostSubmissionRepliesInput,
+): Promise<void> {
+  const {
+    client,
+    record,
+    mondayUrl,
+    approverSlackIds,
+    deliverableSummary,
+    deadline,
+    requesterName,
+    division,
+    requestTypeLabel,
+  } = input;
+
+  const alertChannelId = findAlertsChannel();
+  if (!alertChannelId) {
+    console.warn('[submission-replies] No alerts-role channel configured; skipping notification.');
+    return;
+  }
+
+  // Build the threaded permalink to the originating message so marketing
+  // can jump straight to the requester's thread.
+  let threadPermalink = '';
+  try {
+    const result = await client.chat.getPermalink({
+      channel: record.originating_channel_id,
+      message_ts: record.originating_thread_ts,
+    });
+    threadPermalink = result.permalink ?? '';
+  } catch {
+    // Best-effort; message still posts without it.
+  }
+
+  const summary = deliverableSummary.length > 100
+    ? deliverableSummary.slice(0, 97).trim() + '…'
+    : deliverableSummary.trim();
+
+  const dueLine = deadline ? `Due: ${deadline}` : 'Due: no deadline';
+  const approverNamesLine = approverSlackIds.length > 0
+    ? `Approvers: ${approverSlackIds.map((id) => `<@${id}>`).join(', ')}`
+    : 'Approvers: none listed';
+
+  const text =
+    `📥 *New ${requestTypeLabel} from ${requesterName} (${division})*: ${summary}\n` +
+    `• ${dueLine}\n` +
+    `• ${approverNamesLine}\n` +
+    `• <${mondayUrl}|View on Monday>` +
+    (threadPermalink ? ` · <${threadPermalink}|Original thread>` : '');
+
+  try {
+    const result = await client.chat.postMessage({
+      channel: alertChannelId,
+      text,
+    });
+
+    if (result.ts) {
+      await updateRequestAlertInfo(record.id, alertChannelId, result.ts);
+      await logRequestEvent({
+        eventType: 'alert_posted',
+        userId: record.requester_user_id,
+        channelId: alertChannelId,
+        channelRole: 'alerts',
+        mondayItemId: record.monday_item_id,
+      });
+    }
+  } catch (err) {
+    console.error('[submission-replies] Alert notification failed:', err);
+    await trackError(err, undefined, {
+      source: 'submission-alert',
+      monday: record.monday_item_id,
+    });
+  }
+}
+
+/**
+ * Look up the configured alerts channel ID from channels.yaml. Returns
+ * null if no alerts-role channel is configured.
+ *
+ * Reads the YAML directly via the same loader that division-lookup uses.
+ * For now we just iterate via roleForChannel since we don't have a
+ * "find channel by role" helper — channel-router stores the role per
+ * channel ID, but we need the reverse lookup here.
+ */
+function findAlertsChannel(): string | null {
+  if (process.env.SAGE_V2_ALERTS_CHANNEL_ID) {
+    return process.env.SAGE_V2_ALERTS_CHANNEL_ID;
+  }
+  const channels = findChannelsByRole('alerts');
+  return channels[0] ?? null;
+}

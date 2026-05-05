@@ -559,3 +559,201 @@ export async function uploadFileToItem(
 
 // Re-export column IDs for use by workflow.ts
 export { COL as MONDAY_COLUMNS };
+
+// --- Sage v2 column IDs ---
+// Structured columns added for the channel-native intake. These coexist
+// with the v3 COL constants above; v2 writes to BOTH the new structured
+// columns AND the legacy text columns so the form-based intake keeps
+// working until form retirement.
+
+const COL_V2 = {
+  requesterPeople: 'multiple_person_mm2qqzxk', // "Requester" (People)
+  approvalsPeople: 'multiple_person_mm2qzpq',  // "Approvals (People)"
+  requestingFor: 'multiple_person_mm2qt1nx',   // "Requesting For" (People)
+  requestingDivision: 'color_mm2q52zc',        // "Requesting Division" (status)
+  additionalDivisions: 'dropdown_mm32cr4w',    // "Additional Divisions Impacted" (dropdown)
+} as const;
+
+export interface CreateV2RequestParams {
+  /** Project Title — short summary that appears as the item name. */
+  name: string;
+  division: string; // 'BD' | 'P2' | 'CX/Core' | 'Corporate' | 'Product' | 'Marketing'
+  /** Pearl Slack user ID of the person who SUBMITTED the modal. */
+  submitterSlackUserId: string;
+  /** Resolved Monday user ID for the requester (NOT the Slack ID). */
+  requesterMondayUserId: number;
+  /** Resolved Monday user IDs for approvers (may be empty). */
+  approverMondayUserIds: number[];
+  /** Resolved Monday user ID for proxy submission target, if any. */
+  requestingForMondayUserId?: number | null;
+  /** Multi-select of additional divisions impacted (may be empty). */
+  additionalDivisions?: string[];
+  /** Type of Deliverable — must match a label in the status_16 column. */
+  deliverableType?: string | null;
+  /** Long-form deliverable description. */
+  deliverable: string;
+  audience?: string | null;
+  contextBackground?: string | null;
+  desiredOutcomes?: string | null;
+  dueDate?: string | null; // ISO YYYY-MM-DD
+  /** Free-form approver names (legacy long_text — written for form compatibility). */
+  legacyApproversText?: string | null;
+  /** Free-form requester+department string (legacy short_text — written for form compatibility). */
+  legacyRequesterText?: string | null;
+  /** Slack thread permalink to the originating mention. */
+  submissionLink?: string | null;
+}
+
+/**
+ * Create a Sage v2 marketing request item on the 00. board with all
+ * structured v2 columns populated. Returns { id, url } for the new item.
+ */
+export async function createV2RequestItem(
+  params: CreateV2RequestParams,
+): Promise<{ id: string; url: string }> {
+  const boardId = config.mondayBoardId;
+  const columnValues: Record<string, unknown> = {};
+
+  // Status starts at "New" — marketing triages from there.
+  columnValues[COL.status] = { label: 'New' };
+
+  // Division (status enum)
+  columnValues[COL_V2.requestingDivision] = { label: params.division };
+
+  // Requester (People) — required per FR-6
+  columnValues[COL_V2.requesterPeople] = {
+    personsAndTeams: [{ id: params.requesterMondayUserId, kind: 'person' }],
+  };
+
+  // Approvals (People)
+  if (params.approverMondayUserIds.length > 0) {
+    columnValues[COL_V2.approvalsPeople] = {
+      personsAndTeams: params.approverMondayUserIds.map((id) => ({
+        id,
+        kind: 'person',
+      })),
+    };
+  }
+
+  // Requesting For (People)
+  if (params.requestingForMondayUserId) {
+    columnValues[COL_V2.requestingFor] = {
+      personsAndTeams: [{ id: params.requestingForMondayUserId, kind: 'person' }],
+    };
+  }
+
+  // Additional Divisions Impacted (dropdown)
+  if (params.additionalDivisions && params.additionalDivisions.length > 0) {
+    columnValues[COL_V2.additionalDivisions] = {
+      labels: params.additionalDivisions,
+    };
+  }
+
+  // Type of Deliverable (status enum)
+  if (params.deliverableType) {
+    columnValues[COL.deliverableType] = { label: params.deliverableType };
+  }
+
+  // Deliverable text
+  columnValues[COL.deliverables] = { text: params.deliverable };
+
+  // Audience (Target column)
+  if (params.audience) {
+    columnValues[COL.target] = params.audience;
+  }
+
+  // Context & Background
+  if (params.contextBackground) {
+    columnValues[COL.context] = { text: params.contextBackground };
+  }
+
+  // Desired Outcomes
+  if (params.desiredOutcomes) {
+    columnValues[COL.desiredOutcomes] = { text: params.desiredOutcomes };
+  }
+
+  // Due Date
+  if (params.dueDate) {
+    columnValues[COL.dueDate] = { date: params.dueDate };
+  }
+
+  // Legacy text fields (written so the existing form view still
+  // renders meaningful values until the form is retired).
+  if (params.legacyApproversText) {
+    columnValues[COL.approvals] = { text: params.legacyApproversText };
+  }
+  if (params.legacyRequesterText) {
+    columnValues[COL.requester] = params.legacyRequesterText;
+  }
+  if (params.submissionLink) {
+    columnValues[COL.submissionLink] = {
+      url: params.submissionLink,
+      text: 'Slack thread',
+    };
+  }
+
+  const query = `
+    mutation ($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON!) {
+      create_item (board_id: $boardId, group_id: $groupId, item_name: $itemName, column_values: $columnValues) {
+        id
+      }
+    }
+  `;
+
+  const variables = {
+    boardId,
+    groupId: BOARD_GROUP_ID,
+    itemName: params.name,
+    columnValues: JSON.stringify(columnValues),
+  };
+
+  const result = await mondayApi<{ create_item: { id: string } | null }>(
+    query,
+    variables,
+  );
+
+  const itemId = result.create_item?.id;
+  if (!itemId) {
+    throw new Error('[monday-v2] create_item returned no id');
+  }
+
+  return { id: itemId, url: buildMondayUrl(itemId) };
+}
+
+export interface CreateV2SubItemParams {
+  parentItemId: string;
+  /** Sub-item name — typically the recommendation deliverable text. */
+  name: string;
+  recommendation: { name: string; deliverable: string };
+}
+
+/**
+ * Create a sub-item of a v2 request for a checked director-brain
+ * recommendation. Sub-items inherit their parent's metadata via
+ * Monday's subitem mechanism — no need to duplicate columns here.
+ */
+export async function createV2SubItem(
+  params: CreateV2SubItemParams,
+): Promise<{ id: string }> {
+  const query = `
+    mutation ($parentId: ID!, $itemName: String!) {
+      create_subitem (parent_item_id: $parentId, item_name: $itemName) {
+        id
+      }
+    }
+  `;
+  const variables = {
+    parentId: params.parentItemId,
+    itemName: `${params.recommendation.name}: ${params.recommendation.deliverable}`.slice(
+      0,
+      255,
+    ),
+  };
+  const result = await mondayApi<{ create_subitem: { id: string } | null }>(
+    query,
+    variables,
+  );
+  const id = result.create_subitem?.id;
+  if (!id) throw new Error('[monday-v2] create_subitem returned no id');
+  return { id };
+}

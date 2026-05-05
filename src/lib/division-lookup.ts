@@ -97,6 +97,19 @@ export function roleForChannel(channelId: string): ChannelRole | null {
 }
 
 /**
+ * Returns all configured channel IDs that match a given role.
+ * Useful for finding the alerts channel without hard-coding its ID
+ * in handler code.
+ */
+export function findChannelsByRole(role: ChannelRole): string[] {
+  const out: string[] = [];
+  for (const [id, entry] of loadConfig().entries()) {
+    if (entry.role === role) out.push(id);
+  }
+  return out;
+}
+
+/**
  * Test-only: clears the in-memory cache so the next call re-reads the file.
  * Used by unit tests that swap out the config path or content between cases.
  */
