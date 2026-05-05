@@ -9,6 +9,7 @@ import { registerPostSubmissionActions } from './handlers/intake';
 import { registerChannelRouter } from './handlers/channel-router';
 import { registerOpenModalAction } from './handlers/intake-modal';
 import { registerViewSubmissionHandler } from './handlers/view-submission';
+import { registerApprovalActionsV2 } from './handlers/approval-actions';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
 import { initDb, getInstanceId, logError, cleanOldErrors, cleanOldMetrics } from './lib/db';
@@ -52,6 +53,7 @@ app.use(async ({ body, next }) => {
 registerChannelRouter(app);
 registerOpenModalAction(app);
 registerViewSubmissionHandler(app);
+registerApprovalActionsV2(app);
 registerMentionHandler(app);
 registerMessageHandler(app);
 registerAppHomeHandler(app);

@@ -863,6 +863,16 @@ export async function updateRequestAlertInfo(
   );
 }
 
+export async function getRequestById(
+  id: number,
+): Promise<RequestRecord | null> {
+  const result = await pool.query(
+    `SELECT * FROM request_records WHERE id = $1 LIMIT 1`,
+    [id],
+  );
+  return (result.rows[0] as RequestRecord) ?? null;
+}
+
 export async function getRequestByThread(
   channelId: string,
   threadTs: string,
