@@ -28,6 +28,8 @@ import type { App } from '@slack/bolt';
 import { roleForChannel, divisionForChannel, type ChannelRole } from '../lib/division-lookup';
 import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
+import { withDisclaimer } from '../lib/disclaimer';
+import { getQuickInfoResponse } from './quick-info';
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -160,6 +162,7 @@ export function registerChannelRouter(app: App): void {
           channelId,
           threadTs,
           userId,
+          text,
           say,
         });
         return;
@@ -173,17 +176,20 @@ interface RouteIntentStubInput {
   channelId: string;
   threadTs: string;
   userId: string;
+  text: string;
   say: (params: { text: string; thread_ts?: string }) => Promise<unknown>;
 }
 
 async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
-  const { intent, role, channelId, threadTs, userId, say } = input;
+  const { intent, role, channelId, threadTs, userId, text, say } = input;
   const division = divisionForChannel(channelId);
 
   switch (intent) {
-    case 'info_lookup':
-      await say({ text: `_[stub] info_lookup — wires to quick-info in US-006._`, thread_ts: threadTs });
+    case 'info_lookup': {
+      const body = getQuickInfoResponse(text);
+      await say({ text: withDisclaimer(body), thread_ts: threadTs });
       break;
+    }
     case 'work_request':
       await say({
         text: `_[stub] work_request — would open the request modal (US-009-011) for ${division ?? 'unknown'}._`,
