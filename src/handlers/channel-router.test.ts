@@ -1,4 +1,20 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../lib/config', () => ({
+  config: {
+    anthropicApiKey: 'test',
+    slackBotToken: 'test',
+    slackAppToken: 'test',
+    slackSigningSecret: 'test',
+    slackMarketingChannelId: 'C0',
+    googleServiceAccountJson: '{}',
+    googleProjectsFolderId: 'test',
+    mondayApiToken: 'test',
+    marketingLeadSlackId: 'U0',
+    mondayBoardId: '1',
+  },
+}));
+
 import { decideRoute } from './channel-router';
 import { _resetCacheForTesting } from '../lib/division-lookup';
 

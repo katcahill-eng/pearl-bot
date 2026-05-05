@@ -30,6 +30,7 @@ import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
 import { withDisclaimer } from '../lib/disclaimer';
 import { getQuickInfoResponse } from './quick-info';
+import { handleLightQC } from './light-qc';
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -200,7 +201,7 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
       await say({ text: `_[stub] status_query — wires to visibility-query in US-016._`, thread_ts: threadTs });
       break;
     case 'light_qc':
-      await say({ text: `_[stub] light_qc — wires to qc-runner in US-007._`, thread_ts: threadTs });
+      await handleLightQC({ text, threadTs, say });
       break;
     case 'unclear':
       await say({
