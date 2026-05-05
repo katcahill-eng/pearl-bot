@@ -10,7 +10,35 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ChannelRole } from './division-lookup';
 
-const fastClient = new Anthropic({ timeout: 15_000 });
+let _fastClient: Anthropic | null = null;
+function fastClient(): Anthropic {
+  if (!_fastClient) _fastClient = new Anthropic({ timeout: 15_000 });
+  return _fastClient;
+}
+
+// Fast-path regex patterns. We try these first so obvious phrasings
+// don't need an LLM call (and don't fail if the LLM misclassifies).
+// Order matters: more-specific patterns first.
+const FAST_PATHS: { pattern: RegExp; intent: V2Intent }[] = [
+  { pattern: /^(is\s+this|does\s+this)\b.*\b(on[\s-]?brand|sound|read)\b/i, intent: 'light_qc' },
+  { pattern: /^(qc|quality\s*check)\b/i, intent: 'light_qc' },
+  { pattern: /^(check|review)\s+(this|my|our)\b.*\b(brand|copy|draft|on[\s-]?brand)\b/i, intent: 'light_qc' },
+  { pattern: /\bwhere'?s?\s+my\s+(request|brief|project)\b/i, intent: 'status_query' },
+  { pattern: /\bwhat'?s\s+(open|in\s+flight|in\s+progress|the\s+status)\b/i, intent: 'status_query' },
+  { pattern: /\b(what'?s|where\s+are)\s+(our|the)\s+(logo|tagline|brand|colors?|fonts?|guidelines?)\b/i, intent: 'info_lookup' },
+  { pattern: /\b(give|send|share)\s+me\s+(the|our)\s+(logo|tagline|brand|colors?)\b/i, intent: 'info_lookup' },
+  { pattern: /^(i|we)\s+(need|want|would\s+like|am\s+looking\s+for)\b/i, intent: 'work_request' },
+  { pattern: /^can\s+(you|marketing|someone)\s+(make|create|build|design|draft|write|put\s+together)\b/i, intent: 'work_request' },
+  { pattern: /^(make|create|build|design|draft|write|put\s+together)\s+(a|an|me|us|the)\b/i, intent: 'work_request' },
+  { pattern: /\b(help\s+(us|me)\s+with|support\s+(us|me)\s+with)\b/i, intent: 'work_request' },
+];
+
+export function fastPathClassify(text: string): V2Intent | null {
+  for (const { pattern, intent } of FAST_PATHS) {
+    if (pattern.test(text)) return intent;
+  }
+  return null;
+}
 
 export type V2Intent =
   | 'info_lookup'
@@ -58,8 +86,13 @@ export async function classifyChannelMention(
   const cleaned = stripBotMention(text).trim();
   if (!cleaned) return 'unclear';
 
+  // Fast-path obvious phrasings before burning a Haiku call. Also
+  // a safety net against LLM misclassification of clear requests.
+  const fast = fastPathClassify(cleaned);
+  if (fast) return fast;
+
   try {
-    const response = await fastClient.messages.create({
+    const response = await fastClient().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 20,
       system: SYSTEM_PROMPT,
@@ -71,6 +104,11 @@ export async function classifyChannelMention(
       : '';
 
     const matched = VALID_INTENTS.find((i) => raw === i || raw.startsWith(i));
+
+    if (!matched) {
+      console.warn(`[v2-classifier] LLM returned unrecognized intent "${raw}" for: "${cleaned.slice(0, 80)}"`);
+    }
+
     return matched ?? 'unclear';
   } catch (err) {
     console.error('[v2-classifier] classification failed:', err);
