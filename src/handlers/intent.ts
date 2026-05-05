@@ -129,11 +129,11 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
 
   if (channelRole === 'test') {
     return [
-      "Hey — I'm Sage running in *[TEST mode]*. This channel mirrors the production intake flow, but Monday writes and approver DMs are skipped so you can play freely.",
+      "Hey — I'm Sage running in *[TEST mode]*. This channel mirrors the production flow so you can try things out.",
       '',
-      '• *@Sage I need [a thing]* — opens the request modal pre-filled from what you said.',
-      "• *@Sage what's our logo URL?* — quick brand info.",
-      "• *@Sage is this on-brand: [paste]* — light QC check.",
+      "• *@Sage I need [a thing]* — I'll open a request form for you to review.",
+      "• *@Sage what's our logo?* — quick brand info.",
+      "• *@Sage is this on-brand: [paste]* — quick brand-check on a draft.",
       "• *@Sage where's my request?* — status lookup.",
     ].join('\n');
   }
@@ -141,14 +141,14 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
   // Default: intake channel — also covers undefined for backwards
   // compatibility with the v3 mention handler.
   return [
-    "Hey — I'm Sage, the marketing team's intake helper. In this channel:",
+    "Hey — I'm Sage, the marketing team's helper. In this channel:",
     '',
-    "• *@Sage I need [a thing]* — I'll open a pre-filled request modal and turn it into a tracked Monday item.",
-    "• *@Sage what's our logo / tagline / brand colors?* — quick brand info from our resource docs.",
-    '• *@Sage is this on-brand: [paste]* — light QC against brand guidelines.',
+    "• *@Sage I need [a thing]* — I'll open a request form for you to review.",
+    "• *@Sage what's our logo?* (or tagline, colors, fonts) — quick brand info.",
+    "• *@Sage is this on-brand: [paste]* — quick brand-check on a draft.",
     "• *@Sage where's my request?* — status lookup from Monday.",
-    '• *In an existing request thread:* `@Sage here\'s the supporting doc` or `@Sage move the deadline to May 20` — I\'ll update the Monday item.',
+    "• *In an existing request thread:* tag me with what you want to add or change and I'll update the request.",
     '',
-    'I only respond when you @mention me — channel chatter without @Sage is ignored. See the pinned message for your division\'s Monday view.',
+    'I only respond when you @mention me — channel chatter without @Sage is ignored.',
   ].join('\n');
 }

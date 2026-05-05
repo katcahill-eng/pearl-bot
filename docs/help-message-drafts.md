@@ -9,15 +9,15 @@ These use Slack mrkdwn formatting (single asterisks for bold, single underscores
 ## Intake channels (`#mktg_bd_requests`, `#mktg_p2_requests`, etc.)
 
 ```
-Hey — I'm Sage, the marketing team's intake helper. In this channel:
+Hey — I'm Sage, the marketing team's helper. In this channel:
 
-• *@Sage I need [a thing]* — I'll open a pre-filled request modal and turn it into a tracked Monday item.
-• *@Sage what's our logo / tagline / brand colors?* — quick brand info from our resource docs.
-• *@Sage is this on-brand: [paste]* — light QC against brand guidelines.
+• *@Sage I need [a thing]* — I'll open a request form for you to review.
+• *@Sage what's our logo?* (or tagline, colors, fonts) — quick brand info.
+• *@Sage is this on-brand: [paste]* — quick brand-check on a draft.
 • *@Sage where's my request?* — status lookup from Monday.
-• *In an existing request thread:* `@Sage here's the supporting doc` or `@Sage move the deadline to May 20` — I'll update the Monday item.
+• *In an existing request thread:* tag me with what you want to add or change and I'll update the request.
 
-I only respond when you @mention me — channel chatter without @Sage is ignored. See the pinned message for your division's Monday view.
+I only respond when you @mention me — channel chatter without @Sage is ignored.
 ```
 
 ---
