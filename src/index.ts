@@ -6,6 +6,7 @@ import { registerMessageHandler } from './handlers/messages';
 import { registerAppHomeHandler } from './handlers/app-home';
 import { registerApprovalHandler } from './handlers/approval';
 import { registerPostSubmissionActions } from './handlers/intake';
+import { registerChannelRouter } from './handlers/channel-router';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
 import { initDb, getInstanceId, logError, cleanOldErrors, cleanOldMetrics } from './lib/db';
@@ -43,6 +44,10 @@ app.use(async ({ body, next }) => {
   await next();
 });
 
+// v2 channel router goes FIRST so configured intake/alerts/test channels
+// route through the v2 path. The v3 mention handler also checks
+// channels.yaml and skips configured channels — both paths agree.
+registerChannelRouter(app);
 registerMentionHandler(app);
 registerMessageHandler(app);
 registerAppHomeHandler(app);
