@@ -25,12 +25,13 @@
  */
 
 import type { App } from '@slack/bolt';
-import { roleForChannel, divisionForChannel, type ChannelRole } from '../lib/division-lookup';
+import { roleForChannel, type ChannelRole } from '../lib/division-lookup';
 import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
 import { withDisclaimer } from '../lib/disclaimer';
 import { getQuickInfoResponse } from './quick-info';
 import { handleLightQC } from './light-qc';
+import { postOpenModalButton } from './intake-modal';
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -183,7 +184,6 @@ interface RouteIntentStubInput {
 
 async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
   const { intent, role, channelId, threadTs, userId, text, say } = input;
-  const division = divisionForChannel(channelId);
 
   switch (intent) {
     case 'info_lookup': {
@@ -192,10 +192,7 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
       break;
     }
     case 'work_request':
-      await say({
-        text: `_[stub] work_request — would open the request modal (US-009-011) for ${division ?? 'unknown'}._`,
-        thread_ts: threadTs,
-      });
+      await postOpenModalButton({ channelId, threadTs, text, say });
       break;
     case 'status_query':
       await say({ text: `_[stub] status_query — wires to visibility-query in US-016._`, thread_ts: threadTs });

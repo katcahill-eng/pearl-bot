@@ -7,6 +7,7 @@ import { registerAppHomeHandler } from './handlers/app-home';
 import { registerApprovalHandler } from './handlers/approval';
 import { registerPostSubmissionActions } from './handlers/intake';
 import { registerChannelRouter } from './handlers/channel-router';
+import { registerOpenModalAction } from './handlers/intake-modal';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
 import { initDb, getInstanceId, logError, cleanOldErrors, cleanOldMetrics } from './lib/db';
@@ -48,6 +49,7 @@ app.use(async ({ body, next }) => {
 // route through the v2 path. The v3 mention handler also checks
 // channels.yaml and skips configured channels — both paths agree.
 registerChannelRouter(app);
+registerOpenModalAction(app);
 registerMentionHandler(app);
 registerMessageHandler(app);
 registerAppHomeHandler(app);
