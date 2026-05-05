@@ -1,0 +1,55 @@
+# Sage v2 channel configuration
+# Source of truth for which channels Sage listens to and what role each plays.
+#
+# Roles:
+#   intake — division marketing-requests channel. @Sage opens the request modal
+#            and creates a Monday item stamped with the matching division.
+#   alerts — marketing-internal channel. Sage posts a one-line notification
+#            here on every new request and on follow-up activity. Marketing
+#            uses the reply threads (un-mentioned) for internal coordination —
+#            Sage only acts on explicit @mentions in this channel (status
+#            queries, reports). No request modal opens here.
+#   test   — non-prod testing channel. Sage runs in dev mode: skips Monday
+#            writes, skips real approver DM nudges, prefixes confirmations
+#            with [TEST].
+
+channels:
+  # Marketing alerts (renamed from old triage channel)
+  - channel_id: C0ACWP7PGHE
+    channel_name: mktg_incoming_requests
+    role: alerts
+
+  # Division intake channels
+  - channel_id: C0B1P92785C
+    channel_name: mktg_bd_requests
+    role: intake
+    division: BD
+
+  - channel_id: C0B1JV1RX0B
+    channel_name: mktg_core_requests
+    role: intake
+    division: CX/Core
+
+  - channel_id: C0B19STFLS3
+    channel_name: mktg_corporate_requests
+    role: intake
+    division: Corporate
+
+  - channel_id: C0B1UUJ2C4C
+    channel_name: mktg_product_requests
+    role: intake
+    division: Product
+
+  - channel_id: C0B1S1ASKT4
+    channel_name: mktg_p2_requests
+    role: intake
+    division: P2
+
+  # Marketing intentionally does not have an intake channel —
+  # marketing-internal asks stay in marketing's existing channels.
+  # Marketing doesn't request from itself.
+
+  # Test/dev channel — keep for shakedown after deploy
+  - channel_id: C0ABY48HRDL
+    channel_name: pearl-bot-test
+    role: test

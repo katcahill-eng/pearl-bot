@@ -6,5 +6,6 @@ data/
 # Ralph ephemera (PRD markdown is canonical; JSON is regeneratable)
 tasks/prd.json
 tasks/progress.txt
+tasks/archive/
 .ralph-last-branch
 .ralph-archive/
