@@ -8,6 +8,7 @@ import { handleQuickInfo } from './quick-info';
 import { ConversationManager } from '../lib/conversation';
 import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
+import { roleForChannel } from '../lib/division-lookup';
 
 // --- Per-thread message debounce ---
 // When users send multiple messages quickly ("Yeah" + "here"), only process
@@ -47,6 +48,14 @@ export function registerMessageHandler(app: App): void {
   app.event('message', async ({ event, say, client }) => {
     if (event.subtype) return; // Skip edits, deletes, bot messages, etc.
     if ('bot_id' in event && event.bot_id) return; // Skip bot messages without subtype
+
+    // v2: configured intake/alerts/test channels are owned by
+    // channel-router.ts (which listens for app_mention, not message).
+    // Skip them here so the v3 message handler doesn't double-handle
+    // when a user @mentions Sage and Slack fires both events.
+    if (event.channel && roleForChannel(event.channel) !== null) {
+      return;
+    }
 
     const isDM = event.channel_type === 'im';
     const isInBotChannel = event.channel === config.slackMarketingChannelId;
