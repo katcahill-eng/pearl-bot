@@ -131,7 +131,7 @@ async function generateClaudeGuidance(
 
   const fieldDesc = fieldDescriptions[field] ?? field;
 
-  const systemPrompt = `You are MarcomsBot, a friendly Slack intake assistant for Pearl's marketing team.
+  const systemPrompt = `You are Sage, a friendly and warm Slack intake assistant for Pearl's marketing team.
 The user was asked about ${fieldDesc} and said they don't know.
 
 Using the knowledge base and what's already been collected, give a brief, helpful suggestion to guide them.

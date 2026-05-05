@@ -1139,7 +1139,7 @@ describe('Intake conversation flows', () => {
   // ====================
   describe("Kat's full test script: dup-check → gather all fields", () => {
     it('should send exactly ONE message per response and never re-ask answered fields', async () => {
-      // --- Step 1: "@MarcomsBot I need help with a project" → dup-check prompt ---
+      // --- Step 1: "@Sage I need help with a project" → dup-check prompt ---
       (getActiveConversationForUser as Mock).mockResolvedValue({
         id: 99, user_id: 'U_TEST', thread_ts: 'other-thread',
         channel_id: 'C_INTAKE', status: 'gathering',

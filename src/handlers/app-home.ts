@@ -9,7 +9,7 @@ function buildHomeBlocks(): any[] {
       type: 'header',
       text: {
         type: 'plain_text',
-        text: 'MarcomsBot',
+        text: 'Sage',
         emoji: true,
       },
     },

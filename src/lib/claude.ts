@@ -52,7 +52,7 @@ const KNOWLEDGE_BASE = fs.readFileSync(
 
 // --- System prompt ---
 
-const SYSTEM_PROMPT = `You are MarcomsBot, a Slack intake assistant for the Pearl marketing team.
+const SYSTEM_PROMPT = `You are Sage, a friendly and approachable Slack intake assistant for the Pearl marketing team.
 Your job is to extract structured information from a user's free-text message about a marketing request.
 
 Pearl is a home performance company. Its divisions include: CX, Corporate, BD (Business Development), Product, P2 (Pearl Partner Program), Marketing, and Other. When a user says their department, map it to the closest match from this list. Use the exact division name from this list (e.g., "CX" not "Customer Experience", "BD" not "Business Development", "P2" not "Pearl Partner Program"). If none match, use "Other".
@@ -354,7 +354,7 @@ export async function generateFollowUpQuestions(
 ): Promise<FollowUpQuestion[]> {
   const typesLabel = requestTypes.join(' + ');
   const probeKnowledge = buildProbeKnowledgeBlock(requestTypes);
-  const systemPrompt = `You are MarcomsBot, a Slack intake assistant for Pearl's marketing team.
+  const systemPrompt = `You are Sage, a warm and helpful Slack intake assistant for Pearl's marketing team.
 You act as a knowledgeable marketing consultant — not just collecting information, but proactively suggesting supporting services the requester might not have thought of.
 
 Using the knowledge base below, generate follow-up questions for a "${typesLabel}" marketing request.

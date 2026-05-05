@@ -68,13 +68,13 @@ process.on('SIGTERM', async () => {
 (async () => {
   await initDb();
   await app.start();
-  console.log(`⚡ MarcomsBot is running in socket mode (BUILD 2026-02-20T2330 — deliverable-types+owner+kb) instance=${getInstanceId().substring(0, 8)}`);
+  console.log(`⚡ Sage is running in socket mode (BUILD 2026-02-20T2330 — deliverable-types+owner+kb) instance=${getInstanceId().substring(0, 8)}`);
 
   // Set channel topic for discoverability
   try {
     await app.client.conversations.setTopic({
       channel: config.slackMarketingChannelId,
-      topic: "Need something from marketing? Just type here — MarcomsBot handles the rest. Say hello to get started!",
+      topic: "Need something from marketing? Just type here — Sage handles the rest. Say hello to get started!",
     });
     console.log('[startup] Channel topic set');
   } catch (err) {

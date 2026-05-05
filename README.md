@@ -1,4 +1,4 @@
-# MarcomsBot
+# Sage
 
 Slack bot for Pearl marketing intake — handles requests via conversation or form, generates briefs, creates Google Drive folders, and sets up Monday.com tasks.
 
@@ -12,7 +12,7 @@ Slack bot for Pearl marketing intake — handles requests via conversation or fo
          │                     │
          ▼                     ▼
 ┌──────────────────────────────────────┐
-│            MarcomsBot Core            │
+│              Sage Core                │
 │                                      │
 │  Intent Detection → Conversation     │
 │  State Machine → Claude NLP          │
@@ -50,7 +50,7 @@ Slack bot for Pearl marketing intake — handles requests via conversation or fo
 ### 1. Create a Slack App
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
-2. Choose **From scratch**, name it `MarcomsBot`, select your workspace
+2. Choose **From scratch**, name it `Sage`, select your workspace
 
 ### 2. Enable Socket Mode
 
@@ -63,7 +63,7 @@ Under **OAuth & Permissions → Scopes → Bot Token Scopes**, add:
 
 | Scope | Purpose |
 |-------|---------|
-| `app_mentions:read` | Receive @MarcomsBot mentions |
+| `app_mentions:read` | Receive @Sage mentions |
 | `chat:write` | Send messages and replies |
 | `im:read` | Receive direct messages |
 | `im:write` | Send direct messages |
@@ -76,7 +76,7 @@ Under **Event Subscriptions → Subscribe to Bot Events**, add:
 
 | Event | Purpose |
 |-------|---------|
-| `app_mention` | Trigger on @MarcomsBot in channels |
+| `app_mention` | Trigger on @Sage in channels |
 | `message.im` | Trigger on direct messages to bot |
 
 ### 5. Install to Workspace
@@ -207,7 +207,7 @@ pearl-bot/
 
 ## Deployment
 
-MarcomsBot uses Slack Socket Mode, so it does not need a public URL for Slack events. The webhook endpoint (for form submissions) does require a reachable URL if used externally.
+Sage uses Slack Socket Mode, so it does not need a public URL for Slack events. The webhook endpoint (for form submissions) does require a reachable URL if used externally.
 
 ### Railway
 
@@ -244,6 +244,6 @@ CMD ["node", "dist/index.js"]
 Build and run:
 ```bash
 npm run build
-docker build -t marcomsbot .
-docker run --env-file .env marcomsbot
+docker build -t sage .
+docker run --env-file .env sage
 ```

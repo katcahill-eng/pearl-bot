@@ -1,4 +1,4 @@
-# MarcomsBot v3 — Knowledge Base, Smart Follow-ups, Post-Submission Handling
+# Sage v3 — Knowledge Base, Smart Follow-ups, Post-Submission Handling
 
 **Date:** 2026-02-03
 **Status:** Implemented

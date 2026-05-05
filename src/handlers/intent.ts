@@ -116,7 +116,7 @@ export function detectIntent(rawText: string): Intent {
 
 export function getHelpMessage(): string {
   return [
-    "Hey! I'm MarcomsBot, the marketing team's assistant. Here's what I can help with:",
+    "Hey! I'm Sage, the marketing team's assistant. Here's what I can help with:",
     '',
     "*Submit a request* — just tell me what you need (conference support, email campaign, one-pager, etc.) and I'll walk you through it",
     '',

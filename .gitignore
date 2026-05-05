@@ -2,3 +2,9 @@ node_modules/
 dist/
 .env
 data/
+
+# Ralph ephemera (PRD markdown is canonical; JSON is regeneratable)
+tasks/prd.json
+tasks/progress.txt
+.ralph-last-branch
+.ralph-archive/

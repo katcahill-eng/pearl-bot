@@ -105,7 +105,7 @@ export async function generateQCExcel(
   documentTitle: string,
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Pearl MarcomsBot';
+  workbook.creator = 'Pearl Sage';
   workbook.created = new Date();
 
   // --- QC Issues sheet ---
