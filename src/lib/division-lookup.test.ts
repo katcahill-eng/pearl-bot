@@ -35,8 +35,8 @@ describe('division-lookup', () => {
       expect(divisionForChannel('C0ACWP7PGHE')).toBeNull();
     });
 
-    it('returns null for the test channel', () => {
-      expect(divisionForChannel('C0ABY48HRDL')).toBeNull();
+    it('returns the configured division for the test channel (so submissions land on Monday)', () => {
+      expect(divisionForChannel('C0ABY48HRDL')).toBe('Marketing');
     });
 
     it('returns null for an unknown channel', () => {
