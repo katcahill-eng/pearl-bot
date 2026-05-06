@@ -117,9 +117,14 @@ export async function classifyChannelMention(
 }
 
 /**
- * Strip the leading <@U…> bot mention from the text so the classifier
- * sees only the user's actual message.
+ * Strip the leading <@U…> bot mention AND any common leading punctuation
+ * (hyphens, em-dashes, bullets, colons) so the classifier and fast-path
+ * regexes see just the user's actual message. Otherwise a message like
+ * "@Sage - I need..." would fail "starts with 'I need'" matching.
  */
 function stripBotMention(text: string): string {
-  return text.replace(/^<@[A-Z0-9]+>\s*/, '');
+  return text
+    .replace(/^<@[A-Z0-9]+>\s*/, '')
+    .replace(/^[\s\-—–•:,.]+/, '')
+    .trim();
 }

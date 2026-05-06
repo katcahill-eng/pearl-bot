@@ -249,7 +249,7 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
       break;
     case 'unclear':
       await say({
-        text: "I'm not sure what you're asking — could you rephrase? For example: `@Sage I need a webinar email`, `@Sage what's our logo URL?`, or `@Sage where's my request?`",
+        text: "I'm not sure what you're asking — could you rephrase? For example: `@Sage I need a webinar email`, `@Sage what's our logo?`, or `@Sage where's my request?`",
         thread_ts: threadTs,
       });
       break;
