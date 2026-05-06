@@ -58,7 +58,7 @@ export async function postSubmissionReplies(
 async function postConfirmationReply(
   input: PostSubmissionRepliesInput,
 ): Promise<void> {
-  const { client, record, mondayUrl, approverSlackIds, rush, requestType, division } = input;
+  const { client, record, mondayUrl, approverSlackIds, rush, requestType } = input;
 
   const reqId = `REQ-${record.monday_item_id}`;
   const approverMentions = approverSlackIds.length > 0
@@ -73,16 +73,16 @@ async function postConfirmationReply(
     ? `:warning: *Heads up: tight turnaround.* Marketing typically needs ~2 weeks (1 week to draft + 1 week to review) — your timeline is ${rush.daysUntilInHand} day${rush.daysUntilInHand === 1 ? '' : 's'} from today. Marketing will review feasibility before committing; we may need to adjust scope or timeline.\n\n`
     : '';
 
-  // Email-policy banner — only when the request type is "email" AND
-  // the requesting division isn't Corporate. Restates the policy so
-  // the requester sees it again at confirmation time.
-  const emailBanner =
-    requestType === 'email' && division !== 'Corporate'
-      ? `:warning: *Heads up on emails:* marketing reviews emails for brand alignment but doesn't draft division-voice copy — your division owns its voice and audience. You draft, we review. (Corporate-voice emails are the exception.) Marketing can still help on infrastructure (HubSpot setup, distribution lists, templates).\n\n`
-      : '';
+  // Request-type policy banner — fires when the request type is one
+  // we have a written policy for (email, presentation, press_release,
+  // blog, etc.). Same wording that surfaces in the modal so the
+  // policy reads consistently across the flow.
+  const { requestTypePolicy } = await import('../lib/modals/request-modal');
+  const policy = requestTypePolicy(requestType, record.originating_channel_id);
+  const policyBanner = policy ? `${policy.text}\n\n` : '';
 
   const text =
-    `${rushBanner}${emailBanner}Got it — tracking your request as <${mondayUrl}|${reqId}>.\n\n` +
+    `${rushBanner}${policyBanner}Got it — tracking your request as <${mondayUrl}|${reqId}>.\n\n` +
     `*What happens next:*\n` +
     `  • Marketing will triage this and assign an owner. You'll see status updates posted here as it progresses.\n` +
     `  • Need to add a supporting doc or change something? Just @Sage in this thread.${calendarLine}` +

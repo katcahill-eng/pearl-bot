@@ -31,35 +31,104 @@ export interface ModalMetadata {
 }
 
 export const REQUEST_TYPE_ACTION_ID = 'sage_v2_request_type_change';
-export const EMAIL_POLICY_BLOCK_ID = 'email_policy_banner';
+export const POLICY_BLOCK_ID = 'request_type_policy_banner';
+// Kept exported for backward-compat with existing imports.
+export const EMAIL_POLICY_BLOCK_ID = POLICY_BLOCK_ID;
+
+const EMAIL_POLICY_TEXT =
+  ":warning: *Heads up on emails:* marketing reviews emails for brand alignment but doesn't draft division-voice copy — your division owns its voice and audience. " +
+  'You draft, we review. (Corporate-voice emails are the exception.) ' +
+  "Marketing can still help on infrastructure (HubSpot setup, distribution lists, templates).";
+
+const PRESENTATION_POLICY_TEXT =
+  ":warning: *Heads up on presentations:* marketing doesn't write the original deck — your division owns the message and content. " +
+  'Provide your draft deck and marketing can help with layout, graphics, and sequencing to make sure the message lands and stays brand-compliant.';
+
+const TALKING_POINTS_POLICY_TEXT =
+  ":warning: *Heads up on copy work:* marketing writes the piece, but the talking points need to come from you. " +
+  'Before we draft, we need:\n' +
+  '  • *Audience* — who specifically is this for?\n' +
+  "  • *Goal* — what should this piece accomplish?\n" +
+  '  • *Key info* — what information has to land?\n' +
+  'Cover those in the deliverable description above (or expect marketing to follow up to gather them).';
+
+interface RequestTypePolicy {
+  /** Returns true when the policy should fire for this request in this channel. */
+  appliesTo: (channelDivision: string | null) => boolean;
+  /** Slack mrkdwn text shown to the requester. */
+  text: string;
+}
+
+const REQUEST_TYPE_POLICIES: Record<string, RequestTypePolicy> = {
+  email: {
+    appliesTo: (d) => d !== 'Corporate',
+    text: EMAIL_POLICY_TEXT,
+  },
+  presentation: {
+    appliesTo: () => true,
+    text: PRESENTATION_POLICY_TEXT,
+  },
+  press_release: {
+    appliesTo: () => true,
+    text: TALKING_POINTS_POLICY_TEXT,
+  },
+  blog: {
+    appliesTo: () => true,
+    text: TALKING_POINTS_POLICY_TEXT,
+  },
+  landing_page: {
+    appliesTo: () => true,
+    text: TALKING_POINTS_POLICY_TEXT,
+  },
+  social_media: {
+    appliesTo: () => true,
+    text: TALKING_POINTS_POLICY_TEXT,
+  },
+  document: {
+    appliesTo: () => true,
+    text: TALKING_POINTS_POLICY_TEXT,
+  },
+};
 
 /**
- * Returns the email-policy heads-up block when the selected request
- * type is "email" AND the channel's division isn't Corporate. Used
- * both at modal-open time and on dynamic re-render when the user
- * changes the Request Type select.
+ * Resolve the policy text and Slack block for a given request type +
+ * channel. Returns null if the request type has no policy, or if the
+ * channel's division opts out of it (e.g., email in Corporate).
+ *
+ * Used by:
+ *   - the modal initial render
+ *   - the dispatch_action handler that re-renders when the user
+ *     changes the Request Type select
+ *   - the confirmation reply on submission
+ */
+export function requestTypePolicy(
+  requestType: string | null,
+  channelId: string,
+): { block: any; text: string } | null {
+  if (!requestType) return null;
+  const policy = REQUEST_TYPE_POLICIES[requestType];
+  if (!policy) return null;
+  const division = divisionForChannel(channelId);
+  if (!policy.appliesTo(division)) return null;
+  return {
+    block: {
+      type: 'context',
+      block_id: POLICY_BLOCK_ID,
+      elements: [{ type: 'mrkdwn', text: policy.text }],
+    },
+    text: policy.text,
+  };
+}
+
+/**
+ * Convenience for callers that only need the Slack block
+ * (modal renders / dispatch-action updates).
  */
 export function emailPolicyBlock(
   requestType: string | null,
   channelId: string,
 ): any | null {
-  if (requestType !== 'email') return null;
-  const division = divisionForChannel(channelId);
-  if (division === 'Corporate') return null;
-
-  return {
-    type: 'context',
-    block_id: EMAIL_POLICY_BLOCK_ID,
-    elements: [
-      {
-        type: 'mrkdwn',
-        text:
-          ":warning: *Heads up on emails:* marketing reviews emails for brand alignment but doesn't draft division-voice copy — your division owns its voice and audience. " +
-          'You draft, we review. (Corporate-voice emails are the exception.) ' +
-          "Marketing can still help on infrastructure (HubSpot setup, distribution lists, templates).",
-      },
-    ],
-  };
+  return requestTypePolicy(requestType, channelId)?.block ?? null;
 }
 
 const REQUEST_TYPE_OPTIONS: { value: string; label: string }[] = [
