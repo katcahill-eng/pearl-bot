@@ -100,7 +100,9 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
   const v = viewStateValues ?? {};
 
   const requestType =
-    v.request_type?.value?.selected_option?.value ?? null;
+    v.request_type?.sage_v2_request_type_change?.selected_option?.value ??
+    v.request_type?.value?.selected_option?.value ?? // legacy fallback
+    null;
 
   const deliverable =
     v.deliverable?.value?.value ?? '';
@@ -315,6 +317,7 @@ export function registerViewSubmissionHandler(app: App): void {
         rush,
         requesterName,
         division,
+        requestType: state.requestType,
         requestTypeLabel: requestTypeToDeliverableLabel(state.requestType) ?? state.requestType ?? 'Request',
       });
     } catch (err) {

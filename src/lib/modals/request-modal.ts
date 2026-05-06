@@ -22,12 +22,44 @@
  * so the parser + opener pipeline is testable end-to-end.
  */
 
-import type { Division } from '../division-lookup';
+import { divisionForChannel, type Division } from '../division-lookup';
 import type { Recommendation, ParsedRequest } from '../director-rules';
 
 export interface ModalMetadata {
   channelId: string;
   threadTs: string;
+}
+
+export const REQUEST_TYPE_ACTION_ID = 'sage_v2_request_type_change';
+export const EMAIL_POLICY_BLOCK_ID = 'email_policy_banner';
+
+/**
+ * Returns the email-policy heads-up block when the selected request
+ * type is "email" AND the channel's division isn't Corporate. Used
+ * both at modal-open time and on dynamic re-render when the user
+ * changes the Request Type select.
+ */
+export function emailPolicyBlock(
+  requestType: string | null,
+  channelId: string,
+): any | null {
+  if (requestType !== 'email') return null;
+  const division = divisionForChannel(channelId);
+  if (division === 'Corporate') return null;
+
+  return {
+    type: 'context',
+    block_id: EMAIL_POLICY_BLOCK_ID,
+    elements: [
+      {
+        type: 'mrkdwn',
+        text:
+          ":warning: *Heads up on emails:* marketing reviews emails for brand alignment but doesn't draft division-voice copy — your division owns its voice and audience. " +
+          'You draft, we review. (Corporate-voice emails are the exception.) ' +
+          "Marketing can still help on infrastructure (HubSpot setup, distribution lists, templates).",
+      },
+    ],
+  };
 }
 
 const REQUEST_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -77,6 +109,15 @@ export function buildRequestModal(
       text: { type: 'plain_text', text: 'Request details', emoji: true },
     },
     requestTypeBlock(parsed.requestType),
+  );
+
+  // Conditionally insert the email-policy banner right after Request Type.
+  const policyBlock = emailPolicyBlock(parsed.requestType ?? null, metadata.channelId);
+  if (policyBlock) {
+    blocks.push(policyBlock);
+  }
+
+  blocks.push(
     deliverableBlock(parsed.deliverable),
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
@@ -139,10 +180,13 @@ function requestTypeBlock(initial: string | null | undefined): any {
   const block: any = {
     type: 'input',
     block_id: 'request_type',
+    // dispatch_action so the email-policy banner can show/hide
+    // when the user changes the selection.
+    dispatch_action: true,
     label: { type: 'plain_text', text: 'Request Type', emoji: true },
     element: {
       type: 'static_select',
-      action_id: 'value',
+      action_id: REQUEST_TYPE_ACTION_ID,
       options: REQUEST_TYPE_OPTIONS.map(({ value, label }) => ({
         value,
         text: { type: 'plain_text', text: label },

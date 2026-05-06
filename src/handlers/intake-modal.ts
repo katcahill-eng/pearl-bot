@@ -23,7 +23,12 @@ import {
   type Recommendation,
 } from '../lib/director-rules';
 import { logRequestEvent } from '../lib/event-log';
-import { buildRequestModal } from '../lib/modals/request-modal';
+import {
+  buildRequestModal,
+  emailPolicyBlock,
+  REQUEST_TYPE_ACTION_ID,
+  EMAIL_POLICY_BLOCK_ID,
+} from '../lib/modals/request-modal';
 
 // Lazy-initialize the client so unit tests that mock @anthropic-ai/sdk
 // can patch it before construction.
@@ -265,6 +270,64 @@ export function registerOpenModalAction(app: App): void {
       });
     } catch (err) {
       console.error('[intake-modal] open-modal action failed:', err);
+    }
+  });
+
+  // When the user changes the Request Type dropdown, show or hide the
+  // email-policy banner accordingly. This keeps the warning in front
+  // of the user before they submit, not just at the start.
+  app.action(REQUEST_TYPE_ACTION_ID, async ({ ack, body, client }) => {
+    await ack();
+
+    try {
+      const view = (body as any).view;
+      if (!view) return;
+
+      const action = (body as any).actions?.[0];
+      const newRequestType = action?.selected_option?.value as string | undefined;
+      if (!newRequestType) return;
+
+      let metadata: { channelId: string; threadTs: string };
+      try {
+        metadata = JSON.parse(view.private_metadata);
+      } catch {
+        return;
+      }
+
+      const newBanner = emailPolicyBlock(newRequestType, metadata.channelId);
+
+      // Strip any existing banner block, then conditionally insert a
+      // fresh one right after the request_type input.
+      const filtered = (view.blocks ?? []).filter(
+        (b: any) => b.block_id !== EMAIL_POLICY_BLOCK_ID,
+      );
+
+      if (newBanner) {
+        const requestTypeIdx = filtered.findIndex(
+          (b: any) => b.block_id === 'request_type',
+        );
+        if (requestTypeIdx >= 0) {
+          filtered.splice(requestTypeIdx + 1, 0, newBanner);
+        } else {
+          filtered.unshift(newBanner);
+        }
+      }
+
+      await client.views.update({
+        view_id: view.id,
+        hash: view.hash,
+        view: {
+          type: 'modal',
+          callback_id: view.callback_id,
+          private_metadata: view.private_metadata,
+          title: view.title,
+          submit: view.submit,
+          close: view.close,
+          blocks: filtered,
+        },
+      });
+    } catch (err) {
+      console.error('[intake-modal] request-type-change action failed:', err);
     }
   });
 }
