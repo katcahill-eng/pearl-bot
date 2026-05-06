@@ -602,6 +602,9 @@ export interface CreateV2RequestParams {
   legacyRequesterText?: string | null;
   /** Slack thread permalink to the originating mention. */
   submissionLink?: string | null;
+  /** Supporting links / draft source material — populated from the
+   *  form's "Draft or source material" field. */
+  supportingLinks?: string | null;
 }
 
 /**
@@ -690,6 +693,9 @@ export async function createV2RequestItem(
       url: params.submissionLink,
       text: 'Slack thread',
     };
+  }
+  if (params.supportingLinks) {
+    columnValues[COL.supportingLinks] = { text: params.supportingLinks };
   }
 
   const query = `

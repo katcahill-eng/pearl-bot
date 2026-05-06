@@ -231,6 +231,9 @@ async function handleAddInfo(input: PostSubmissionInput): Promise<void> {
     thread_ts: record.originating_thread_ts,
     text: `Got it — added ${summary} to your request.`,
   });
+
+  // Mirror to the alerts thread so Kat + Grant see the update.
+  await mirrorToAlertsThread(client, record, `Update: ${summary}`);
 }
 
 async function handleChangeScope(input: PostSubmissionInput): Promise<void> {
@@ -280,6 +283,35 @@ async function handleChangeScope(input: PostSubmissionInput): Promise<void> {
     thread_ts: record.originating_thread_ts,
     text: 'Got it — flagged the change to the team. They\'ll update the request as needed.',
   });
+
+  // Mirror to the alerts thread so Kat + Grant see the scope change.
+  await mirrorToAlertsThread(
+    client,
+    record,
+    `Scope change: ${cleanedText.slice(0, 120)}${cleanedText.length > 120 ? '…' : ''}`,
+  );
+}
+
+/**
+ * Post a brief one-line update to the alerts-channel thread for this
+ * request, so Kat + Grant see follow-up activity. Best-effort — silent
+ * on failure (the user-facing thread reply already posted).
+ */
+async function mirrorToAlertsThread(
+  client: WebClient,
+  record: RequestRecord,
+  text: string,
+): Promise<void> {
+  if (!record.alert_channel_id || !record.alert_message_ts) return;
+  try {
+    await client.chat.postMessage({
+      channel: record.alert_channel_id,
+      thread_ts: record.alert_message_ts,
+      text,
+    });
+  } catch (err) {
+    console.error('[post-submission] alert mirror failed:', err);
+  }
 }
 
 /**

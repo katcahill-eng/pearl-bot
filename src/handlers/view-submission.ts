@@ -36,6 +36,7 @@ interface ParsedModalState {
   deliverable: string;
   audience: string | null;
   eventOrProject: string | null;
+  draftSource: string | null;
   deadline: string | null;
   liveDate: string | null;
   approverSlackIds: string[];
@@ -113,6 +114,9 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
   const eventOrProject =
     v.event_or_project?.value?.value ?? null;
 
+  const draftSource =
+    v.draft_source?.value?.value ?? null;
+
   const deadline =
     v.deadline?.value?.selected_date ?? null;
 
@@ -140,6 +144,7 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
     deliverable,
     audience,
     eventOrProject,
+    draftSource,
     deadline,
     liveDate,
     approverSlackIds,
@@ -243,6 +248,7 @@ export function registerViewSubmissionHandler(app: App): void {
         audience: state.audience,
         contextBackground: state.eventOrProject ?? null,
         dueDate: state.deadline,
+        supportingLinks: state.draftSource ?? null,
         legacyApproversText: null, // set in US-012 once we have approver names
         legacyRequesterText: `${requesterName} — ${division}`,
       });

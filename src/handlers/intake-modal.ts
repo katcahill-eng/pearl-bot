@@ -298,6 +298,18 @@ export function registerOpenModalAction(app: App): void {
         }
       }
 
+      // Rebuild the draft_source block — required state and hint text
+      // depend on the request type. Keep the same block_id so Slack
+      // preserves any user-entered text.
+      const { draftBlock } = await import('../lib/modals/request-modal');
+      const newDraft = draftBlock(newRequestType);
+      const draftIdx = filtered.findIndex(
+        (b: any) => b.block_id === 'draft_source',
+      );
+      if (draftIdx >= 0) {
+        filtered[draftIdx] = newDraft;
+      }
+
       await client.views.update({
         view_id: view.id,
         hash: view.hash,

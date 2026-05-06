@@ -36,13 +36,13 @@ export const POLICY_BLOCK_ID = 'request_type_policy_banner';
 export const EMAIL_POLICY_BLOCK_ID = POLICY_BLOCK_ID;
 
 const EMAIL_POLICY_TEXT =
-  ":warning: *Emails:* you draft, marketing reviews for brand alignment. (Corporate-voice emails are the exception.) Marketing can also help with HubSpot setup, distribution, or templates.";
+  ":warning: *Heads up on emails:* Each division owns its voice and audience. Divisions draft emails and Marketing reviews for brand alignment.";
 
 const PRESENTATION_POLICY_TEXT =
-  ":warning: *Decks:* you draft the content, marketing refines layout, graphics, and sequencing.";
+  ":warning: *Heads up on decks:* provide a draft deck with your audience and key message already decided. Marketing refines the layout, graphics, and sequencing.";
 
 const TALKING_POINTS_POLICY_TEXT =
-  ":warning: *Marketing writes — you provide the talking points:* audience, goal, and key info. Cover those above or marketing will follow up.";
+  ":warning: *Heads up:* You will need to provide talking points (audience, goal, key info) before Marketing can start.";
 
 interface RequestTypePolicy {
   /** Returns true when the policy should fire for this request in this channel. */
@@ -217,6 +217,7 @@ export function buildRequestModal(
     deliverableBlock(parsed.deliverable),
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
+    draftBlock(parsed.requestType),
     deadlineBlock(parsed.deadline ?? null),
     liveDateBlock(),
   );
@@ -265,6 +266,26 @@ export function buildRequestModal(
     }
 
     blocks.push(recommendationsBlock(trimmedRecs));
+  }
+
+  // Footer — calendar link for "if you're stuck, talk it through with
+  // marketing first." Sits at the bottom so it's an off-ramp, not a
+  // distraction during form fill. Only rendered if a calendar URL is
+  // configured.
+  const calendarUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
+  if (calendarUrl) {
+    blocks.push(
+      { type: 'divider' },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `Need to talk this through with marketing first? <${calendarUrl}|Schedule 30 minutes>.`,
+          },
+        ],
+      },
+    );
   }
 
   return {
@@ -466,6 +487,55 @@ function requestingForBlock(): any {
     element: {
       type: 'users_select',
       action_id: 'value',
+    },
+  };
+}
+
+/**
+ * Returns the "draft / source material" input. Required when the
+ * selected request type has a policy (email, deck, copy types) — Pearl
+ * can't start work on those without the draft. Optional for types
+ * marketing produces from scratch (graphic, event, research, etc.).
+ *
+ * Hint text adapts per type so the requester knows exactly what to
+ * paste.
+ */
+export function draftBlock(requestType: string | null | undefined): any {
+  const policyApplies = requestType ? requestType in REQUEST_TYPE_POLICIES : false;
+
+  let hint: string;
+  switch (requestType) {
+    case 'email':
+      hint = 'Paste a link to your draft email (Google Doc, etc.).';
+      break;
+    case 'presentation':
+      hint = 'Paste a link to your draft deck. Audience and key message should already be decided.';
+      break;
+    case 'press_release':
+    case 'blog':
+    case 'landing_page':
+    case 'social_media':
+    case 'document':
+      hint = 'Paste a link to your talking points (audience, goal, key info).';
+      break;
+    default:
+      hint = 'Optional — paste a link to any source material, brand examples, or relevant context.';
+  }
+
+  return {
+    type: 'input',
+    block_id: 'draft_source',
+    optional: !policyApplies,
+    label: {
+      type: 'plain_text',
+      text: 'Draft or source material',
+      emoji: true,
+    },
+    hint: { type: 'plain_text', text: hint },
+    element: {
+      type: 'plain_text_input',
+      action_id: 'value',
+      multiline: true,
     },
   };
 }
