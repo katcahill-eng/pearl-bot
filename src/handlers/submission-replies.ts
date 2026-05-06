@@ -65,30 +65,35 @@ async function postConfirmationReply(
     : '';
 
   const rushBanner = rush.isRush
-    ? `:warning: *Heads up: tight turnaround.* Marketing typically needs ~2 weeks (1 week to draft + 1 week for approvals and edits) — your timeline is ${rush.daysUntilInHand} day${rush.daysUntilInHand === 1 ? '' : 's'} from today. Marketing will review feasibility before committing; we may need to adjust scope or timeline.\n\n`
+    ? `:warning: *Heads up: tight turnaround.* Marketing typically needs ~2 weeks (1 week to draft + 1 week for approvals and edits) — your timeline is ${rush.daysUntilInHand} day${rush.daysUntilInHand === 1 ? '' : 's'} from today. Marketing will review feasibility before committing; we may need to adjust scope or timeline.`
     : '';
 
   const { requestTypePolicy } = await import('../lib/modals/request-modal');
   const policy = requestTypePolicy(requestType, record.originating_channel_id);
-  const policyBanner = policy ? `${policy.text}\n\n` : '';
+  const policyBanner = policy ? policy.text : '';
 
   // Approver line: tag them as listed approvers, but NO buttons here —
   // approval buttons fire when marketing flips Monday status to
   // Pending review (handled by lifecycle-composer.ts). Per Kat
   // 2026-05-06: there's nothing to approve at submission time.
   const approverLine = approverMentions
-    ? `\n\n${approverMentions} — you're listed as an approver. I'll tag you here when there's a draft ready to review.`
+    ? `${approverMentions} — you're listed as an approver. I'll tag you here when there's a draft ready to review.`
     : '';
 
+  // Heads-ups land at the BOTTOM, just above the approver tag — per
+  // Kat 2026-05-06: starting a confirmation with errors/warnings reads
+  // wrong. Lead with the welcome, end with the cautions.
+  const tail = [rushBanner, policyBanner, approverLine].filter(Boolean).join('\n\n');
+
   const text =
-    `${rushBanner}${policyBanner}Got it — your request is in. <${mondayUrl}|Check status anytime here>.\n\n` +
+    `Got it — your request is in. <${mondayUrl}|Check status anytime here>.\n\n` +
     `*Here's the path from here:*\n` +
     `  1. Marketing reviews the scope and confirms feasibility (typically within 1-2 business days).\n` +
     `  2. Once accepted, marketing starts the work.\n` +
     `  3. When a draft is ready, you (and your approvers) get tagged here for review.\n` +
     `  4. After approval, the deliverable goes live.\n\n` +
     `Need to send a draft, change something, or check status? Just @Sage in this thread.` +
-    approverLine;
+    (tail ? `\n\n${tail}` : '');
 
   const blocks: any[] = [
     {
