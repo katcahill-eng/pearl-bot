@@ -506,20 +506,20 @@ export function draftBlock(requestType: string | null | undefined): any {
   let hint: string;
   switch (requestType) {
     case 'email':
-      hint = 'Paste a link to your draft email (Google Doc, etc.).';
+      hint = 'Paste a link (or multiple) to your draft email — Google Doc, Word, etc.';
       break;
     case 'presentation':
-      hint = 'Paste a link to your draft deck. Audience and key message should already be decided.';
+      hint = 'Paste a link (or multiple) to your draft deck. Audience and key message should already be decided.';
       break;
     case 'press_release':
     case 'blog':
     case 'landing_page':
     case 'social_media':
     case 'document':
-      hint = 'Paste a link to your talking points (audience, goal, key info).';
+      hint = 'Paste a link (or multiple) to your talking points: audience, goal, key info.';
       break;
     default:
-      hint = 'Optional — paste a link to any source material, brand examples, or relevant context.';
+      hint = 'Optional — paste a link (or multiple) to any source material, brand examples, or relevant context.';
   }
 
   return {
@@ -528,7 +528,7 @@ export function draftBlock(requestType: string | null | undefined): any {
     optional: !policyApplies,
     label: {
       type: 'plain_text',
-      text: 'Draft or source material',
+      text: 'Links to draft or source material',
       emoji: true,
     },
     hint: { type: 'plain_text', text: hint },
