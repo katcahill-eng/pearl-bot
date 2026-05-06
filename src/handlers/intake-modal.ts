@@ -176,53 +176,26 @@ export interface PostOpenModalButtonInput {
 }
 
 /**
- * Detects requests that mention email when the channel isn't Corporate.
- * Per Pearl policy (memory: feedback_marketing_reviews_doesnt_write):
- * marketing reviews division-voice emails for brand alignment but
- * doesn't draft them. Only Corporate emails are marketing-written.
- */
-export function isDivisionEmailRequest(
-  text: string,
-  channelDivision: string | null,
-): boolean {
-  const cleaned = text.replace(/^<@[A-Z0-9]+>\s*/, '').toLowerCase();
-  const mentionsEmail = /\b(emails?|e-?mail|newsletter|drip|campaign\s+email)\b/.test(cleaned);
-  return mentionsEmail && channelDivision !== 'Corporate';
-}
-
-/**
  * Post a thread reply with an "Open request form" button. Called from
- * channel-router on a work_request intent. If the request mentions an
- * email and the channel isn't Corporate, prepend a heads-up that
- * marketing reviews but doesn't write division-voice emails.
+ * channel-router on a work_request intent.
+ *
+ * Per Kat 2026-05-06: this upstream message is for welcoming the
+ * requester and prompting them into the form. Policy banners (email,
+ * presentation, etc.) live IN the form and the confirmation reply,
+ * not here. Keep this short and friendly.
  */
 export async function postOpenModalButton(
   input: PostOpenModalButtonInput & { channelDivision?: string | null },
 ): Promise<void> {
-  const { channelId, threadTs, text, say, channelDivision } = input;
+  const { channelId, threadTs, text, say } = input;
   const value: ButtonValue = { text, channelId, threadTs };
 
-  const blocks: any[] = [];
-
-  if (isDivisionEmailRequest(text, channelDivision ?? null)) {
-    blocks.push({
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text:
-          ":warning: *Heads up on emails:* marketing reviews emails for brand alignment but doesn't draft division-voice copy — your division owns its voice and audience. " +
-          'You draft, we review. (Corporate-voice emails are the exception — those marketing can write.) ' +
-          "If you'd still like marketing's help on infrastructure (HubSpot setup, distribution lists, templates), file the request and we'll figure it out together.",
-      },
-    });
-  }
-
-  blocks.push(
+  const blocks: any[] = [
     {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: "Got it — click below to file your request.",
+        text: "Got it — click below to fill in a few details and I'll take it from there.",
       },
     },
     {
@@ -237,7 +210,7 @@ export async function postOpenModalButton(
         },
       ],
     },
-  );
+  ];
 
   await say({
     text: 'Want to file this as a marketing request?',
