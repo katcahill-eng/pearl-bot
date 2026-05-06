@@ -411,7 +411,7 @@ function liveDateBlock(): any {
     dispatch_action: true,
     label: {
       type: 'plain_text',
-      text: 'Live or event date (when it goes to your audience)',
+      text: 'Go live or event date (when it goes to your audience)',
       emoji: true,
     },
     element: {
