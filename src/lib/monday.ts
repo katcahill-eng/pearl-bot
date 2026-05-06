@@ -572,6 +572,7 @@ const COL_V2 = {
   requestingFor: 'multiple_person_mm2qt1nx',   // "Requesting For" (People)
   requestingDivision: 'color_mm2q52zc',        // "Requesting Division" (status)
   additionalDivisions: 'dropdown_mm32cr4w',    // "Additional Divisions Impacted" (dropdown)
+  rush: 'color_mm33neda',                       // "Rush" (status: Standard / Rush)
 } as const;
 
 export interface CreateV2RequestParams {
@@ -605,6 +606,8 @@ export interface CreateV2RequestParams {
   /** Supporting links / draft source material — populated from the
    *  form's "Draft or source material" field. */
   supportingLinks?: string | null;
+  /** Rush flag — true when deadline is less than Pearl's 2-week minimum. */
+  rush?: boolean;
 }
 
 /**
@@ -651,6 +654,9 @@ export async function createV2RequestItem(
       labels: params.additionalDivisions,
     };
   }
+
+  // Rush flag — Standard by default, Rush if assessRush flagged it.
+  columnValues[COL_V2.rush] = { label: params.rush ? 'Rush' : 'Standard' };
 
   // Type of Deliverable (status enum)
   if (params.deliverableType) {

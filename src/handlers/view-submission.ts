@@ -306,6 +306,10 @@ export function registerViewSubmissionHandler(app: App): void {
         ? `Event/project: ${state.eventOrProject}\n\n${state.deliverable}`
         : state.deliverable;
 
+      // Rush detection — computed before item creation so the Rush
+      // status column gets set in the same write as everything else.
+      const rush = assessRush(state.deadline, state.liveDate);
+
       const mondayItem = await createV2RequestItem({
         name: itemName,
         division,
@@ -326,6 +330,7 @@ export function registerViewSubmissionHandler(app: App): void {
         submissionLink: threadPermalink,
         legacyApproversText: null, // set in US-012 once we have approver names
         legacyRequesterText: `${requesterName} — ${division}`,
+        rush: rush.isRush,
       });
 
       // Create sub-items for checked recommendations.
@@ -370,11 +375,10 @@ export function registerViewSubmissionHandler(app: App): void {
         mondayItemId: mondayItem.id,
       });
 
-      // Rush detection — if the in-hand date (or live date if no
-      // deadline set) is closer than Pearl's 2-week minimum, flag.
-      const rush = assessRush(state.deadline, state.liveDate);
+      // Rush bump on the legacy Priority column — kept for analytics
+      // continuity; the Rush status column (set above in createV2RequestItem)
+      // is the source of truth going forward.
       if (rush.isRush) {
-        // Bump Monday's Priority column so triage immediately sees this.
         try {
           const { updateMondayItemColumns } = await import('../lib/monday');
           await updateMondayItemColumns(mondayItem.id, {
