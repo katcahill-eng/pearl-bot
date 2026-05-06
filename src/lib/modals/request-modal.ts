@@ -161,7 +161,11 @@ function deliverableBlock(initial: string | null | undefined): any {
   return {
     type: 'input',
     block_id: 'deliverable',
-    label: { type: 'plain_text', text: 'Deliverable', emoji: true },
+    label: { type: 'plain_text', text: 'What do you need?', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: 'A sentence or two about the ask. The more context, the better the result.',
+    },
     element: {
       type: 'plain_text_input',
       action_id: 'value',
@@ -177,6 +181,10 @@ function audienceBlock(initial: string | null | undefined): any {
     block_id: 'audience',
     optional: true,
     label: { type: 'plain_text', text: 'Audience', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: "Who's this for? E.g. real estate agents, homeowners, BD partners.",
+    },
     element: {
       type: 'plain_text_input',
       action_id: 'value',
@@ -190,7 +198,11 @@ function eventOrProjectBlock(initial: string | null | undefined): any {
     type: 'input',
     block_id: 'event_or_project',
     optional: true,
-    label: { type: 'plain_text', text: 'Event / Project', emoji: true },
+    label: { type: 'plain_text', text: 'Event or project', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: 'Tied to a specific event, conference, or product launch?',
+    },
     element: {
       type: 'plain_text_input',
       action_id: 'value',
@@ -205,6 +217,10 @@ function deadlineBlock(initial: string | null | undefined): any {
     block_id: 'deadline',
     optional: true,
     label: { type: 'plain_text', text: 'Deadline', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: 'When do you need this in hand?',
+    },
     element: {
       type: 'datepicker',
       action_id: 'value',
@@ -221,7 +237,11 @@ function approvalsBlock(): any {
     type: 'input',
     block_id: 'approvals',
     optional: true,
-    label: { type: 'plain_text', text: 'Approvals (Slack users)', emoji: true },
+    label: { type: 'plain_text', text: 'Approvers', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: "Anyone whose sign-off is needed before this goes out. They'll get an Approve button in your thread.",
+    },
     element: {
       type: 'multi_users_select',
       action_id: 'value',
@@ -236,8 +256,12 @@ function additionalDivisionsBlock(initial: Division[] | null): any {
     optional: true,
     label: {
       type: 'plain_text',
-      text: 'Additional Divisions Impacted',
+      text: 'Other divisions impacted',
       emoji: true,
+    },
+    hint: {
+      type: 'plain_text',
+      text: 'If this also affects another Pearl division beyond yours.',
     },
     element: {
       type: 'multi_static_select',
@@ -262,7 +286,11 @@ function requestingForBlock(): any {
     type: 'input',
     block_id: 'requesting_for',
     optional: true,
-    label: { type: 'plain_text', text: 'Requesting for (someone else?)', emoji: true },
+    label: { type: 'plain_text', text: 'Requesting on behalf of', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: 'If someone else is the one who actually needs the work.',
+    },
     element: {
       type: 'users_select',
       action_id: 'value',
@@ -276,6 +304,10 @@ function recommendationsBlock(recs: Recommendation[]): any {
     block_id: 'recommendations',
     optional: true,
     label: { type: 'plain_text', text: 'Add-ons', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: "Each one I'll track as a linked sub-item so the team can pick them up alongside the main ask.",
+    },
     element: {
       type: 'checkboxes',
       action_id: 'value',
