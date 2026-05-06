@@ -657,8 +657,13 @@ export async function createV2RequestItem(
     columnValues[COL.deliverableType] = { label: params.deliverableType };
   }
 
-  // Deliverable text
-  columnValues[COL.deliverables] = { text: params.deliverable };
+  // Deliverable(s) long_text — only written if explicitly provided.
+  // v2 leaves this empty: the Type of Deliverable status column
+  // captures the format, and the long-form description lives in
+  // Context & Background.
+  if (params.deliverable) {
+    columnValues[COL.deliverables] = { text: params.deliverable };
+  }
 
   // Audience (Target column)
   if (params.audience) {
@@ -750,10 +755,10 @@ export async function createV2SubItem(
   `;
   const variables = {
     parentId: params.parentItemId,
-    itemName: `${params.recommendation.name}: ${params.recommendation.deliverable}`.slice(
-      0,
-      255,
-    ),
+    // Use the human-readable deliverable text as the sub-item name —
+    // the slug (recommendation.name) is internal tracking only and was
+    // showing as awkward prefix like "webinar-platform: ..." in Monday.
+    itemName: params.recommendation.deliverable.slice(0, 255),
   };
   const result = await mondayApi<{ create_subitem: { id: string } | null }>(
     query,

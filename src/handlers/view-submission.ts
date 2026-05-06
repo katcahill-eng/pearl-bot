@@ -265,6 +265,12 @@ export function registerViewSubmissionHandler(app: App): void {
         console.error('[view-submission] getPermalink failed (non-critical):', err);
       }
 
+      // Compose Context & Background: prepend Event/project line if set,
+      // then the requester's full description of what they need.
+      const contextBackground = state.eventOrProject
+        ? `Event/project: ${state.eventOrProject}\n\n${state.deliverable}`
+        : state.deliverable;
+
       const mondayItem = await createV2RequestItem({
         name: itemName,
         division,
@@ -274,9 +280,12 @@ export function registerViewSubmissionHandler(app: App): void {
         requestingForMondayUserId: requestingForMondayId,
         additionalDivisions: state.additionalDivisions,
         deliverableType: requestTypeToDeliverableLabel(state.requestType),
-        deliverable: state.deliverable,
+        // Monday's Deliverable(s) long_text column is no longer written —
+        // the Type of Deliverable status column captures the format,
+        // and the full description lives in Context & Background.
+        deliverable: '',
         audience: state.audience,
-        contextBackground: state.eventOrProject ?? null,
+        contextBackground,
         dueDate: state.deadline,
         supportingLinks: state.draftSource ?? null,
         submissionLink: threadPermalink,
