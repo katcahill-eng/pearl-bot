@@ -105,10 +105,13 @@ export function formatThreadReply(event: LifecycleEvent): string | null {
         return null;
       }
       if (newStatus === 'More information needed') {
-        const calendarLine = MARKETING_CALENDAR_URL
-          ? ` <${MARKETING_CALENDAR_URL}|Schedule 30 minutes to discuss>.`
-          : ' Marketing will follow up here with what they need.';
-        return `More information needed before marketing can move forward.${calendarLine}`;
+        if (MARKETING_CALENDAR_URL) {
+          return (
+            `Hey — marketing has a few questions before they can dig in. ` +
+            `Let's grab 30 minutes to talk it through: <${MARKETING_CALENDAR_URL}|schedule a call>.`
+          );
+        }
+        return "Hey — marketing has a few questions before they can dig in. They'll follow up here with what they need.";
       }
       if (newStatus === 'Pending review') {
         // Caller composes the full message including deliverable URL
