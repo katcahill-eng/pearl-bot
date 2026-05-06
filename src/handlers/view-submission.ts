@@ -200,7 +200,7 @@ export function registerViewSubmissionHandler(app: App): void {
         response_action: 'errors',
         errors: {
           draft_source:
-            "Please paste a link to your draft. If you don't have one yet, finish drafting first or use the 'Schedule 30 minutes' link at the bottom to talk it through with marketing.",
+            "Please paste a link to your draft. If you don't have one yet, schedule a call to discuss (link below).",
         },
       });
       return;

@@ -27,11 +27,13 @@ import {
   buildRequestModal,
   emailPolicyBlock,
   rushBannerBlock,
+  scheduleCallBlock,
   REQUEST_TYPE_ACTION_ID,
   DEADLINE_ACTION_ID,
   LIVE_DATE_ACTION_ID,
   EMAIL_POLICY_BLOCK_ID,
   RUSH_BANNER_BLOCK_ID,
+  SCHEDULE_CALL_BLOCK_ID,
 } from '../lib/modals/request-modal';
 
 // Lazy-initialize the client so unit tests that mock @anthropic-ai/sdk
@@ -309,6 +311,24 @@ export function registerOpenModalAction(app: App): void {
       if (draftIdx >= 0) {
         filtered[draftIdx] = newDraft;
       }
+
+      // Keep the contextual "Schedule a call" block in sync — it sits
+      // right under the draft field, only when the request type has
+      // a policy. Strip the old one and conditionally re-insert.
+      const filteredWithoutSchedule = filtered.filter(
+        (b: any) => b.block_id !== SCHEDULE_CALL_BLOCK_ID,
+      );
+      const newScheduleBlock = scheduleCallBlock(newRequestType);
+      if (newScheduleBlock) {
+        const newDraftIdx = filteredWithoutSchedule.findIndex(
+          (b: any) => b.block_id === 'draft_source',
+        );
+        if (newDraftIdx >= 0) {
+          filteredWithoutSchedule.splice(newDraftIdx + 1, 0, newScheduleBlock);
+        }
+      }
+      filtered.length = 0;
+      filtered.push(...filteredWithoutSchedule);
 
       await client.views.update({
         view_id: view.id,

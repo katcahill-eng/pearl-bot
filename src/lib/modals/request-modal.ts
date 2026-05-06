@@ -225,6 +225,14 @@ export function buildRequestModal(
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
     draftBlock(parsed.requestType),
+  );
+
+  // "Don't have a draft yet? Schedule a call" — sits right under the
+  // draft field so it's visible in context, not buried in the footer.
+  const scheduleBlock = scheduleCallBlock(parsed.requestType);
+  if (scheduleBlock) blocks.push(scheduleBlock);
+
+  blocks.push(
     deadlineBlock(parsed.deadline ?? null),
     liveDateBlock(),
   );
@@ -507,6 +515,34 @@ function requestingForBlock(): any {
  * Hint text adapts per type so the requester knows exactly what to
  * paste.
  */
+export const SCHEDULE_CALL_BLOCK_ID = 'schedule_call_under_draft';
+
+/**
+ * Returns the "Don't have a draft yet? Schedule a call" context block
+ * that sits right under the draft field. Only shown when the request
+ * type has a policy AND the calendar URL is configured.
+ */
+export function scheduleCallBlock(
+  requestType: string | null | undefined,
+): any | null {
+  const policyApplies = requestType ? requestType in REQUEST_TYPE_POLICIES : false;
+  if (!policyApplies) return null;
+
+  const calendarUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
+  if (!calendarUrl) return null;
+
+  return {
+    type: 'context',
+    block_id: SCHEDULE_CALL_BLOCK_ID,
+    elements: [
+      {
+        type: 'mrkdwn',
+        text: `Don't have a draft yet? <${calendarUrl}|Schedule 30 minutes to talk it through with marketing>.`,
+      },
+    ],
+  };
+}
+
 export function draftBlock(requestType: string | null | undefined): any {
   const policyApplies = requestType ? requestType in REQUEST_TYPE_POLICIES : false;
 
