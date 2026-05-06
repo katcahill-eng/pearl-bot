@@ -3,13 +3,17 @@ import { formatThreadReply, formatAlertMirror } from './lifecycle-composer';
 
 describe('formatThreadReply (status_change)', () => {
   it('returns the acceptance message on New → Working on it', () => {
-    const out = formatThreadReply({
-      kind: 'status_change',
-      oldStatus: 'New',
-      newStatus: 'Working on it',
-    });
+    const out = formatThreadReply(
+      {
+        kind: 'status_change',
+        oldStatus: 'New',
+        newStatus: 'Working on it',
+      },
+      'U123',
+    );
     expect(out).toBeTruthy();
-    expect(out).toContain('Marketing has accepted');
+    expect(out).toContain('<@U123>');
+    expect(out).toContain('marketing has accepted');
     expect(out).toContain('started work');
   });
 
@@ -24,12 +28,16 @@ describe('formatThreadReply (status_change)', () => {
   });
 
   it('fires the More information needed message', () => {
-    const out = formatThreadReply({
-      kind: 'status_change',
-      oldStatus: 'Working on it',
-      newStatus: 'More information needed',
-    });
-    expect(out).toContain('More information needed');
+    const out = formatThreadReply(
+      {
+        kind: 'status_change',
+        oldStatus: 'Working on it',
+        newStatus: 'More information needed',
+      },
+      'U123',
+    );
+    expect(out).toContain('<@U123>');
+    expect(out).toContain('marketing has a few questions');
   });
 
   it('returns null on Pending review (caller composes the multi-block message)', () => {

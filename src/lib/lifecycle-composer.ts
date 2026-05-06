@@ -89,14 +89,23 @@ export function _resetDedupForTesting(): void {
  *   Other column changes (owner, due date, divisions) — silent
  *     (low-signal noise; the requester doesn't need a ping for these)
  */
-export function formatThreadReply(event: LifecycleEvent): string | null {
+export function formatThreadReply(
+  event: LifecycleEvent,
+  requesterUserId?: string,
+): string | null {
+  // @-tag the requester so Slack treats lifecycle messages as mentions
+  // — that way the channel highlights and a number badge appears in
+  // the sidebar. Without this, bot replies in your own thread don't
+  // bubble up the way other channel messages do.
+  const tag = requesterUserId ? `<@${requesterUserId}> — ` : '';
+
   switch (event.kind) {
     case 'status_change': {
       const newStatus = event.newStatus;
       if (SILENT_STATUSES.has(newStatus)) return null;
 
       if (newStatus === 'Working on it' && event.oldStatus === 'New') {
-        return 'Marketing has accepted this request and started work. Status updates will post here as it progresses.';
+        return `${tag}marketing has accepted this request and started work. Status updates will post here as it progresses.`;
       }
       if (newStatus === 'Working on it') {
         // Working on it from any other state (e.g. Pending review when
@@ -107,11 +116,11 @@ export function formatThreadReply(event: LifecycleEvent): string | null {
       if (newStatus === 'More information needed') {
         if (MARKETING_CALENDAR_URL) {
           return (
-            `Hey — marketing has a few questions before they can dig in. ` +
+            `${tag}marketing has a few questions before they can dig in. ` +
             `Let's grab 30 minutes to talk it through: <${MARKETING_CALENDAR_URL}|schedule a call>.`
           );
         }
-        return "Hey — marketing has a few questions before they can dig in. They'll follow up here with what they need.";
+        return `${tag}marketing has a few questions before they can dig in. They'll follow up here with what they need.`;
       }
       if (newStatus === 'Pending review') {
         // Caller composes the full message including deliverable URL
@@ -120,7 +129,7 @@ export function formatThreadReply(event: LifecycleEvent): string | null {
         return null;
       }
       if (newStatus === 'Completed/Live') {
-        return 'All set — approved and complete.';
+        return `${tag}all set — approved and complete.`;
       }
       // Any other status change is silent.
       return null;
@@ -223,7 +232,7 @@ async function postOriginatingReply(
     return;
   }
 
-  const text = formatThreadReply(event);
+  const text = formatThreadReply(event, record.requester_user_id);
   if (!text) return; // Silent event — nothing to post.
 
   try {
@@ -312,9 +321,12 @@ async function postPendingReviewMessage(
     ? record.approver_user_ids.map((id) => `<@${id}>`).join(' ')
     : '';
 
+  // Tag the requester too so their channel sidebar highlights.
+  const requesterTag = `<@${record.requester_user_id}>`;
+
   const deliverableLine = deliverableUrl
-    ? `Draft ready for review: <${deliverableUrl}>`
-    : 'Draft ready for review (Marketing: please add the Deliverable URL on the Monday item).';
+    ? `${requesterTag} — draft ready for review: <${deliverableUrl}>`
+    : `${requesterTag} — draft ready for review (Marketing: please add the Deliverable URL on the Monday item).`;
 
   const approverLine = approverMentions
     ? `\n${approverMentions} — please review when you have a moment.`
