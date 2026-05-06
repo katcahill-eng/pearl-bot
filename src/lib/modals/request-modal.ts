@@ -36,10 +36,10 @@ export const POLICY_BLOCK_ID = 'request_type_policy_banner';
 export const EMAIL_POLICY_BLOCK_ID = POLICY_BLOCK_ID;
 
 const EMAIL_POLICY_TEXT =
-  ":warning: *Heads up on emails:* Each division owns its voice and audience. Divisions draft emails and Marketing reviews for brand alignment.";
+  ":warning: *Heads up:* Each division owns its voice and audience. Divisions draft emails and Marketing reviews for brand alignment.";
 
 const PRESENTATION_POLICY_TEXT =
-  ":warning: *Heads up on decks:* provide a draft deck with your audience and key message already decided. Marketing refines the layout, graphics, and sequencing.";
+  ":warning: *Heads up:* Provide a draft deck with your audience and key message already decided. Marketing refines the layout, graphics, and sequencing.";
 
 const TALKING_POINTS_POLICY_TEXT =
   ":warning: *Heads up:* You will need to provide talking points (audience, goal, key info) before Marketing can start.";
