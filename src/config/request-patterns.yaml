@@ -39,18 +39,22 @@ rules:
         deliverable: On-site signage, badges, and digital displays
       - name: booth-collateral
         deliverable: One-pagers, flyers, and giveaways for the booth
-      - name: post-event-recap
-        deliverable: Post-event recap email and social wrap-up
-    reasoning: Conferences usually pull in pre-event awareness, on-site assets, collateral, and a wrap-up.
+      - name: post-event-social
+        deliverable: Post-event social wrap-up
+      - name: recap-email-review
+        deliverable: Brand review of your post-event recap email (you draft; marketing reviews)
+    reasoning: Conferences usually pull in pre-event awareness, on-site assets, collateral, post-event social, and a brand review of the recap email you'll send to your audience.
 
   - trigger: [product launch, launch, release]
     suggest:
       - name: press-release
         deliverable: Press release announcing the launch
       - name: social-series
-        deliverable: Multi-post social series across LinkedIn, Twitter/X, IG
-      - name: sales-enablement
-        deliverable: One-pager or talking points for the BD/CX teams
+        deliverable: Multi-post social series across Pearl's owned channels
       - name: landing-page-update
-        deliverable: Landing-page or website copy update reflecting the launch
-    reasoning: Product launches usually need a PR push, social series, sales-enablement copy, and a website update.
+        deliverable: Landing page or website copy update
+      - name: product-one-pager
+        deliverable: One-pager explaining the product for your audience
+      - name: talking-points-review
+        deliverable: Brand review of your talking points (you draft; marketing reviews)
+    reasoning: Product launches usually pull in PR, social, web/landing-page copy, an audience-facing one-pager, and a brand review of the division's talking points.

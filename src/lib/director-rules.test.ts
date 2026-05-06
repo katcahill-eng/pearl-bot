@@ -30,7 +30,10 @@ describe('matchRecommendations', () => {
     expect(names).toContain('pre-event-social');
     expect(names).toContain('on-site-graphics');
     expect(names).toContain('booth-collateral');
-    expect(names).toContain('post-event-recap');
+    expect(names).toContain('post-event-social');
+    expect(names).toContain('recap-email-review');
+    // Marketing reviews; doesn't draft the division's recap email.
+    expect(names).not.toContain('post-event-recap');
   });
 
   it('matches "tradeshow" alias for the conference rule', () => {
@@ -46,8 +49,11 @@ describe('matchRecommendations', () => {
     const names = result.map((r) => r.name);
     expect(names).toContain('press-release');
     expect(names).toContain('social-series');
-    expect(names).toContain('sales-enablement');
     expect(names).toContain('landing-page-update');
+    expect(names).toContain('product-one-pager');
+    expect(names).toContain('talking-points-review');
+    // Marketing reviews; doesn't draft the division's talking points.
+    expect(names).not.toContain('sales-enablement');
   });
 
   it('returns empty array for a generic ask with no matching trigger', () => {
