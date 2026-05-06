@@ -252,6 +252,19 @@ export function registerViewSubmissionHandler(app: App): void {
       const requesterName = await getSlackDisplayName(requesterSlackId, client);
       const itemName = deriveItemName(state.deliverable);
 
+      // Capture the Slack thread permalink so marketing can jump back
+      // to the original request from Monday.
+      let threadPermalink: string | null = null;
+      try {
+        const result = await client.chat.getPermalink({
+          channel: metadata.channelId,
+          message_ts: metadata.threadTs,
+        });
+        threadPermalink = result.permalink ?? null;
+      } catch (err) {
+        console.error('[view-submission] getPermalink failed (non-critical):', err);
+      }
+
       const mondayItem = await createV2RequestItem({
         name: itemName,
         division,
@@ -266,6 +279,7 @@ export function registerViewSubmissionHandler(app: App): void {
         contextBackground: state.eventOrProject ?? null,
         dueDate: state.deadline,
         supportingLinks: state.draftSource ?? null,
+        submissionLink: threadPermalink,
         legacyApproversText: null, // set in US-012 once we have approver names
         legacyRequesterText: `${requesterName} — ${division}`,
       });
