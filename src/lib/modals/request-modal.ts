@@ -81,6 +81,7 @@ export function buildRequestModal(
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
     deadlineBlock(parsed.deadline ?? null),
+    liveDateBlock(),
     approvalsBlock(),
     additionalDivisionsBlock(parsed.additionalDivisionsImpacted ?? null),
     requestingForBlock(),
@@ -219,7 +220,7 @@ function deadlineBlock(initial: string | null | undefined): any {
     label: { type: 'plain_text', text: 'Deadline', emoji: true },
     hint: {
       type: 'plain_text',
-      text: 'When do you need this in hand?',
+      text: 'When do you need this in hand? Marketing typically needs ~2 weeks (1 week to draft + 1 week to review).',
     },
     element: {
       type: 'datepicker',
@@ -230,6 +231,23 @@ function deadlineBlock(initial: string | null | undefined): any {
     block.element.initial_date = initial;
   }
   return block;
+}
+
+function liveDateBlock(): any {
+  return {
+    type: 'input',
+    block_id: 'live_date',
+    optional: true,
+    label: { type: 'plain_text', text: 'Live or event date', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: 'When does this go out to your audience? Send date, webinar date, launch date — different from the in-hand deadline.',
+    },
+    element: {
+      type: 'datepicker',
+      action_id: 'value',
+    },
+  };
 }
 
 function approvalsBlock(): any {

@@ -38,6 +38,8 @@ interface PostSubmissionRepliesInput {
   approverSlackIds: string[];
   deliverableSummary: string;
   deadline: string | null;
+  liveDate: string | null;
+  rush: { isRush: boolean; daysUntilInHand: number | null; effectiveDate: string | null };
   requesterName: string;
   division: string;
   requestTypeLabel: string;
@@ -55,7 +57,7 @@ export async function postSubmissionReplies(
 async function postConfirmationReply(
   input: PostSubmissionRepliesInput,
 ): Promise<void> {
-  const { client, record, mondayUrl, approverSlackIds, deliverableSummary } = input;
+  const { client, record, mondayUrl, approverSlackIds, rush } = input;
 
   const reqId = `REQ-${record.monday_item_id}`;
   const approverMentions = approverSlackIds.length > 0
@@ -66,8 +68,12 @@ async function postConfirmationReply(
     ? `\n  • Want to walk through it with marketing? <${MARKETING_CALENDAR_URL}|Schedule a call>`
     : '';
 
+  const rushBanner = rush.isRush
+    ? `:warning: *Heads up: tight turnaround.* Marketing typically needs ~2 weeks (1 week to draft + 1 week to review) — your timeline is ${rush.daysUntilInHand} day${rush.daysUntilInHand === 1 ? '' : 's'} from today. Marketing will review feasibility before committing; we may need to adjust scope or timeline.\n\n`
+    : '';
+
   const text =
-    `Got it — tracking your request as <${mondayUrl}|${reqId}>.\n\n` +
+    `${rushBanner}Got it — tracking your request as <${mondayUrl}|${reqId}>.\n\n` +
     `*What happens next:*\n` +
     `  • Marketing will triage this and assign an owner. You'll see status updates posted here as it progresses.\n` +
     `  • Need to add a supporting doc or change something? Just @Sage in this thread.${calendarLine}` +
@@ -127,6 +133,8 @@ async function postAlertsNotification(
     approverSlackIds,
     deliverableSummary,
     deadline,
+    liveDate,
+    rush,
     requesterName,
     division,
     requestTypeLabel,
@@ -155,14 +163,21 @@ async function postAlertsNotification(
     ? deliverableSummary.slice(0, 97).trim() + '…'
     : deliverableSummary.trim();
 
-  const dueLine = deadline ? `Due: ${deadline}` : 'Due: no deadline';
+  const dueLine = deadline
+    ? `Due: ${deadline}`
+    : liveDate
+    ? `Live: ${liveDate}`
+    : 'Due: no deadline';
+  const liveLine = deadline && liveDate ? `\n• Live: ${liveDate}` : '';
   const approverNamesLine = approverSlackIds.length > 0
     ? `Approvers: ${approverSlackIds.map((id) => `<@${id}>`).join(', ')}`
     : 'Approvers: none listed';
 
+  const rushPrefix = rush.isRush ? `🚨 *RUSH (${rush.daysUntilInHand}d)* — ` : '';
+
   const text =
-    `📥 *New ${requestTypeLabel} from ${requesterName} (${division})*: ${summary}\n` +
-    `• ${dueLine}\n` +
+    `${rushPrefix}📥 *New ${requestTypeLabel} from ${requesterName} (${division})*: ${summary}\n` +
+    `• ${dueLine}${liveLine}\n` +
     `• ${approverNamesLine}\n` +
     `• <${mondayUrl}|View on Monday>` +
     (threadPermalink ? ` · <${threadPermalink}|Original thread>` : '');

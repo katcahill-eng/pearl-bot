@@ -40,11 +40,18 @@ Respond ONLY with a JSON object matching this exact schema (no markdown, no expl
 {
   "requestType":   string | null,   // e.g. "webinar", "email", "graphic", "campaign", "blog", "presentation"
   "deliverable":   string | null,   // a 1-2 sentence description of what they're asking for
-  "audience":      string | null,   // who the deliverable targets
+  "audience":      string | null,   // who the deliverable targets — extract phrases like "for X", "to X", "targeting X" (e.g. "real estate agents", "homeowners", "BD partners")
   "deadline":      string | null,   // ISO-8601 (YYYY-MM-DD) if a date is given, null otherwise
   "eventOrProject": string | null,  // event/project name if mentioned (e.g. "NAR Houston", "Pearl Pro launch")
   "additionalDivisionsImpacted": string[] | null  // any of: BD, P2, CX/Core, Corporate, Product, Marketing
 }
+
+Examples:
+"I need a registration email for the May 12 webinar — for real estate agents"
+  → { "requestType": "webinar", "deliverable": "Registration email for the May 12 webinar", "audience": "real estate agents", "deadline": null, "eventOrProject": null, "additionalDivisionsImpacted": null }
+
+"Help us build a one-pager about Pearl SCORE for homeowners"
+  → { "requestType": "graphic", "deliverable": "One-pager about Pearl SCORE", "audience": "homeowners", "deadline": null, "eventOrProject": null, "additionalDivisionsImpacted": null }
 
 If a field is not mentioned or cannot be confidently extracted, set it to null.`;
 
@@ -94,7 +101,10 @@ export async function parseIntakeText(text: string): Promise<ParsedIntake> {
     return {
       requestType: typeof parsed.requestType === 'string' ? parsed.requestType : null,
       deliverable: typeof parsed.deliverable === 'string' ? parsed.deliverable : cleaned,
-      audience: typeof parsed.audience === 'string' ? parsed.audience : null,
+      audience:
+        typeof parsed.audience === 'string' && parsed.audience.trim()
+          ? parsed.audience
+          : extractAudienceFallback(cleaned),
       eventOrProject:
         typeof parsed.eventOrProject === 'string' ? parsed.eventOrProject : null,
       additionalDivisionsImpacted: filterDivisions(parsed.additionalDivisionsImpacted),
@@ -102,8 +112,31 @@ export async function parseIntakeText(text: string): Promise<ParsedIntake> {
     };
   } catch (err) {
     console.error('[intake-modal] Parse failed, falling back:', err);
-    return { deliverable: cleaned };
+    return {
+      deliverable: cleaned,
+      audience: extractAudienceFallback(cleaned),
+    };
   }
+}
+
+/**
+ * Regex fallback when Sonnet misses the audience. Matches common
+ * "for X" / "to X" / "targeting X" phrases at the end of the text.
+ */
+export function extractAudienceFallback(text: string): string | null {
+  // Try "for X" at end (most common Pearl phrasing)
+  const forMatch = text.match(/\bfor\s+([a-z][\w\s/,&'-]{2,60})$/i);
+  if (forMatch) return forMatch[1].trim().replace(/[.!?]+$/, '');
+
+  // Try "targeting X"
+  const targetMatch = text.match(/\btargeting\s+([a-z][\w\s/,&'-]{2,60})/i);
+  if (targetMatch) return targetMatch[1].trim().replace(/[.!?]+$/, '');
+
+  // Try "to X" at end (riskier — only if X looks like a group)
+  const toMatch = text.match(/\bto\s+(real\s+estate\s+agents?|homeowners?|partners?|agents?|sellers?|buyers?|builders?|inspectors?|appraisers?|lenders?)\b/i);
+  if (toMatch) return toMatch[1].trim();
+
+  return null;
 }
 
 function filterDivisions(input: unknown): Division[] | null {

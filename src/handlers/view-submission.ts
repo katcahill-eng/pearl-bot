@@ -37,10 +37,54 @@ interface ParsedModalState {
   audience: string | null;
   eventOrProject: string | null;
   deadline: string | null;
+  liveDate: string | null;
   approverSlackIds: string[];
   additionalDivisions: Division[];
   requestingForSlackId: string | null;
   recommendationNames: string[];
+}
+
+/**
+ * Pearl marketing's minimum end-to-end timeline:
+ *   1 week to draft + 1 week to review = 14 days from request to in-hand.
+ * If the in-hand date (deadline) — or live date as fallback — is closer
+ * than that, the request is flagged as a rush.
+ */
+export const MIN_TURNAROUND_DAYS = 14;
+
+export interface RushAssessment {
+  isRush: boolean;
+  daysUntilInHand: number | null;
+  effectiveDate: string | null; // the date we measured against (deadline or live date)
+}
+
+/**
+ * Pure function — given a deadline / live date / today's date, decide
+ * whether the timeline is shorter than Pearl's minimum 2-week build +
+ * review cycle. Used by view-submission to flag rush requests.
+ */
+export function assessRush(
+  deadline: string | null,
+  liveDate: string | null,
+  today: Date = new Date(),
+): RushAssessment {
+  const target = deadline ?? liveDate;
+  if (!target) {
+    return { isRush: false, daysUntilInHand: null, effectiveDate: null };
+  }
+  const targetDate = new Date(target + 'T00:00:00');
+  if (Number.isNaN(targetDate.getTime())) {
+    return { isRush: false, daysUntilInHand: null, effectiveDate: null };
+  }
+  const todayMidnight = new Date(today);
+  todayMidnight.setHours(0, 0, 0, 0);
+  const ms = targetDate.getTime() - todayMidnight.getTime();
+  const days = Math.round(ms / (1000 * 60 * 60 * 24));
+  return {
+    isRush: days < MIN_TURNAROUND_DAYS,
+    daysUntilInHand: days,
+    effectiveDate: target,
+  };
 }
 
 export interface ModalMetadata {
@@ -70,6 +114,9 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
   const deadline =
     v.deadline?.value?.selected_date ?? null;
 
+  const liveDate =
+    v.live_date?.value?.selected_date ?? null;
+
   const approverSlackIds: string[] =
     v.approvals?.value?.selected_users ?? [];
 
@@ -92,6 +139,7 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
     audience,
     eventOrProject,
     deadline,
+    liveDate,
     approverSlackIds,
     additionalDivisions,
     requestingForSlackId,
@@ -239,10 +287,22 @@ export function registerViewSubmissionHandler(app: App): void {
         mondayItemId: mondayItem.id,
       });
 
-      // US-012: customer-service confirmation reply on the originating
-      // thread. US-013: one-line notification in the alerts channel.
-      // Both are implemented in subsequent stories — invoked here so
-      // the v2 happy path is end-to-end.
+      // Rush detection — if the in-hand date (or live date if no
+      // deadline set) is closer than Pearl's 2-week minimum, flag.
+      const rush = assessRush(state.deadline, state.liveDate);
+      if (rush.isRush) {
+        // Bump Monday's Priority column so triage immediately sees this.
+        try {
+          const { updateMondayItemColumns } = await import('../lib/monday');
+          await updateMondayItemColumns(mondayItem.id, {
+            status_1: { label: 'High' },
+          });
+        } catch (priorityErr) {
+          console.error('[view-submission] priority bump failed:', priorityErr);
+        }
+      }
+
+      // Customer-service confirmation reply + alerts notification.
       const { postSubmissionReplies } = await import('./submission-replies');
       await postSubmissionReplies({
         client,
@@ -251,6 +311,8 @@ export function registerViewSubmissionHandler(app: App): void {
         approverSlackIds: state.approverSlackIds,
         deliverableSummary: state.deliverable,
         deadline: state.deadline,
+        liveDate: state.liveDate,
+        rush,
         requesterName,
         division,
         requestTypeLabel: requestTypeToDeliverableLabel(state.requestType) ?? state.requestType ?? 'Request',
