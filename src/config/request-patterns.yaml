@@ -21,19 +21,15 @@
 rules:
   - trigger: webinar
     suggest:
-      - name: registration-page
-        deliverable: Registration / landing page where people sign up
-      - name: registration-email
-        deliverable: Registration email campaign promoting the webinar
       - name: webinar-platform
-        deliverable: Webinar tool setup (Zoom / GoTo / Riverside, registration flow, recording)
+        deliverable: Webinar tool setup
+      - name: registration-page
+        deliverable: Registration page setup
       - name: social-promo
         deliverable: Pre-event social posts driving registrations
-      - name: graphics-kit
-        deliverable: Slides / event graphics / Zoom backgrounds
-      - name: post-event-followup
-        deliverable: Follow-up email to registrants with the recording link
-    reasoning: Webinars usually need a registration page, email push, the webinar tool itself, social, slide kit, and post-event follow-up.
+      - name: slide-deck-review
+        deliverable: Slide deck review
+    reasoning: Webinars usually need a webinar tool, a registration page, social posts driving sign-ups, and a brand review of the slide deck.
 
   - trigger: [conference, event, tradeshow, expo]
     suggest:

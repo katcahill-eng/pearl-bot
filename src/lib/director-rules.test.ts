@@ -6,16 +6,20 @@ describe('matchRecommendations', () => {
     _resetCacheForTesting();
   });
 
-  it('returns the four webinar recommendations for a webinar request', () => {
+  it('returns the webinar recommendations for a webinar request', () => {
     const result = matchRecommendations({
       requestType: 'webinar',
       deliverable: 'I need a webinar for May 12',
     });
     const names = result.map((r) => r.name);
-    expect(names).toContain('registration-email');
+    expect(names).toContain('webinar-platform');
+    expect(names).toContain('registration-page');
     expect(names).toContain('social-promo');
-    expect(names).toContain('graphics-kit');
-    expect(names).toContain('post-event-followup');
+    expect(names).toContain('slide-deck-review');
+    // Marketing reviews division content — doesn't draft division-voice
+    // emails. These should NOT appear in webinar recommendations.
+    expect(names).not.toContain('registration-email');
+    expect(names).not.toContain('post-event-followup');
   });
 
   it('matches conference triggers via the deliverable text', () => {
