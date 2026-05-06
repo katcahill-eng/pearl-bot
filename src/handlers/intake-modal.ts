@@ -26,8 +26,12 @@ import { logRequestEvent } from '../lib/event-log';
 import {
   buildRequestModal,
   emailPolicyBlock,
+  rushBannerBlock,
   REQUEST_TYPE_ACTION_ID,
+  DEADLINE_ACTION_ID,
+  LIVE_DATE_ACTION_ID,
   EMAIL_POLICY_BLOCK_ID,
+  RUSH_BANNER_BLOCK_ID,
 } from '../lib/modals/request-modal';
 
 // Lazy-initialize the client so unit tests that mock @anthropic-ai/sdk
@@ -51,12 +55,20 @@ Respond ONLY with a JSON object matching this exact schema (no markdown, no expl
   "additionalDivisionsImpacted": string[] | null  // any of: BD, P2, CX/Core, Corporate, Product, Marketing
 }
 
+CRITICAL: requestType is the TYPE OF DELIVERABLE marketing is being asked to BUILD, not the surrounding context. A "registration email for a webinar" is requestType: "email" (the email is the deliverable; the webinar is the eventOrProject context). Same for "social posts about a product launch" → "social_media", not "product_launch".
+
 Examples:
 "I need a registration email for the May 12 webinar — for real estate agents"
-  → { "requestType": "webinar", "deliverable": "Registration email for the May 12 webinar", "audience": "real estate agents", "deadline": null, "eventOrProject": null, "additionalDivisionsImpacted": null }
+  → { "requestType": "email", "deliverable": "Registration email", "audience": "real estate agents", "deadline": null, "eventOrProject": "May 12 webinar", "additionalDivisionsImpacted": null }
+
+"Help us run a webinar on May 12 for real estate agents"
+  → { "requestType": "webinar", "deliverable": "Webinar on May 12", "audience": "real estate agents", "deadline": null, "eventOrProject": null, "additionalDivisionsImpacted": null }
 
 "Help us build a one-pager about Pearl SCORE for homeowners"
-  → { "requestType": "graphic", "deliverable": "One-pager about Pearl SCORE", "audience": "homeowners", "deadline": null, "eventOrProject": null, "additionalDivisionsImpacted": null }
+  → { "requestType": "document", "deliverable": "One-pager about Pearl SCORE", "audience": "homeowners", "deadline": null, "eventOrProject": null, "additionalDivisionsImpacted": null }
+
+"Press release for the Pearl Pro launch in June"
+  → { "requestType": "press_release", "deliverable": "Press release announcing Pearl Pro", "audience": null, "deadline": null, "eventOrProject": "Pearl Pro launch", "additionalDivisionsImpacted": null }
 
 If a field is not mentioned or cannot be confidently extracted, set it to null.`;
 
@@ -330,4 +342,57 @@ export function registerOpenModalAction(app: App): void {
       console.error('[intake-modal] request-type-change action failed:', err);
     }
   });
+
+  // When the user picks (or changes) the Deadline or Live date, update
+  // the form to show / hide the rush banner so they know upfront if
+  // they're under Pearl's 2-week minimum.
+  const handleDateChange = async ({ ack, body, client }: any): Promise<void> => {
+    await ack();
+
+    try {
+      const view = body.view;
+      if (!view) return;
+
+      // Pull the most recent value of BOTH dates from the live form state.
+      const deadline =
+        view.state?.values?.deadline?.[DEADLINE_ACTION_ID]?.selected_date ?? null;
+      const liveDate =
+        view.state?.values?.live_date?.[LIVE_DATE_ACTION_ID]?.selected_date ?? null;
+
+      const newBanner = rushBannerBlock(deadline, liveDate);
+
+      // Strip any existing rush banner, then re-insert if needed —
+      // right after the live_date input so it's adjacent to the dates.
+      const filtered = (view.blocks ?? []).filter(
+        (b: any) => b.block_id !== RUSH_BANNER_BLOCK_ID,
+      );
+
+      if (newBanner) {
+        const liveDateIdx = filtered.findIndex(
+          (b: any) => b.block_id === 'live_date',
+        );
+        const insertAt = liveDateIdx >= 0 ? liveDateIdx + 1 : filtered.length;
+        filtered.splice(insertAt, 0, newBanner);
+      }
+
+      await client.views.update({
+        view_id: view.id,
+        hash: view.hash,
+        view: {
+          type: 'modal',
+          callback_id: view.callback_id,
+          private_metadata: view.private_metadata,
+          title: view.title,
+          submit: view.submit,
+          close: view.close,
+          blocks: filtered,
+        },
+      });
+    } catch (err) {
+      console.error('[intake-modal] date-change action failed:', err);
+    }
+  };
+
+  app.action(DEADLINE_ACTION_ID, handleDateChange);
+  app.action(LIVE_DATE_ACTION_ID, handleDateChange);
 }

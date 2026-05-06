@@ -36,21 +36,13 @@ export const POLICY_BLOCK_ID = 'request_type_policy_banner';
 export const EMAIL_POLICY_BLOCK_ID = POLICY_BLOCK_ID;
 
 const EMAIL_POLICY_TEXT =
-  ":warning: *Heads up on emails:* marketing reviews emails for brand alignment but doesn't draft division-voice copy — your division owns its voice and audience. " +
-  'You draft, we review. (Corporate-voice emails are the exception.) ' +
-  "Marketing can still help on infrastructure (HubSpot setup, distribution lists, templates).";
+  ":warning: *Emails:* you draft, marketing reviews for brand alignment. (Corporate-voice emails are the exception.) Marketing can also help with HubSpot setup, distribution, or templates.";
 
 const PRESENTATION_POLICY_TEXT =
-  ":warning: *Heads up on presentations:* marketing doesn't write the original deck — your division owns the message and content. " +
-  'Provide your draft deck and marketing can help with layout, graphics, and sequencing to make sure the message lands and stays brand-compliant.';
+  ":warning: *Decks:* you draft the content, marketing refines layout, graphics, and sequencing.";
 
 const TALKING_POINTS_POLICY_TEXT =
-  ":warning: *Heads up on copy work:* marketing writes the piece, but the talking points need to come from you. " +
-  'Before we draft, we need:\n' +
-  '  • *Audience* — who specifically is this for?\n' +
-  "  • *Goal* — what should this piece accomplish?\n" +
-  '  • *Key info* — what information has to land?\n' +
-  'Cover those in the deliverable description above (or expect marketing to follow up to gather them).';
+  ":warning: *Marketing writes — you provide the talking points:* audience, goal, and key info. Cover those above or marketing will follow up.";
 
 interface RequestTypePolicy {
   /** Returns true when the policy should fire for this request in this channel. */
@@ -159,6 +151,41 @@ const DIVISION_OPTIONS: { value: Division; label: string }[] = [
 const MAX_RECOMMENDATIONS = 8;
 
 export const CALLBACK_ID = 'sage_v2_request_modal';
+export const RUSH_BANNER_BLOCK_ID = 'rush_banner';
+export const MIN_TURNAROUND_DAYS_FORM = 14;
+
+/**
+ * Returns the rush-banner block when the picked deadline (or live date
+ * as fallback) is closer than Pearl's 2-week minimum.
+ */
+export function rushBannerBlock(
+  deadline: string | null | undefined,
+  liveDate: string | null | undefined,
+  today: Date = new Date(),
+): any | null {
+  const target = deadline ?? liveDate;
+  if (!target || !/^\d{4}-\d{2}-\d{2}$/.test(target)) return null;
+  const targetDate = new Date(target + 'T00:00:00');
+  const todayMidnight = new Date(today);
+  todayMidnight.setHours(0, 0, 0, 0);
+  const days = Math.round(
+    (targetDate.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  if (days >= MIN_TURNAROUND_DAYS_FORM) return null;
+
+  return {
+    type: 'context',
+    block_id: RUSH_BANNER_BLOCK_ID,
+    elements: [
+      {
+        type: 'mrkdwn',
+        text:
+          `:warning: *Heads up: tight turnaround.* Marketing typically needs ~2 weeks (1 week to draft + 1 week for approvals and edits). ` +
+          `Your timeline is ${days} day${days === 1 ? '' : 's'} from today. We'll review feasibility before committing — may need to adjust scope or timeline.`,
+      },
+    ],
+  };
+}
 
 /**
  * Build a Slack view payload for the request modal, pre-filled from the
@@ -192,6 +219,15 @@ export function buildRequestModal(
     eventOrProjectBlock(parsed.eventOrProject),
     deadlineBlock(parsed.deadline ?? null),
     liveDateBlock(),
+  );
+
+  // Rush banner — fires when the prefilled deadline is already within
+  // Pearl's 2-week turnaround. Re-renders dynamically when the user
+  // changes the date pickers (see DEADLINE_ACTION_ID handler).
+  const rushBlock = rushBannerBlock(parsed.deadline, null);
+  if (rushBlock) blocks.push(rushBlock);
+
+  blocks.push(
     approvalsBlock(),
     additionalDivisionsBlock(parsed.additionalDivisionsImpacted ?? null),
     requestingForBlock(),
@@ -212,7 +248,7 @@ export function buildRequestModal(
         type: 'header',
         text: {
           type: 'plain_text',
-          text: 'Sage also flagged these — check any that apply',
+          text: 'Marketing often delivers these alongside this request',
           emoji: true,
         },
       },
@@ -275,10 +311,10 @@ function deliverableBlock(initial: string | null | undefined): any {
   return {
     type: 'input',
     block_id: 'deliverable',
-    label: { type: 'plain_text', text: 'What do you need?', emoji: true },
-    hint: {
+    label: {
       type: 'plain_text',
-      text: 'A sentence or two about the ask. The more context, the better the result.',
+      text: 'What do you need? (a sentence or two — more context = better result)',
+      emoji: true,
     },
     element: {
       type: 'plain_text_input',
@@ -293,10 +329,10 @@ function audienceBlock(initial: string | null | undefined): any {
   return {
     type: 'input',
     block_id: 'audience',
-    label: { type: 'plain_text', text: 'Audience', emoji: true },
-    hint: {
+    label: {
       type: 'plain_text',
-      text: "Who's this for? E.g. real estate agents, homeowners, BD partners.",
+      text: "Audience (who's this for?)",
+      emoji: true,
     },
     element: {
       type: 'plain_text_input',
@@ -310,10 +346,10 @@ function eventOrProjectBlock(initial: string | null | undefined): any {
   return {
     type: 'input',
     block_id: 'event_or_project',
-    label: { type: 'plain_text', text: 'Event or project', emoji: true },
-    hint: {
+    label: {
       type: 'plain_text',
-      text: "Tied to a specific event, conference, or product launch? Type 'N/A' if standalone.",
+      text: "Event or project (or 'N/A' if standalone)",
+      emoji: true,
     },
     element: {
       type: 'plain_text_input',
@@ -323,18 +359,22 @@ function eventOrProjectBlock(initial: string | null | undefined): any {
   };
 }
 
+export const DEADLINE_ACTION_ID = 'sage_v2_deadline_change';
+export const LIVE_DATE_ACTION_ID = 'sage_v2_live_date_change';
+
 function deadlineBlock(initial: string | null | undefined): any {
   const block: any = {
     type: 'input',
     block_id: 'deadline',
-    label: { type: 'plain_text', text: 'Deadline', emoji: true },
-    hint: {
+    dispatch_action: true,
+    label: {
       type: 'plain_text',
-      text: 'When do you need this in hand? Marketing typically needs ~2 weeks (1 week to draft + 1 week to review).',
+      text: 'Deadline (when you need it in hand)',
+      emoji: true,
     },
     element: {
       type: 'datepicker',
-      action_id: 'value',
+      action_id: DEADLINE_ACTION_ID,
     },
   };
   if (initial && /^\d{4}-\d{2}-\d{2}$/.test(initial)) {
@@ -347,14 +387,15 @@ function liveDateBlock(): any {
   return {
     type: 'input',
     block_id: 'live_date',
-    label: { type: 'plain_text', text: 'Live or event date', emoji: true },
-    hint: {
+    dispatch_action: true,
+    label: {
       type: 'plain_text',
-      text: 'When does this go out to your audience? Send date, webinar date, launch date. If same as the deadline, pick the same date.',
+      text: 'Live or event date (when it goes to your audience)',
+      emoji: true,
     },
     element: {
       type: 'datepicker',
-      action_id: 'value',
+      action_id: LIVE_DATE_ACTION_ID,
     },
   };
 }
@@ -363,10 +404,10 @@ function approvalsBlock(): any {
   return {
     type: 'input',
     block_id: 'approvals',
-    label: { type: 'plain_text', text: 'Approvers', emoji: true },
-    hint: {
+    label: {
       type: 'plain_text',
-      text: "Anyone whose sign-off is needed before this goes out. They'll get an Approve button in your thread.",
+      text: 'Approvers (anyone whose sign-off is needed)',
+      emoji: true,
     },
     element: {
       type: 'multi_users_select',
@@ -394,12 +435,8 @@ function additionalDivisionsBlock(initial: Division[] | null): any {
     block_id: 'additional_divisions',
     label: {
       type: 'plain_text',
-      text: 'Other divisions impacted',
+      text: "Other divisions impacted (or 'None')",
       emoji: true,
-    },
-    hint: {
-      type: 'plain_text',
-      text: "If this affects another Pearl division beyond yours. Pick 'None' if it doesn't.",
     },
     element: {
       type: 'multi_static_select',
@@ -421,10 +458,10 @@ function requestingForBlock(): any {
     type: 'input',
     block_id: 'requesting_for',
     optional: true,
-    label: { type: 'plain_text', text: 'Requesting on behalf of', emoji: true },
-    hint: {
+    label: {
       type: 'plain_text',
-      text: 'If someone else is the one who actually needs the work.',
+      text: 'Requesting on behalf of (only if filing for someone else)',
+      emoji: true,
     },
     element: {
       type: 'users_select',
@@ -439,10 +476,6 @@ function recommendationsBlock(recs: Recommendation[]): any {
     block_id: 'recommendations',
     optional: true,
     label: { type: 'plain_text', text: 'Add-ons', emoji: true },
-    hint: {
-      type: 'plain_text',
-      text: "Each one I'll track as a linked sub-item so the team can pick them up alongside the main ask.",
-    },
     element: {
       type: 'checkboxes',
       action_id: 'value',
