@@ -25,7 +25,7 @@
  */
 
 import type { App } from '@slack/bolt';
-import { roleForChannel, type ChannelRole } from '../lib/division-lookup';
+import { roleForChannel, divisionForChannel, type ChannelRole } from '../lib/division-lookup';
 import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
 import { withDisclaimer } from '../lib/disclaimer';
@@ -232,7 +232,13 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
       break;
     }
     case 'work_request':
-      await postOpenModalButton({ channelId, threadTs, text, say });
+      await postOpenModalButton({
+        channelId,
+        threadTs,
+        text,
+        say,
+        channelDivision: divisionForChannel(channelId),
+      });
       break;
     case 'status_query':
       await handleVisibilityQuery({

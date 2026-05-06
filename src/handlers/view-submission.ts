@@ -121,9 +121,9 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
     v.approvals?.value?.selected_users ?? [];
 
   const additionalDivisions: Division[] =
-    (v.additional_divisions?.value?.selected_options ?? []).map(
-      (o: any) => o.value as Division,
-    );
+    (v.additional_divisions?.value?.selected_options ?? [])
+      .map((o: any) => o.value as string)
+      .filter((v: string) => v !== '__NONE__') as Division[];
 
   const requestingForSlackId =
     v.requesting_for?.value?.selected_user ?? null;

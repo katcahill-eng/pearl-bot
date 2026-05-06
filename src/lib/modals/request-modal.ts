@@ -180,7 +180,6 @@ function audienceBlock(initial: string | null | undefined): any {
   return {
     type: 'input',
     block_id: 'audience',
-    optional: true,
     label: { type: 'plain_text', text: 'Audience', emoji: true },
     hint: {
       type: 'plain_text',
@@ -198,11 +197,10 @@ function eventOrProjectBlock(initial: string | null | undefined): any {
   return {
     type: 'input',
     block_id: 'event_or_project',
-    optional: true,
     label: { type: 'plain_text', text: 'Event or project', emoji: true },
     hint: {
       type: 'plain_text',
-      text: 'Tied to a specific event, conference, or product launch?',
+      text: "Tied to a specific event, conference, or product launch? Type 'N/A' if standalone.",
     },
     element: {
       type: 'plain_text_input',
@@ -216,7 +214,6 @@ function deadlineBlock(initial: string | null | undefined): any {
   const block: any = {
     type: 'input',
     block_id: 'deadline',
-    optional: true,
     label: { type: 'plain_text', text: 'Deadline', emoji: true },
     hint: {
       type: 'plain_text',
@@ -237,11 +234,10 @@ function liveDateBlock(): any {
   return {
     type: 'input',
     block_id: 'live_date',
-    optional: true,
     label: { type: 'plain_text', text: 'Live or event date', emoji: true },
     hint: {
       type: 'plain_text',
-      text: 'When does this go out to your audience? Send date, webinar date, launch date — different from the in-hand deadline.',
+      text: 'When does this go out to your audience? Send date, webinar date, launch date. If same as the deadline, pick the same date.',
     },
     element: {
       type: 'datepicker',
@@ -254,7 +250,6 @@ function approvalsBlock(): any {
   return {
     type: 'input',
     block_id: 'approvals',
-    optional: true,
     label: { type: 'plain_text', text: 'Approvers', emoji: true },
     hint: {
       type: 'plain_text',
@@ -267,11 +262,23 @@ function approvalsBlock(): any {
   };
 }
 
+const NONE_OPTION_VALUE = '__NONE__';
+
 function additionalDivisionsBlock(initial: Division[] | null): any {
+  const optionsWithNone = [
+    {
+      value: NONE_OPTION_VALUE,
+      text: { type: 'plain_text', text: 'None — just my division' },
+    },
+    ...DIVISION_OPTIONS.map(({ value, label }) => ({
+      value,
+      text: { type: 'plain_text', text: label },
+    })),
+  ];
+
   const block: any = {
     type: 'input',
     block_id: 'additional_divisions',
-    optional: true,
     label: {
       type: 'plain_text',
       text: 'Other divisions impacted',
@@ -279,15 +286,12 @@ function additionalDivisionsBlock(initial: Division[] | null): any {
     },
     hint: {
       type: 'plain_text',
-      text: 'If this also affects another Pearl division beyond yours.',
+      text: "If this affects another Pearl division beyond yours. Pick 'None' if it doesn't.",
     },
     element: {
       type: 'multi_static_select',
       action_id: 'value',
-      options: DIVISION_OPTIONS.map(({ value, label }) => ({
-        value,
-        text: { type: 'plain_text', text: label },
-      })),
+      options: optionsWithNone,
     },
   };
   if (initial && initial.length > 0) {
