@@ -51,6 +51,9 @@ interface RequestTypePolicy {
   text: string;
 }
 
+const WEBINAR_POLICY_TEXT =
+  ":warning: *Heads up:* You will need to provide an agenda or talking points before Marketing can build registration assets.";
+
 const REQUEST_TYPE_POLICIES: Record<string, RequestTypePolicy> = {
   email: {
     appliesTo: (d) => d !== 'Corporate',
@@ -59,6 +62,10 @@ const REQUEST_TYPE_POLICIES: Record<string, RequestTypePolicy> = {
   presentation: {
     appliesTo: () => true,
     text: PRESENTATION_POLICY_TEXT,
+  },
+  webinar: {
+    appliesTo: () => true,
+    text: WEBINAR_POLICY_TEXT,
   },
   press_release: {
     appliesTo: () => true,
@@ -510,6 +517,9 @@ export function draftBlock(requestType: string | null | undefined): any {
       break;
     case 'presentation':
       hint = 'Paste a link (or multiple) to your draft deck. Audience and key message should already be decided.';
+      break;
+    case 'webinar':
+      hint = 'Paste a link (or multiple) to your agenda or talking points: audience, goal, key info.';
       break;
     case 'press_release':
     case 'blog':

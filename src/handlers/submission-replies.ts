@@ -60,7 +60,6 @@ async function postConfirmationReply(
 ): Promise<void> {
   const { client, record, mondayUrl, approverSlackIds, rush, requestType } = input;
 
-  const reqId = `REQ-${record.monday_item_id}`;
   const approverMentions = approverSlackIds.length > 0
     ? approverSlackIds.map((id) => `<@${id}>`).join(' ')
     : '';
@@ -78,14 +77,17 @@ async function postConfirmationReply(
   // Pending review (handled by lifecycle-composer.ts). Per Kat
   // 2026-05-06: there's nothing to approve at submission time.
   const approverLine = approverMentions
-    ? `\n\n${approverMentions} — you're listed as an approver. I'll tag you again when there's a draft ready for your review.`
+    ? `\n\n${approverMentions} — you're listed as an approver. I'll tag you here when there's a draft ready to review.`
     : '';
 
   const text =
-    `${rushBanner}${policyBanner}Got it — tracking your request as <${mondayUrl}|${reqId}>.\n\n` +
-    `*What happens next:*\n` +
-    `  • Marketing will review the scope and start work once accepted. Status updates post here.\n` +
-    `  • Need to add a supporting doc or change something? Just @Sage in this thread.` +
+    `${rushBanner}${policyBanner}Got it — your request is in. <${mondayUrl}|Check status anytime here>.\n\n` +
+    `*Here's the path from here:*\n` +
+    `  1. Marketing reviews the scope and confirms feasibility (typically within 1-2 business days).\n` +
+    `  2. Once accepted, marketing starts the work.\n` +
+    `  3. When a draft is ready, you (and your approvers) get tagged here for review.\n` +
+    `  4. After approval, the deliverable goes live.\n\n` +
+    `Need to send a draft, change something, or check status? Just @Sage in this thread.` +
     approverLine;
 
   const blocks: any[] = [
@@ -99,7 +101,7 @@ async function postConfirmationReply(
     await client.chat.postMessage({
       channel: record.originating_channel_id,
       thread_ts: record.originating_thread_ts,
-      text: `Got it — tracking your request as ${reqId}.`, // notification text
+      text: 'Got it — your request is in.', // notification preview
       blocks,
     });
   } catch (err) {

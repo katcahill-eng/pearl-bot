@@ -171,6 +171,41 @@ export function deriveItemName(deliverable: string): string {
 
 export function registerViewSubmissionHandler(app: App): void {
   app.view(CALLBACK_ID, async ({ ack, body, view, client }) => {
+    // Parse the modal state up-front so we can run server-side
+    // validation BEFORE ack'ing the submission. This is the backstop
+    // for cases where Slack's required-field validation slips —
+    // particularly the draft_source field which keeps showing as
+    // optional in some flows even when policy applies.
+    const state = parseModalState(view.state.values);
+
+    const policyTypes = new Set([
+      'email',
+      'presentation',
+      'webinar',
+      'press_release',
+      'blog',
+      'landing_page',
+      'social_media',
+      'document',
+    ]);
+
+    const draftRequired = state.requestType ? policyTypes.has(state.requestType) : false;
+    const draftMissing =
+      draftRequired && !(state.draftSource && state.draftSource.trim());
+
+    if (draftMissing) {
+      // ack with response_action: 'errors' keeps the form open with
+      // an inline error on the draft_source block.
+      await ack({
+        response_action: 'errors',
+        errors: {
+          draft_source:
+            "Please paste a link to your draft. If you don't have one yet, finish drafting first or use the 'Schedule 30 minutes' link at the bottom to talk it through with marketing.",
+        },
+      });
+      return;
+    }
+
     await ack();
 
     const submitterSlackId = body.user.id;
@@ -210,7 +245,7 @@ export function registerViewSubmissionHandler(app: App): void {
       return;
     }
 
-    const state = parseModalState(view.state.values);
+    // state is parsed above before ack — reusing here.
 
     try {
       // Determine the requester: proxy submission overrides submitter.
