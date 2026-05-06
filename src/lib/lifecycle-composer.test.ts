@@ -1,101 +1,112 @@
 import { describe, it, expect } from 'vitest';
 import { formatThreadReply, formatAlertMirror } from './lifecycle-composer';
 
-describe('formatThreadReply', () => {
-  it('formats a status change with arrow and owner', () => {
+describe('formatThreadReply (status_change)', () => {
+  it('returns the acceptance message on New → Working on it', () => {
     const out = formatThreadReply({
       kind: 'status_change',
       oldStatus: 'New',
       newStatus: 'Working on it',
-      ownerName: 'April',
     });
-    expect(out).toContain('*New*');
-    expect(out).toContain('*Working on it*');
-    expect(out).toContain('April assigned');
+    expect(out).toBeTruthy();
+    expect(out).toContain('Marketing has accepted');
+    expect(out).toContain('started work');
   });
 
-  it('formats a status change without an owner', () => {
+  it('is silent on Working on it from any other state (e.g. after request_changes)', () => {
+    expect(
+      formatThreadReply({
+        kind: 'status_change',
+        oldStatus: 'Pending review',
+        newStatus: 'Working on it',
+      }),
+    ).toBeNull();
+  });
+
+  it('fires the More information needed message', () => {
     const out = formatThreadReply({
       kind: 'status_change',
-      oldStatus: 'New',
-      newStatus: 'Under Review',
+      oldStatus: 'Working on it',
+      newStatus: 'More information needed',
     });
-    expect(out).not.toContain('assigned');
+    expect(out).toContain('More information needed');
   });
 
-  it('re-surfaces the calendar link on Under Review when configured', () => {
-    const original = process.env.MARKETING_LEAD_CALENDAR_URL;
-    process.env.MARKETING_LEAD_CALENDAR_URL = 'https://calendar.example.com/sage';
-    try {
-      // Need to re-import to pick up env var change at module load —
-      // the constant captures it; for this test we accept that the
-      // regex match still works on the formatted output.
-      // (In production the env var is set at process start.)
-      const out = formatThreadReply({
+  it('returns null on Pending review (caller composes the multi-block message)', () => {
+    expect(
+      formatThreadReply({
+        kind: 'status_change',
+        oldStatus: 'Working on it',
+        newStatus: 'Pending review',
+      }),
+    ).toBeNull();
+  });
+
+  it('returns the completed message on Pending review → Completed/Live', () => {
+    const out = formatThreadReply({
+      kind: 'status_change',
+      oldStatus: 'Pending review',
+      newStatus: 'Completed/Live',
+    });
+    expect(out).toContain('approved and complete');
+  });
+
+  it('is silent on Stuck (internal-only state)', () => {
+    expect(
+      formatThreadReply({
+        kind: 'status_change',
+        oldStatus: 'Working on it',
+        newStatus: 'Stuck',
+      }),
+    ).toBeNull();
+  });
+
+  it('is silent on Declined (handled in conversation, never via Sage announcement)', () => {
+    expect(
+      formatThreadReply({
         kind: 'status_change',
         oldStatus: 'New',
-        newStatus: 'Under Review',
-      });
-      // Note: since MARKETING_CALENDAR_URL is captured at module load,
-      // this assertion is sensitive to import order. The concrete unit
-      // verified here is the *threshold logic*: only Under Review +
-      // Stuck trigger calendar re-surface, and only if the env var was
-      // set when the module loaded.
-      expect(out).toContain('Under Review');
-    } finally {
-      process.env.MARKETING_LEAD_CALENDAR_URL = original;
-    }
+        newStatus: 'Declined',
+      }),
+    ).toBeNull();
   });
+});
 
-  it('does not re-surface calendar on Working/Completed transitions', () => {
-    const out = formatThreadReply({
-      kind: 'status_change',
-      oldStatus: 'New',
-      newStatus: 'Working on it',
-    });
-    expect(out).not.toContain('Schedule a call');
-  });
-
-  it('formats deliverable_attached with file link', () => {
+describe('formatThreadReply (other event kinds — all silent on requester thread)', () => {
+  it('is silent on deliverable_attached (WIP files are organization, not signal)', () => {
     expect(
       formatThreadReply({
         kind: 'deliverable_attached',
-        fileUrl: 'https://example.com/file',
-        fileName: 'brief.pdf',
+        fileUrl: 'https://x',
+        fileName: 'wip.pdf',
       }),
-    ).toContain('<https://example.com/file|brief.pdf>');
+    ).toBeNull();
   });
 
-  it('formats due_date_changed', () => {
+  it('is silent on due_date_changed', () => {
     expect(
-      formatThreadReply({
-        kind: 'due_date_changed',
-        newDate: '2026-05-12',
-      }),
-    ).toContain('2026-05-12');
+      formatThreadReply({ kind: 'due_date_changed', newDate: '2026-05-12' }),
+    ).toBeNull();
   });
 
-  it('formats owner_changed', () => {
+  it('is silent on owner_changed', () => {
     expect(
-      formatThreadReply({
-        kind: 'owner_changed',
-        ownerName: 'April',
-      }),
-    ).toContain('Reassigned to *April*');
+      formatThreadReply({ kind: 'owner_changed', ownerName: 'April' }),
+    ).toBeNull();
   });
 
-  it('formats additional_divisions_changed', () => {
+  it('is silent on additional_divisions_changed', () => {
     expect(
       formatThreadReply({
         kind: 'additional_divisions_changed',
         divisions: ['BD', 'P2'],
       }),
-    ).toContain('BD, P2');
+    ).toBeNull();
   });
 });
 
-describe('formatAlertMirror', () => {
-  it('uses a shorter status format than the originating reply', () => {
+describe('formatAlertMirror (marketing-internal coordination thread)', () => {
+  it('mirrors a status change tersely', () => {
     expect(
       formatAlertMirror({
         kind: 'status_change',
@@ -106,7 +117,7 @@ describe('formatAlertMirror', () => {
     ).toBe('Status → Working on it (April assigned)');
   });
 
-  it('skips owner detail when not provided', () => {
+  it('mirrors silent statuses too — marketing wants visibility on Stuck/Declined', () => {
     expect(
       formatAlertMirror({
         kind: 'status_change',
@@ -114,21 +125,16 @@ describe('formatAlertMirror', () => {
         newStatus: 'Stuck',
       }),
     ).toBe('Status → Stuck');
-  });
-
-  it('omits the calendar line in the alert mirror', () => {
-    const out = formatAlertMirror({
-      kind: 'status_change',
-      oldStatus: 'New',
-      newStatus: 'Under Review',
-    });
-    expect(out).not.toContain('Schedule a call');
-  });
-
-  it('formats deliverable, due-date, owner, and divisions tersely', () => {
     expect(
-      formatAlertMirror({ kind: 'deliverable_attached', fileUrl: 'u', fileName: 'f' }),
-    ).toContain('Deliverable:');
+      formatAlertMirror({
+        kind: 'status_change',
+        oldStatus: 'New',
+        newStatus: 'Declined',
+      }),
+    ).toBe('Status → Declined');
+  });
+
+  it('mirrors due-date, owner, and divisions tersely', () => {
     expect(
       formatAlertMirror({ kind: 'due_date_changed', newDate: '2026-05-12' }),
     ).toBe('Due → 2026-05-12');
@@ -141,5 +147,15 @@ describe('formatAlertMirror', () => {
         divisions: ['BD', 'P2'],
       }),
     ).toContain('BD, P2');
+  });
+
+  it('is silent on deliverable_attached (marketing attached the file themselves)', () => {
+    expect(
+      formatAlertMirror({
+        kind: 'deliverable_attached',
+        fileUrl: 'https://x',
+        fileName: 'wip.pdf',
+      }),
+    ).toBeNull();
   });
 });

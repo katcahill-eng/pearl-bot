@@ -26,7 +26,15 @@ import { logRequestEvent } from './event-log';
 import { trackError } from './error-tracker';
 
 const MARKETING_CALENDAR_URL = process.env.MARKETING_LEAD_CALENDAR_URL;
-const CALENDAR_RESURFACE_STATUSES = new Set(['Under Review', 'Stuck']);
+
+/**
+ * Status transitions that produce SILENT lifecycle replies on the
+ * requester's thread. These are internal-only marketing tracking
+ * states; surfacing them to the requester would be confusing or
+ * worse (e.g., "Declined" should always be a conversation, not a
+ * Sage announcement).
+ */
+const SILENT_STATUSES = new Set(['Stuck', 'Declined']);
 
 export type LifecycleEvent =
   | { kind: 'status_change'; oldStatus: string | null; newStatus: string; ownerName?: string | null }
@@ -65,44 +73,84 @@ export function _resetDedupForTesting(): void {
 }
 
 /**
- * Format a lifecycle event as a one-line message for the originating
- * channel thread.
+ * Format a lifecycle event as a Slack message for the originating
+ * channel thread. Returns null for events that shouldn't surface to
+ * the requester.
+ *
+ * The mapping is intentional and copy-blessed by Kat 2026-05-06:
+ *   New → Working on it          "Marketing has accepted this..."
+ *   → More information needed    "More information needed..." + calendar link
+ *   → Pending review             "Draft ready for review..." (deliverable URL is
+ *                                added by the caller; not in this string)
+ *   → Stuck / Declined           silent (internal-only)
+ *   → Completed/Live             "All set — approved and complete."
+ *   Pending review → Working on it (after request_changes) — silent
+ *     (the request_changes button click already posted its own message)
+ *   Other column changes (owner, due date, divisions) — silent
+ *     (low-signal noise; the requester doesn't need a ping for these)
  */
-export function formatThreadReply(event: LifecycleEvent): string {
+export function formatThreadReply(event: LifecycleEvent): string | null {
   switch (event.kind) {
     case 'status_change': {
-      const arrow = event.oldStatus
-        ? `*${event.oldStatus}* → *${event.newStatus}*`
-        : `*${event.newStatus}*`;
-      const owner = event.ownerName ? ` · ${event.ownerName} assigned` : '';
-      const base = `Status: ${arrow}${owner}`;
-      if (CALENDAR_RESURFACE_STATUSES.has(event.newStatus) && MARKETING_CALENDAR_URL) {
-        return `${base}\nIf you'd like to walk through it with marketing: <${MARKETING_CALENDAR_URL}|Schedule a call>`;
+      const newStatus = event.newStatus;
+      if (SILENT_STATUSES.has(newStatus)) return null;
+
+      if (newStatus === 'Working on it' && event.oldStatus === 'New') {
+        return 'Marketing has accepted this request and started work. Status updates will post here as it progresses.';
       }
-      return base;
+      if (newStatus === 'Working on it') {
+        // Working on it from any other state (e.g. Pending review when
+        // changes were requested) — silent. The change-request flow
+        // already posted its own message.
+        return null;
+      }
+      if (newStatus === 'More information needed') {
+        const calendarLine = MARKETING_CALENDAR_URL
+          ? ` <${MARKETING_CALENDAR_URL}|Schedule 30 minutes to discuss>.`
+          : ' Marketing will follow up here with what they need.';
+        return `More information needed before marketing can move forward.${calendarLine}`;
+      }
+      if (newStatus === 'Pending review') {
+        // Caller composes the full message including deliverable URL
+        // and approver tags + buttons. Returning null here so the
+        // composer's special pending-review branch handles it.
+        return null;
+      }
+      if (newStatus === 'Completed/Live') {
+        return 'All set — approved and complete.';
+      }
+      // Any other status change is silent.
+      return null;
     }
     case 'deliverable_attached':
-      return `Deliverable ready: <${event.fileUrl}|${event.fileName}>`;
+      // Files attached during work-in-progress are NOT a signal to
+      // the requester (per Kat 2026-05-06). Marketing attaches WIP
+      // files for organization. The deliverable surfaces only when
+      // status flips to Pending review and the Deliverable URL column
+      // is populated.
+      return null;
     case 'due_date_changed':
-      return `Due date moved to *${event.newDate}*`;
     case 'owner_changed':
-      return `Reassigned to *${event.ownerName}*`;
     case 'additional_divisions_changed':
-      return `Cross-division impact updated: ${event.divisions.join(', ')}`;
+      // Low-signal column changes — keep the thread quiet.
+      return null;
   }
 }
 
 /**
  * Format the same event as a shorter mirror reply for the alerts
- * channel — marketing's coordination thread doesn't need the calendar
- * line or other requester-facing framing.
+ * channel. Marketing IS the audience here, so we surface status
+ * changes that would be silent on the requester thread (Stuck,
+ * Declined) — these are exactly the moments marketing wants to see.
  */
-export function formatAlertMirror(event: LifecycleEvent): string {
+export function formatAlertMirror(event: LifecycleEvent): string | null {
   switch (event.kind) {
     case 'status_change':
       return `Status → ${event.newStatus}${event.ownerName ? ` (${event.ownerName} assigned)` : ''}`;
     case 'deliverable_attached':
-      return `Deliverable: <${event.fileUrl}|${event.fileName}>`;
+      // Marketing attached a WIP file — they don't need an alert
+      // mirror about their own action.
+      return null;
     case 'due_date_changed':
       return `Due → ${event.newDate}`;
     case 'owner_changed':
@@ -164,11 +212,22 @@ async function postOriginatingReply(
   event: LifecycleEvent,
   client: WebClient,
 ): Promise<void> {
+  // Special case: Pending review needs the deliverable URL +
+  // approver tags + Approve / Request changes buttons. Composed
+  // separately because it's a multi-block message, not a single line.
+  if (event.kind === 'status_change' && event.newStatus === 'Pending review') {
+    await postPendingReviewMessage(record, client);
+    return;
+  }
+
+  const text = formatThreadReply(event);
+  if (!text) return; // Silent event — nothing to post.
+
   try {
     await client.chat.postMessage({
       channel: record.originating_channel_id,
       thread_ts: record.originating_thread_ts,
-      text: formatThreadReply(event),
+      text,
     });
   } catch (err) {
     console.error('[lifecycle] thread reply failed:', err);
@@ -185,14 +244,119 @@ async function postAlertMirror(
   client: WebClient,
 ): Promise<void> {
   if (!record.alert_channel_id || !record.alert_message_ts) return;
+  const text = formatAlertMirror(event);
+  if (!text) return;
   try {
     await client.chat.postMessage({
       channel: record.alert_channel_id,
       thread_ts: record.alert_message_ts,
-      text: formatAlertMirror(event),
+      text,
     });
   } catch (err) {
     console.error('[lifecycle] alert mirror failed:', err);
     // Don't escalate — the originating reply already succeeded.
+  }
+}
+
+/**
+ * Post the Pending-review message: tags approvers, includes the
+ * deliverable URL (read from Monday's Deliverable URL column at
+ * trigger time), and renders Approve / Request changes buttons.
+ *
+ * This is the moment Stage 2 approval kicks in (per Kat's design):
+ * marketing has produced a draft and explicitly flipped status to
+ * Pending review. Approvers act here, not at submission.
+ */
+async function postPendingReviewMessage(
+  record: RequestRecord,
+  client: WebClient,
+): Promise<void> {
+  // Look up the Deliverable URL on the Monday item.
+  let deliverableUrl: string | null = null;
+  try {
+    const { mondayApi } = await import('./monday');
+    const data = await mondayApi<{
+      items: { column_values: { id: string; text: string; value: string | null }[] }[];
+    }>(
+      `query ($itemId: ID!) {
+        items(ids: [$itemId]) {
+          column_values(ids: ["link_mm33bes6"]) {
+            id
+            text
+            value
+          }
+        }
+      }`,
+      { itemId: record.monday_item_id },
+    );
+    const link = data.items?.[0]?.column_values?.[0];
+    if (link?.value) {
+      try {
+        const parsed = JSON.parse(link.value);
+        deliverableUrl = parsed.url ?? null;
+      } catch {
+        // value not JSON — fall back to text
+      }
+    }
+    if (!deliverableUrl && link?.text) {
+      deliverableUrl = link.text;
+    }
+  } catch (err) {
+    console.error('[lifecycle] Failed to fetch Deliverable URL:', err);
+  }
+
+  const approverMentions = record.approver_user_ids.length > 0
+    ? record.approver_user_ids.map((id) => `<@${id}>`).join(' ')
+    : '';
+
+  const deliverableLine = deliverableUrl
+    ? `Draft ready for review: <${deliverableUrl}>`
+    : 'Draft ready for review (Marketing: please add the Deliverable URL on the Monday item).';
+
+  const approverLine = approverMentions
+    ? `\n${approverMentions} — please review when you have a moment.`
+    : '';
+
+  const blocks: any[] = [
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `${deliverableLine}${approverLine}` },
+    },
+  ];
+
+  if (record.approver_user_ids.length > 0) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          action_id: 'sage_v2_approve_request',
+          text: { type: 'plain_text', text: '✅ Approve' },
+          style: 'primary',
+          value: String(record.id),
+        },
+        {
+          type: 'button',
+          action_id: 'sage_v2_request_changes',
+          text: { type: 'plain_text', text: '✏️ Request changes' },
+          value: String(record.id),
+        },
+      ],
+    });
+  }
+
+  try {
+    await client.chat.postMessage({
+      channel: record.originating_channel_id,
+      thread_ts: record.originating_thread_ts,
+      text: `Draft ready for review.`,
+      blocks,
+    });
+  } catch (err) {
+    console.error('[lifecycle] pending-review post failed:', err);
+    await trackError(err, undefined, {
+      source: 'lifecycle-pending-review',
+      monday: record.monday_item_id,
+    });
   }
 }

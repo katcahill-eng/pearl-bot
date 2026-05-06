@@ -65,28 +65,28 @@ async function postConfirmationReply(
     ? approverSlackIds.map((id) => `<@${id}>`).join(' ')
     : '';
 
-  const calendarLine = MARKETING_CALENDAR_URL
-    ? `\n  • Want to walk through it with marketing? <${MARKETING_CALENDAR_URL}|Schedule a call>`
-    : '';
-
   const rushBanner = rush.isRush
-    ? `:warning: *Heads up: tight turnaround.* Marketing typically needs ~2 weeks (1 week to draft + 1 week to review) — your timeline is ${rush.daysUntilInHand} day${rush.daysUntilInHand === 1 ? '' : 's'} from today. Marketing will review feasibility before committing; we may need to adjust scope or timeline.\n\n`
+    ? `:warning: *Heads up: tight turnaround.* Marketing typically needs ~2 weeks (1 week to draft + 1 week for approvals and edits) — your timeline is ${rush.daysUntilInHand} day${rush.daysUntilInHand === 1 ? '' : 's'} from today. Marketing will review feasibility before committing; we may need to adjust scope or timeline.\n\n`
     : '';
 
-  // Request-type policy banner — fires when the request type is one
-  // we have a written policy for (email, presentation, press_release,
-  // blog, etc.). Same wording that surfaces in the modal so the
-  // policy reads consistently across the flow.
   const { requestTypePolicy } = await import('../lib/modals/request-modal');
   const policy = requestTypePolicy(requestType, record.originating_channel_id);
   const policyBanner = policy ? `${policy.text}\n\n` : '';
 
+  // Approver line: tag them as listed approvers, but NO buttons here —
+  // approval buttons fire when marketing flips Monday status to
+  // Pending review (handled by lifecycle-composer.ts). Per Kat
+  // 2026-05-06: there's nothing to approve at submission time.
+  const approverLine = approverMentions
+    ? `\n\n${approverMentions} — you're listed as an approver. I'll tag you again when there's a draft ready for your review.`
+    : '';
+
   const text =
     `${rushBanner}${policyBanner}Got it — tracking your request as <${mondayUrl}|${reqId}>.\n\n` +
     `*What happens next:*\n` +
-    `  • Marketing will triage this and assign an owner. You'll see status updates posted here as it progresses.\n` +
-    `  • Need to add a supporting doc or change something? Just @Sage in this thread.${calendarLine}` +
-    (approverMentions ? `\n\n${approverMentions} — please review when you have a moment.` : '');
+    `  • Marketing will review the scope and start work once accepted. Status updates post here.\n` +
+    `  • Need to add a supporting doc or change something? Just @Sage in this thread.` +
+    approverLine;
 
   const blocks: any[] = [
     {
@@ -94,27 +94,6 @@ async function postConfirmationReply(
       text: { type: 'mrkdwn', text },
     },
   ];
-
-  if (approverSlackIds.length > 0) {
-    blocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          action_id: APPROVE_ACTION_ID,
-          text: { type: 'plain_text', text: '✅ Approve' },
-          style: 'primary',
-          value: String(record.id),
-        },
-        {
-          type: 'button',
-          action_id: REQUEST_CHANGES_ACTION_ID,
-          text: { type: 'plain_text', text: '✏️ Request changes' },
-          value: String(record.id),
-        },
-      ],
-    });
-  }
 
   try {
     await client.chat.postMessage({
