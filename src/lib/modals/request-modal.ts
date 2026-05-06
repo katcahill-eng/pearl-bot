@@ -249,7 +249,7 @@ export function buildRequestModal(
         type: 'header',
         text: {
           type: 'plain_text',
-          text: 'Marketing often delivers these alongside this request',
+          text: 'Do you also need any of these?',
           emoji: true,
         },
       },
