@@ -75,15 +75,15 @@ function loadConfig(): Map<string, ChannelConfigEntry> {
 
 /**
  * Returns the Pearl division for the given Slack channel, or null if the
- * channel is not configured as an intake channel.
+ * channel is not configured or has no division set.
  *
- * Note: alerts and test channels return null — they don't belong to a
- * single division. Callers that need division info should only call this
- * after confirming the channel role is 'intake'.
+ * Test channels MAY carry an explicit division so they can run the full
+ * submission flow (otherwise view-submission bails). Alerts channels
+ * normally don't have a division and return null.
  */
 export function divisionForChannel(channelId: string): Division | null {
   const entry = loadConfig().get(channelId);
-  if (!entry || entry.role !== 'intake') return null;
+  if (!entry) return null;
   return entry.division ?? null;
 }
 

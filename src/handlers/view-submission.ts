@@ -118,10 +118,14 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
     v.draft_source?.value?.value ?? null;
 
   const deadline =
-    v.deadline?.value?.selected_date ?? null;
+    v.deadline?.sage_v2_deadline_change?.selected_date ??
+    v.deadline?.value?.selected_date ?? // legacy fallback
+    null;
 
   const liveDate =
-    v.live_date?.value?.selected_date ?? null;
+    v.live_date?.sage_v2_live_date_change?.selected_date ??
+    v.live_date?.value?.selected_date ?? // legacy fallback
+    null;
 
   const approverSlackIds: string[] =
     v.approvals?.value?.selected_users ?? [];
@@ -190,6 +194,19 @@ export function registerViewSubmissionHandler(app: App): void {
         undefined,
         { source: 'view-submission', channel: metadata.channelId },
       );
+      // Don't bail silently — let the requester know we received the
+      // submission but can't process it from this channel.
+      try {
+        await client.chat.postMessage({
+          channel: metadata.channelId,
+          thread_ts: metadata.threadTs,
+          text:
+            "I got your form, but this channel isn't fully set up for marketing requests yet. " +
+            "Please file from your division's `#mktg_{division}_requests` channel.",
+        });
+      } catch (notifyErr) {
+        console.error('[view-submission] failed to post fallback message:', notifyErr);
+      }
       return;
     }
 

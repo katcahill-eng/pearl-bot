@@ -49,7 +49,11 @@ channels:
   # marketing-internal asks stay in marketing's existing channels.
   # Marketing doesn't request from itself.
 
-  # Test/dev channel — keep for shakedown after deploy
+  # Test/dev channel — keep for shakedown after deploy.
+  # Test items DO get created on Monday (with division=Marketing); delete
+  # them after testing. To skip Monday writes entirely, we'd need real
+  # test-mode behavior — currently the test channel runs the full flow.
   - channel_id: C0ABY48HRDL
     channel_name: pearl-bot-test
     role: test
+    division: Marketing
