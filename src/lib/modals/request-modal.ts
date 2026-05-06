@@ -88,6 +88,13 @@ export function buildRequestModal(
 
   const trimmedRecs = recommendations.slice(0, MAX_RECOMMENDATIONS);
   if (trimmedRecs.length > 0) {
+    // Group reasonings — recommendations from the same rule share a
+    // single explanation. We surface that ONCE as a context block,
+    // then list the checkbox options without per-option duplication.
+    const uniqueReasonings = Array.from(
+      new Set(trimmedRecs.map((r) => r.reasoning).filter(Boolean)),
+    );
+
     blocks.push(
       { type: 'divider' },
       {
@@ -98,8 +105,19 @@ export function buildRequestModal(
           emoji: true,
         },
       },
-      recommendationsBlock(trimmedRecs),
     );
+
+    if (uniqueReasonings.length > 0) {
+      blocks.push({
+        type: 'context',
+        elements: uniqueReasonings.map((r) => ({
+          type: 'mrkdwn',
+          text: `_${r}_`,
+        })),
+      });
+    }
+
+    blocks.push(recommendationsBlock(trimmedRecs));
   }
 
   return {
@@ -257,15 +275,25 @@ function recommendationsBlock(recs: Recommendation[]): any {
     type: 'input',
     block_id: 'recommendations',
     optional: true,
-    label: { type: 'plain_text', text: 'Suggested add-ons', emoji: true },
+    label: { type: 'plain_text', text: 'Add-ons', emoji: true },
     element: {
       type: 'checkboxes',
       action_id: 'value',
       options: recs.map((rec) => ({
+        // value stays as the slug for downstream tracking; user-visible
+        // text is the human-readable deliverable description.
         value: rec.name,
-        text: { type: 'plain_text', text: rec.name },
-        description: { type: 'plain_text', text: rec.reasoning.slice(0, 75) },
+        text: { type: 'plain_text', text: truncateForCheckbox(rec.deliverable) },
       })),
     },
   };
+}
+
+/**
+ * Slack checkbox option text has a 75-char limit. Truncate cleanly,
+ * adding an ellipsis if we cut.
+ */
+function truncateForCheckbox(text: string): string {
+  if (text.length <= 75) return text;
+  return text.slice(0, 72).trimEnd() + '…';
 }
