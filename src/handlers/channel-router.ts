@@ -219,7 +219,7 @@ interface RouteIntentStubInput {
   threadTs: string;
   userId: string;
   text: string;
-  say: (params: { text: string; thread_ts?: string }) => Promise<unknown>;
+  say: (params: { text?: string; blocks?: any[]; thread_ts?: string }) => Promise<unknown>;
 }
 
 async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
@@ -251,7 +251,7 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
       });
       break;
     case 'light_qc':
-      await handleLightQC({ text, threadTs, say });
+      await handleLightQC({ text, threadTs, userId, channelId, say });
       break;
     case 'unclear':
       await say({

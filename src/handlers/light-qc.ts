@@ -31,6 +31,43 @@ const QC_INTENT_KEYWORDS = /\b(qc|quality[\s-]check|brand[\s-](check|review)|is\
 
 export const QC_DOC_ACTION_ID = 'qc_doc_url';
 export const REVIEW_DOC_ACTION_ID = 'review_doc_url';
+export const REPORT_DOC_ERROR_ACTION_ID = 'report_doc_error';
+
+export function buildDocErrorBlocks(params: {
+  docUrl: string;
+  userId: string;
+  channelId: string;
+  threadTs: string;
+  errorSummary: string;
+}): any[] {
+  const payload = JSON.stringify({
+    u: params.userId,
+    d: params.docUrl.substring(0, 300),
+    e: params.errorSummary.substring(0, 150),
+    c: params.channelId,
+    t: params.threadTs,
+  });
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: "I wasn't able to read that document — it may not be accessible to Sage. Make sure the doc is shared with anyone at Pearl, then try again.",
+      },
+    },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Report issue to marketing' },
+          action_id: REPORT_DOC_ERROR_ACTION_ID,
+          value: payload,
+        },
+      ],
+    },
+  ];
+}
 
 /**
  * True when the message is essentially just a Google Doc URL with no
@@ -108,6 +145,8 @@ export function formatLightQCResult(result: QCResult): string {
 export interface LightQCInput {
   text: string;
   threadTs: string;
+  userId?: string;
+  channelId?: string;
   say: (params: { text?: string; blocks?: any[]; thread_ts?: string }) => Promise<unknown>;
 }
 
@@ -118,7 +157,7 @@ export type LightQCOutcome = 'qc_returned' | 'routed_to_modal' | 'no_content';
  * so the caller can log the right event type.
  */
 export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome> {
-  const { text, threadTs, say } = input;
+  const { text, threadTs, say, userId = '', channelId = '' } = input;
 
   if (isPubBound(text)) {
     await say({
@@ -182,8 +221,9 @@ export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome
       await say({ text: withDisclaimer(`*${title}*\n\n${body}`), thread_ts: threadTs });
       return 'qc_returned';
     } catch (err: any) {
+      const errorSummary = err.message ?? 'unknown error';
       await say({
-        text: `I wasn't able to read that document. ${err.message ?? 'Please make sure it\'s shared and try again.'}`,
+        blocks: buildDocErrorBlocks({ docUrl, userId, channelId, threadTs, errorSummary }),
         thread_ts: threadTs,
       });
       return 'no_content';
