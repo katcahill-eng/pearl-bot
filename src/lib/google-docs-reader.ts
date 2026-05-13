@@ -125,6 +125,14 @@ export function getServiceAccountEmail(): string | null {
   }
 }
 
+function buildAccessError(): string {
+  const serviceEmail = getServiceAccountEmail();
+  if (serviceEmail) {
+    return `This document isn't accessible to Sage. In Google Docs, go to Share and either set General Access to "Anyone with the link" (Viewer), or add ${serviceEmail} directly.`;
+  }
+  return `This document isn't accessible to Sage. In Google Docs, go to Share and set General Access to "Anyone with the link" (Viewer).`;
+}
+
 /**
  * Verify that Sage can access a Google Doc without reading its full content.
  * Fetches only the title field. Throws with a user-friendly message if not accessible.
@@ -144,12 +152,8 @@ export async function checkDocAccess(urlOrId: string): Promise<{ title: string }
     const response = await docs.documents.get({ documentId: docId, fields: 'title' });
     return { title: response.data.title ?? 'Untitled Document' };
   } catch (err: any) {
-    if (err?.code === 403 || err?.code === 404) {
-      const serviceEmail = getServiceAccountEmail();
-      const shareHint = serviceEmail
-        ? ` Please share the document with: ${serviceEmail}`
-        : ' Please share the document with the service account.';
-      throw new Error(`Cannot access document (${err.code}).${shareHint}`);
+    if (err?.code === 401 || err?.code === 403 || err?.code === 404) {
+      throw new Error(buildAccessError());
     }
     throw err;
   }
@@ -186,14 +190,8 @@ export async function readGoogleDoc(urlOrId: string): Promise<{ title: string; c
 
     return { title, content };
   } catch (err: any) {
-    if (err?.code === 403 || err?.code === 404) {
-      const serviceEmail = getServiceAccountEmail();
-      const shareHint = serviceEmail
-        ? ` Please share the document with: ${serviceEmail}`
-        : ' Please share the document with the service account.';
-      throw new Error(
-        `Cannot access document (${err.code}).${shareHint}`,
-      );
+    if (err?.code === 401 || err?.code === 403 || err?.code === 404) {
+      throw new Error(buildAccessError());
     }
     throw err;
   }
