@@ -56,7 +56,7 @@ export function buildDocErrorBlocks(params: {
         type: 'mrkdwn',
         text: params.errorSummary.startsWith("This document isn't accessible")
         ? params.errorSummary
-        : "I wasn't able to access that document. Make sure it's shared with anyone at Pearl (or set to \"Anyone with the link\"), then try again.",
+        : "I wasn't able to access that document. In Google Docs, go to Share and set General Access to \"Anyone with the link\" (Viewer), then try again.",
       },
     },
     {
