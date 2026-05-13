@@ -11,8 +11,8 @@
  */
 
 export const DISCLAIMER_TEXT =
-  'This is AI-generated based on the most recent marketing resource documents. ' +
-  'If human review is needed, @mention me to submit a request.';
+  'AI-generated based on Pearl\'s brand guidelines. ' +
+  'To submit to the marketing team for review, @Sage in your division\'s #mktg_requests channel.';
 
 /**
  * Append the disclaimer to a plain-text Slack message.

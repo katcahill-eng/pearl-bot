@@ -107,5 +107,7 @@ Does this content sound like a trusted Sage or a salesperson? Flag any passages 
 ## Overall Positioning Assessment
 Does this article position Pearl correctly? Is it Duck, not Bunny? Does it match Pearl's brand personality? Would a real estate agent feel comfortable with how Pearl is presented?
 
+OUTPUT LANGUAGE RULE: When writing issue descriptions and suggested fixes, use plain language — never use internal Pearl terminology like "Bunny", "Duck", "Bunny language", or "Duck positioning" in the output. Describe the actual problem instead. For example: say "apologetic or fear-based language" not "Bunny language"; say "confident, value-forward framing" not "Duck positioning".
+
 CONTENT TO REVIEW:
 `;

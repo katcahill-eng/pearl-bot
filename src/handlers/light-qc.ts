@@ -73,6 +73,11 @@ export function formatLightQCResult(result: QCResult): string {
     }
   }
 
+  if (['C', 'D', 'F'].includes(result.grade)) {
+    lines.push('');
+    lines.push('_Before submitting to marketing, consider workshopping your copy with <https://www.notion.so/ai|Notion AI> (sign in with your Pearl Google account) — then @Sage to file a review request._');
+  }
+
   return lines.join('\n');
 }
 

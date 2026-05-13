@@ -72,10 +72,10 @@ describe('disclaimer', () => {
   });
 
   describe('DISCLAIMER_TEXT', () => {
-    it('matches the canonical wording from the PRD', () => {
+    it('matches the canonical wording', () => {
       expect(DISCLAIMER_TEXT).toContain('AI-generated');
-      expect(DISCLAIMER_TEXT).toContain('marketing resource documents');
-      expect(DISCLAIMER_TEXT).toContain('@mention me to submit a request');
+      expect(DISCLAIMER_TEXT).toContain('marketing team');
+      expect(DISCLAIMER_TEXT).toContain('@Sage');
     });
   });
 });
