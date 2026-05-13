@@ -27,6 +27,22 @@ function extractGoogleDocUrl(text: string): string | null {
   return match ? match[0] : null;
 }
 
+const QC_INTENT_KEYWORDS = /\b(qc|quality[\s-]check|brand[\s-](check|review)|is\s+this\s+(on[\s-]?brand|good)|check\s+(this|it)\s+against|on[\s-]?brand)\b/i;
+
+export const QC_DOC_ACTION_ID = 'qc_doc_url';
+export const REVIEW_DOC_ACTION_ID = 'review_doc_url';
+
+/**
+ * True when the message is essentially just a Google Doc URL with no
+ * indication of what the user wants done with it.
+ */
+function isBareDocUrl(text: string): boolean {
+  const withoutMention = text.replace(/^<@[A-Z0-9]+>\s*/, '');
+  if (QC_INTENT_KEYWORDS.test(withoutMention)) return false;
+  const withoutUrl = withoutMention.replace(GOOGLE_DOC_PATTERN, '').trim();
+  return withoutUrl.length < 20;
+}
+
 const PUB_BOUND_PATTERNS: RegExp[] = [
   /\bfor\s+publication\b/i,
   /\bgoing\s+(live|public)\b/i,
@@ -92,7 +108,7 @@ export function formatLightQCResult(result: QCResult): string {
 export interface LightQCInput {
   text: string;
   threadTs: string;
-  say: (params: { text: string; thread_ts?: string }) => Promise<unknown>;
+  say: (params: { text?: string; blocks?: any[]; thread_ts?: string }) => Promise<unknown>;
 }
 
 export type LightQCOutcome = 'qc_returned' | 'routed_to_modal' | 'no_content';
@@ -114,9 +130,43 @@ export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome
     return 'routed_to_modal';
   }
 
-  // Google Doc URL — fetch content and QC it
+  // Google Doc URL
   const docUrl = extractGoogleDocUrl(text);
   if (docUrl) {
+    // Bare URL with no intent — ask what they want
+    if (isBareDocUrl(text)) {
+      await say({
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: "I see you've shared a Google Doc. What would you like me to do with it?",
+            },
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: 'Run QC check' },
+                action_id: QC_DOC_ACTION_ID,
+                value: docUrl,
+              },
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: 'Submit for marketing review' },
+                action_id: REVIEW_DOC_ACTION_ID,
+                value: docUrl,
+              },
+            ],
+          },
+        ],
+        thread_ts: threadTs,
+      });
+      return 'no_content';
+    }
+
     await say({ text: ':mag: Reading your Google Doc...', thread_ts: threadTs });
     try {
       const { title, content } = await readGoogleDoc(docUrl);
