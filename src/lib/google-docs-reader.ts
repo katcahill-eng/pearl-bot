@@ -1,9 +1,8 @@
 import { google, docs_v1 } from 'googleapis';
+import { JWT } from 'google-auth-library';
 import { config } from './config';
 
-// --- Auth (same pattern as google-drive.ts) ---
-
-function getAuth(): ReturnType<typeof google.auth.fromJSON> | null {
+function getAuth(): JWT | null {
   try {
     const raw = config.googleServiceAccountJson;
     if (!raw || raw === 'undefined') {
@@ -11,20 +10,23 @@ function getAuth(): ReturnType<typeof google.auth.fromJSON> | null {
       return null;
     }
     const credentials = JSON.parse(raw);
-    if (!credentials.client_email) {
-      console.error('[google-docs-reader] Service account JSON missing client_email');
+    if (!credentials.client_email || !credentials.private_key) {
+      console.error('[google-docs-reader] Service account JSON missing client_email or private_key');
       return null;
     }
+    // Railway env vars can turn \n into literal \\n in the PEM key — fix it.
+    const privateKey = credentials.private_key.replace(/\\n/g, '\n');
     console.log(`[google-docs-reader] Authenticating as ${credentials.client_email}`);
-    return google.auth.fromJSON({
-      ...credentials,
+    return new JWT({
+      email: credentials.client_email,
+      key: privateKey,
       scopes: [
         'https://www.googleapis.com/auth/documents.readonly',
         'https://www.googleapis.com/auth/drive.readonly',
       ],
-    }) as ReturnType<typeof google.auth.fromJSON>;
+    });
   } catch (err) {
-    console.error('[google-docs-reader] Failed to parse service account JSON:', err);
+    console.error('[google-docs-reader] Failed to create auth client:', err);
     return null;
   }
 }
@@ -32,7 +34,7 @@ function getAuth(): ReturnType<typeof google.auth.fromJSON> | null {
 function getDocs(): docs_v1.Docs | null {
   const auth = getAuth();
   if (!auth) return null;
-  return google.docs({ version: 'v1', auth: auth as any });
+  return google.docs({ version: 'v1', auth });
 }
 
 // --- Extract document ID from URL ---
