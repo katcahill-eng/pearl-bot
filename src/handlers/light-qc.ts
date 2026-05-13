@@ -18,6 +18,14 @@
 
 import { runQC, type QCResult } from '../lib/qc-runner';
 import { withDisclaimer } from '../lib/disclaimer';
+import { readGoogleDoc, extractDocId } from '../lib/google-docs-reader';
+
+const GOOGLE_DOC_PATTERN = /https?:\/\/docs\.google\.com\/document\/d\/[a-zA-Z0-9_\-/]+/;
+
+function extractGoogleDocUrl(text: string): string | null {
+  const match = text.match(GOOGLE_DOC_PATTERN);
+  return match ? match[0] : null;
+}
 
 const PUB_BOUND_PATTERNS: RegExp[] = [
   /\bfor\s+publication\b/i,
@@ -106,10 +114,37 @@ export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome
     return 'routed_to_modal';
   }
 
+  // Google Doc URL — fetch content and QC it
+  const docUrl = extractGoogleDocUrl(text);
+  if (docUrl) {
+    await say({ text: ':mag: Reading your Google Doc...', thread_ts: threadTs });
+    try {
+      const { title, content } = await readGoogleDoc(docUrl);
+      if (!content || content.length < 10) {
+        await say({
+          text: "I could open the document but it appears to be empty. Make sure it has text content and try again.",
+          thread_ts: threadTs,
+        });
+        return 'no_content';
+      }
+      const result = await runQC(content, title);
+      const body = formatLightQCResult(result);
+      await say({ text: withDisclaimer(`*${title}*\n\n${body}`), thread_ts: threadTs });
+      return 'qc_returned';
+    } catch (err: any) {
+      await say({
+        text: `I wasn't able to read that document. ${err.message ?? 'Please make sure it\'s shared and try again.'}`,
+        thread_ts: threadTs,
+      });
+      return 'no_content';
+    }
+  }
+
+  // Pasted text
   const content = extractQCContent(text);
   if (!content || content.length < 10) {
     await say({
-      text: "Paste the copy you'd like me to check and I'll run it against the brand guidelines.",
+      text: "Paste the copy you'd like me to check — or share a Google Doc link — and I'll run it against the brand guidelines.",
       thread_ts: threadTs,
     });
     return 'no_content';
