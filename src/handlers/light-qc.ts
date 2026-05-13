@@ -194,7 +194,7 @@ export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome
             elements: [
               {
                 type: 'button',
-                text: { type: 'plain_text', text: 'Run QC check' },
+                text: { type: 'plain_text', text: 'Check it against brand guidelines' },
                 action_id: QC_DOC_ACTION_ID,
                 value: docUrl,
               },
