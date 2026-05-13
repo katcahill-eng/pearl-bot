@@ -219,7 +219,8 @@ interface RouteIntentStubInput {
   threadTs: string;
   userId: string;
   text: string;
-  say: (params: { text?: string; blocks?: any[]; thread_ts?: string }) => Promise<unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  say: (params: any) => Promise<unknown>;
 }
 
 async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {

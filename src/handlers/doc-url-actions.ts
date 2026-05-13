@@ -70,7 +70,7 @@ export function registerDocUrlActions(app: App): void {
       const userName = (body as BlockAction).user?.username ?? userId;
 
       const say = (params: { text?: string; blocks?: any[]; thread_ts?: string }) =>
-        client.chat.postMessage({ channel: channelId, ...params });
+        client.chat.postMessage({ channel: channelId, ...(params as any) });
 
       await handleDocumentReviewMessage({
         userId,
@@ -78,7 +78,7 @@ export function registerDocUrlActions(app: App): void {
         channelId,
         threadTs,
         text: docUrl,
-        say,
+        say: say as any,
         client,
       });
     } catch (err) {
