@@ -25,12 +25,17 @@ const FAST_PATHS: { pattern: RegExp; intent: V2Intent }[] = [
   { pattern: /^(check|review)\s+(this|my|our)\b.*\b(brand|copy|draft|on[\s-]?brand)\b/i, intent: 'light_qc' },
   { pattern: /\bwhere'?s?\s+my\s+(request|brief|project)\b/i, intent: 'status_query' },
   { pattern: /\bwhat'?s\s+(open|in\s+flight|in\s+progress|the\s+status)\b/i, intent: 'status_query' },
-  { pattern: /\b(what'?s|where\s+are)\s+(our|the)\s+(logo|tagline|brand|colors?|fonts?|guidelines?)\b/i, intent: 'info_lookup' },
+  { pattern: /\b(what'?s|where\s+are)\s+(our|the)\s+(logo|tagline|brand|colors?|fonts?|guidelines?|assets?)\b/i, intent: 'info_lookup' },
   { pattern: /\b(give|send|share)\s+me\s+(the|our)\s+(logo|tagline|brand|colors?)\b/i, intent: 'info_lookup' },
+  { pattern: /\b(logo|brand\s+colors?|brand\s+fonts?|brand\s+guidelines?|brand\s+assets?|brand\s+kit|style\s+guide|email\s+signature|slide\s+template|presentation\s+template)\b/i, intent: 'info_lookup' },
+  { pattern: /\b(early\s+access|beta|rollout)\s+(application|program|testing|phase)s?\b/i, intent: 'work_request' },
+  { pattern: /\b(application|program)\s+(for|to)\s+(early\s+access|beta|launch)\b/i, intent: 'work_request' },
+  { pattern: /\b(homeowner|home\s+buyer|real\s+estate|property\s+owner)s?\b/i, intent: 'work_request' },
   { pattern: /^(i|we)\s+(need|want|would\s+like|am\s+looking\s+for)\b/i, intent: 'work_request' },
   { pattern: /^can\s+(you|marketing|someone)\s+(make|create|build|design|draft|write|put\s+together)\b/i, intent: 'work_request' },
   { pattern: /^(make|create|build|design|draft|write|put\s+together)\s+(a|an|me|us|the)\b/i, intent: 'work_request' },
   { pattern: /\b(help\s+(us|me)\s+with|support\s+(us|me)\s+with)\b/i, intent: 'work_request' },
+  { pattern: /\b(position|establish|build)\s+.{0,30}(as|as\s+the)\s+(expert|leader|authority|thought\s+leader)\b/i, intent: 'work_request' },
 ];
 
 export function fastPathClassify(text: string): V2Intent | null {

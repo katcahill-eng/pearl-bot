@@ -49,6 +49,8 @@ export const QUICK_INFO_PATTERNS = [
   /\b(slide|presentation)\s+template\b/i,
   /\bmaster\s+(slide|deck|template)\b/i,
   /\bemail\s+signature\b/i,
+  /\bbrand\s+colors?\b/i,
+  /\bwhere\s+(can\s+i\s+find|do\s+i\s+find|are)\s+(the\s+)?(brand|logo|asset|template)s?\b/i,
 ];
 
 // Only match explicit help-only messages (not "I need help with X")

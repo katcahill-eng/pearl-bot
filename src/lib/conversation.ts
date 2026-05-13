@@ -60,7 +60,7 @@ const FIELD_PROMPTS: Record<string, { question: string; example: string }> = {
   },
   desired_outcomes: {
     question: 'What are the desired outcomes?',
-    example: 'e.g., "Increase partner sign-ups by 20%", "Generate 50 qualified leads from the conference", "Drive awareness of the new program"',
+    example: 'e.g., "Increase partner sign-ups by 20%", "Generate 50 qualified leads", "Position Pearl as the expert on home performance", "Help our audience understand how to use SCORE", "Drive early access applications"',
   },
   deliverables: {
     question: 'What deliverable(s) do you need?',

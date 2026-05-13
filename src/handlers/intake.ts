@@ -1019,40 +1019,46 @@ async function startFreshFromDupCheck(
   // Grab previous target + department before clearing data
   const previousTarget = convo.getCollectedData().additional_details['__previous_target'] ?? null;
   const previousDepartment = convo.getCollectedData().additional_details['__previous_department'] ?? null;
+  const knownName = convo.getCollectedData().requester_name ?? convo.getUserName();
+  const dept = previousDepartment || convo.getCollectedData().requester_department;
 
   await cancelConversation(existingConvoId);
   convo.setCurrentStep(null);
-  // Preserve carryover data so handleGatheringState can use it if the user says "same"
+
+  // Preserve carryover data so handleGatheringState can use it when user says "same"
   const freshDetails: Record<string, string> = {};
   if (previousTarget) freshDetails['__previous_target'] = previousTarget;
   if (previousDepartment) freshDetails['__previous_department'] = previousDepartment;
 
-  // Cancel the dup conversation record so the user's next message gets fresh intent detection.
-  // Show the services menu so they can choose what to do (intake, doc review, brand resources, etc.)
-  convo.setStatus('cancelled');
+  // Transform the dup-check conversation into a fresh gathering conversation
+  convo.setStatus('gathering');
+  if (knownName) convo.markFieldCollected('requester_name', knownName);
+  if (dept) convo.markFieldCollected('requester_department', dept);
   convo.markFieldCollected('additional_details', freshDetails);
   await convo.save();
 
-  // If the user typed an actual request inline, process it as a fresh intake
+  // If the user typed an actual request inline, process it immediately
   if (initialMessage && initialMessage.length > 20) {
-    // Re-create as a fresh gathering conversation
-    convo.setStatus('gathering');
-    const knownName = convo.getCollectedData().requester_name ?? convo.getUserName();
-    const dept = previousDepartment || convo.getCollectedData().requester_department;
-    if (knownName) convo.markFieldCollected('requester_name', knownName);
-    if (dept) convo.markFieldCollected('requester_department', dept);
-    convo.getNextQuestion(); // sets currentStep
+    convo.getNextQuestion(); // advance to first unanswered field
     await convo.save();
     await handleGatheringState(convo, initialMessage, threadTs, say, client);
     return;
   }
 
-  const firstName = getFirstName(convo.getCollectedData().requester_name ?? convo.getUserName());
-  const greeting = firstName ? `Fresh start, ${firstName}! ` : 'Fresh start! ';
-  await say({
-    text: `${greeting}${getHelpMessage()}`,
-    thread_ts: threadTs,
-  });
+  // No inline message — ask the first question directly, with context hints
+  const next = convo.getNextQuestion();
+  if (next) {
+    const deptStatement = dept ? `_Setting up your request for *${dept}*._\n\n` : '';
+    const exampleHint = previousTarget
+      ? `\n_Last time: "${previousTarget}" — same or different?_`
+      : `\n_${next.example}_`;
+    await say({
+      text: `${deptStatement}${next.question}${exampleHint}`,
+      thread_ts: threadTs,
+    });
+  } else {
+    await enterFollowUpPhase(convo, 0, threadTs, say);
+  }
 }
 
 async function handleGatheringState(
