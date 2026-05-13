@@ -154,7 +154,9 @@ export async function checkDocAccess(urlOrId: string): Promise<{ title: string }
     const response = await docs.documents.get({ documentId: docId, fields: 'title' });
     return { title: response.data.title ?? 'Untitled Document' };
   } catch (err: any) {
-    if (err?.code === 401 || err?.code === 403 || err?.code === 404) {
+    console.error(`[google-docs-reader] checkDocAccess failed: code=${err?.code} status=${err?.response?.status} message=${err?.message}`);
+    if (err?.code === 401 || err?.code === 403 || err?.code === 404 ||
+        err?.response?.status === 401 || err?.response?.status === 403 || err?.response?.status === 404) {
       throw new Error(buildAccessError());
     }
     throw err;
@@ -192,7 +194,9 @@ export async function readGoogleDoc(urlOrId: string): Promise<{ title: string; c
 
     return { title, content };
   } catch (err: any) {
-    if (err?.code === 401 || err?.code === 403 || err?.code === 404) {
+    console.error(`[google-docs-reader] readGoogleDoc failed: code=${err?.code} status=${err?.response?.status} message=${err?.message}`);
+    if (err?.code === 401 || err?.code === 403 || err?.code === 404 ||
+        err?.response?.status === 401 || err?.response?.status === 403 || err?.response?.status === 404) {
       throw new Error(buildAccessError());
     }
     throw err;
