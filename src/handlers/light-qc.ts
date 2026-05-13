@@ -60,6 +60,12 @@ export function buildDocErrorBlocks(params: {
       elements: [
         {
           type: 'button',
+          text: { type: 'plain_text', text: 'Try again' },
+          action_id: QC_DOC_ACTION_ID,
+          value: params.docUrl,
+        },
+        {
+          type: 'button',
           text: { type: 'plain_text', text: 'Report issue to marketing' },
           action_id: REPORT_DOC_ERROR_ACTION_ID,
           value: payload,
