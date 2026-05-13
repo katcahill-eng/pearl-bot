@@ -47,7 +47,7 @@ export function isPubBound(text: string): boolean {
 export function extractQCContent(text: string): string {
   return text
     .replace(/^<@[A-Z0-9]+>\s*/, '')
-    .replace(/^(is\s+this\s+(on[\s-]?brand|good)|qc[\s:,]|review[\s:,])\s*[:,]?\s*/i, '')
+    .replace(/^(is\s+this\s+(on[\s-]?brand|good)|brand\s+(check|review)|qc\s+this|qc[\s:,]|review[\s:,]|check\s+this[\s:,]?|check\s+(this|it)\s+against\s+\S+)\s*[:,]?\s*/i, '')
     .trim();
 }
 

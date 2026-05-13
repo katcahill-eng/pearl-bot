@@ -22,7 +22,13 @@ function fastClient(): Anthropic {
 const FAST_PATHS: { pattern: RegExp; intent: V2Intent }[] = [
   { pattern: /^(is\s+this|does\s+this)\b.*\b(on[\s-]?brand|sound|read)\b/i, intent: 'light_qc' },
   { pattern: /^(qc|quality\s*check)\b/i, intent: 'light_qc' },
+  { pattern: /^brand\s+(check|review)\b/i, intent: 'light_qc' },
   { pattern: /^(check|review)\s+(this|my|our)\b.*\b(brand|copy|draft|on[\s-]?brand)\b/i, intent: 'light_qc' },
+  { pattern: /^(check|review)\s+(this|my|our)\s+(doc(ument)?|article|blog|email|content|link|url|copy|draft)\b/i, intent: 'light_qc' },
+  { pattern: /^(check|review)\s+this\s*:/i, intent: 'light_qc' },
+  { pattern: /^qc\s+this\b/i, intent: 'light_qc' },
+  { pattern: /\bcheck\s+(this|it)\s+against\b/i, intent: 'light_qc' },
+  { pattern: /docs\.google\.com\/document/i, intent: 'light_qc' },
   { pattern: /\bwhere'?s?\s+my\s+(request|brief|project)\b/i, intent: 'status_query' },
   { pattern: /\bwhat'?s\s+(open|in\s+flight|in\s+progress|the\s+status)\b/i, intent: 'status_query' },
   { pattern: /\b(what'?s|where\s+are)\s+(our|the)\s+(logo|tagline|brand|colors?|fonts?|guidelines?|assets?)\b/i, intent: 'info_lookup' },
