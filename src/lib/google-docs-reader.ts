@@ -126,6 +126,36 @@ export function getServiceAccountEmail(): string | null {
 }
 
 /**
+ * Verify that Sage can access a Google Doc without reading its full content.
+ * Fetches only the title field. Throws with a user-friendly message if not accessible.
+ */
+export async function checkDocAccess(urlOrId: string): Promise<{ title: string }> {
+  const docId = extractDocId(urlOrId);
+  if (!docId) {
+    throw new Error(`Could not extract document ID from: ${urlOrId}`);
+  }
+
+  const docs = getDocs();
+  if (!docs) {
+    throw new Error('Google Docs API not configured — missing GOOGLE_SERVICE_ACCOUNT_JSON');
+  }
+
+  try {
+    const response = await docs.documents.get({ documentId: docId, fields: 'title' });
+    return { title: response.data.title ?? 'Untitled Document' };
+  } catch (err: any) {
+    if (err?.code === 403 || err?.code === 404) {
+      const serviceEmail = getServiceAccountEmail();
+      const shareHint = serviceEmail
+        ? ` Please share the document with: ${serviceEmail}`
+        : ' Please share the document with the service account.';
+      throw new Error(`Cannot access document (${err.code}).${shareHint}`);
+    }
+    throw err;
+  }
+}
+
+/**
  * Read a Google Doc and return its title and plain text content.
  *
  * @param urlOrId - Google Docs URL or document ID

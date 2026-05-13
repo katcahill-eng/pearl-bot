@@ -39,7 +39,9 @@ export function buildDocErrorBlocks(params: {
   channelId: string;
   threadTs: string;
   errorSummary: string;
+  retryActionId?: string;
 }): any[] {
+  const retryActionId = params.retryActionId ?? QC_DOC_ACTION_ID;
   const payload = JSON.stringify({
     u: params.userId,
     d: params.docUrl.substring(0, 300),
@@ -52,7 +54,7 @@ export function buildDocErrorBlocks(params: {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: "I wasn't able to read that document — it may not be accessible to Sage. Make sure the doc is shared with anyone at Pearl, then try again.",
+        text: "I wasn't able to access that document — it may not be shared with Sage yet. Share the doc with anyone at Pearl, then try again.",
       },
     },
     {
@@ -61,7 +63,7 @@ export function buildDocErrorBlocks(params: {
         {
           type: 'button',
           text: { type: 'plain_text', text: 'Try again' },
-          action_id: QC_DOC_ACTION_ID,
+          action_id: retryActionId,
           value: params.docUrl,
         },
         {
