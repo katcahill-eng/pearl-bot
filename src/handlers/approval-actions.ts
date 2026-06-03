@@ -69,11 +69,32 @@ export function registerApprovalActionsV2(app: App): void {
 
       await recordApproverAction(requestId, userId, 'approved');
 
-      // Move Monday status forward.
+      // Resolve display name for the Monday comment.
+      let actorName: string;
+      try {
+        actorName = await getSlackDisplayName(userId, client) ?? userId;
+      } catch {
+        actorName = userId;
+      }
+
+      // Move Monday status forward + log the approval as a comment.
       try {
         await updateMondayItemStatus(record.monday_item_id, 'Working on it');
       } catch (err) {
         console.error('[approval-actions] Status update failed:', err);
+      }
+      try {
+        const approvedAt = new Date().toLocaleString('en-US', {
+          timeZone: 'America/New_York',
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        });
+        await addMondayItemUpdate(
+          record.monday_item_id,
+          `Approved by ${actorName} on ${approvedAt} ET.`,
+        );
+      } catch (err) {
+        console.error('[approval-actions] Monday approval comment failed:', err);
       }
 
       await client.chat.postMessage({
@@ -82,12 +103,14 @@ export function registerApprovalActionsV2(app: App): void {
         text: `Approved by <@${userId}>.`,
       });
 
-      // Mirror to alert thread in #mktg_incoming_requests.
+      // Mirror to alert thread — reply_broadcast surfaces it in the channel feed
+      // so #mktg_incoming_requests lights up with a notification.
       if (record.alert_channel_id && record.alert_message_ts) {
         try {
           await client.chat.postMessage({
             channel: record.alert_channel_id,
             thread_ts: record.alert_message_ts,
+            reply_broadcast: true,
             text: `Approved by <@${userId}>`,
           });
         } catch (err) {
@@ -206,13 +229,14 @@ export function registerApprovalActionsV2(app: App): void {
         text: `Changes requested by <@${userId}>:\n> ${changes}`,
       });
 
-      // Mirror to alert thread in #mktg_incoming_requests.
+      // Mirror to alert thread — reply_broadcast surfaces it in the channel feed.
       try {
         const record = await getRequestById(metadata.requestId);
         if (record?.alert_channel_id && record?.alert_message_ts) {
           await client.chat.postMessage({
             channel: record.alert_channel_id,
             thread_ts: record.alert_message_ts,
+            reply_broadcast: true,
             text: `Changes requested by <@${userId}>: ${changes}`,
           });
         }
