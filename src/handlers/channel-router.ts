@@ -34,6 +34,11 @@ import { postOpenModalButton } from './intake-modal';
 import { getHelpMessage } from './intent';
 import { handleVisibilityQuery } from './visibility-query';
 import { handlePostSubmissionFollowUp } from './post-submission';
+import { config } from '../lib/config';
+
+// Threads where a user triggered the bug-report flow and we're waiting
+// for their description. Key: threadTs, value: {userId, channelId, ts}.
+const pendingChannelBugReports = new Map<string, { userId: string; channelId: string; ts: number }>();
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -166,8 +171,25 @@ export function registerChannelRouter(app: App): void {
     }
 
     if (isBugReport(text)) {
+      pendingChannelBugReports.set(threadTs, { userId, channelId, ts: Date.now() });
       await say({
-        text: "To file a bug report, DM me directly — say *\"help\"*, then describe what happened and I'll get it to marketing.",
+        text: "Got it — what happened? Describe the issue here and I'll file it with marketing.",
+        thread_ts: threadTs,
+      });
+      return;
+    }
+
+    // Pending bug report — this @mention is the user's description
+    const pendingBug = pendingChannelBugReports.get(threadTs);
+    if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000) {
+      pendingChannelBugReports.delete(threadTs);
+      const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+      await client.chat.postMessage({
+        channel: config.slackMarketingChannelId,
+        text: `:bug: *Bug report from <@${userId}>:*\n${description}`,
+      });
+      await say({
+        text: "Logged — marketing will look into it.",
         thread_ts: threadTs,
       });
       return;
