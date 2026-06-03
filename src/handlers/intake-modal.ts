@@ -141,6 +141,8 @@ export async function parseIntakeText(text: string): Promise<ParsedIntake> {
   }
 }
 
+const SOCIAL_PLATFORMS = /^(linkedin|instagram|facebook|x|twitter|bluesky|youtube|tiktok|threads|pinterest)$/i;
+
 /**
  * Regex fallback when Sonnet misses the audience. Matches common
  * "for X" / "to X" / "targeting X" phrases at the end of the text.
@@ -148,7 +150,11 @@ export async function parseIntakeText(text: string): Promise<ParsedIntake> {
 export function extractAudienceFallback(text: string): string | null {
   // Try "for X" at end (most common Pearl phrasing)
   const forMatch = text.match(/\bfor\s+([a-z][\w\s/,&'-]{2,60})$/i);
-  if (forMatch) return forMatch[1].trim().replace(/[.!?]+$/, '');
+  if (forMatch) {
+    const candidate = forMatch[1].trim().replace(/[.!?]+$/, '');
+    if (SOCIAL_PLATFORMS.test(candidate)) return null;
+    return candidate;
+  }
 
   // Try "targeting X"
   const targetMatch = text.match(/\btargeting\s+([a-z][\w\s/,&'-]{2,60})/i);
