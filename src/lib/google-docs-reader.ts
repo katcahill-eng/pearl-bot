@@ -130,14 +130,48 @@ export function getServiceAccountEmail(): string | null {
 function buildAccessError(): string {
   const serviceEmail = getServiceAccountEmail();
   if (serviceEmail) {
-    return `This document isn't accessible to Sage. In Google Docs, go to Share and either set General Access to "Anyone with the link" (Viewer), or add ${serviceEmail} directly.`;
+    return `This document isn't accessible to Sage. In Google Docs, open Share and add ${serviceEmail} as a Viewer — or set General Access to "Anyone with the link" (Viewer).`;
   }
-  return `This document isn't accessible to Sage. In Google Docs, go to Share and set General Access to "Anyone with the link" (Viewer).`;
+  return `This document isn't accessible to Sage. In Google Docs, open Share and set General Access to "Anyone with the link" (Viewer).`;
+}
+
+/**
+ * Fallback reader for docs shared as "Anyone with the link".
+ * The Google Docs API (service account) can't access link-shared docs,
+ * but the public export URL can.
+ */
+async function readPublicDoc(
+  docId: string,
+): Promise<{ title: string; content: string } | null> {
+  const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=txt`;
+  try {
+    const res = await fetch(exportUrl, { redirect: 'manual' });
+    // Google redirects to login page when not accessible — treat as private.
+    if (res.status === 302 || res.status === 301 || !res.ok) return null;
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/plain') && !contentType.includes('text/')) return null;
+
+    const text = await res.text();
+    if (!text || text.length < 10) return null;
+
+    // Try to extract title from Content-Disposition header.
+    let title = 'Untitled Document';
+    const cd = res.headers.get('content-disposition') ?? '';
+    const fnMatch = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)/i);
+    if (fnMatch) {
+      title = decodeURIComponent(fnMatch[1].replace(/\.txt$/i, '').trim());
+    }
+
+    return { title, content: text.trim() };
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Verify that Sage can access a Google Doc without reading its full content.
- * Fetches only the title field. Throws with a user-friendly message if not accessible.
+ * First tries the service account (for explicitly shared docs), then falls
+ * back to the public export URL (for "Anyone with the link" docs).
  */
 export async function checkDocAccess(urlOrId: string): Promise<{ title: string }> {
   const docId = extractDocId(urlOrId);
@@ -146,21 +180,25 @@ export async function checkDocAccess(urlOrId: string): Promise<{ title: string }
   }
 
   const docs = getDocs();
-  if (!docs) {
-    throw new Error('Google Docs API not configured — missing GOOGLE_SERVICE_ACCOUNT_JSON');
+  if (docs) {
+    try {
+      const response = await docs.documents.get({ documentId: docId, fields: 'title' });
+      return { title: response.data.title ?? 'Untitled Document' };
+    } catch (err: any) {
+      const isAccessError =
+        err?.code === 401 || err?.code === 403 || err?.code === 404 ||
+        err?.response?.status === 401 || err?.response?.status === 403 || err?.response?.status === 404;
+      if (!isAccessError) throw err;
+      // Fall through to public export fallback below.
+      console.log(`[google-docs-reader] Service account denied (${err?.code ?? err?.response?.status}), trying public export fallback`);
+    }
   }
 
-  try {
-    const response = await docs.documents.get({ documentId: docId, fields: 'title' });
-    return { title: response.data.title ?? 'Untitled Document' };
-  } catch (err: any) {
-    console.error(`[google-docs-reader] checkDocAccess failed: code=${err?.code} status=${err?.response?.status} message=${err?.message}`);
-    if (err?.code === 401 || err?.code === 403 || err?.code === 404 ||
-        err?.response?.status === 401 || err?.response?.status === 403 || err?.response?.status === 404) {
-      throw new Error(buildAccessError());
-    }
-    throw err;
-  }
+  // Public export fallback — works for "Anyone with the link" docs.
+  const pub = await readPublicDoc(docId);
+  if (pub) return { title: pub.title };
+
+  throw new Error(buildAccessError());
 }
 
 /**
@@ -176,29 +214,32 @@ export async function readGoogleDoc(urlOrId: string): Promise<{ title: string; c
     throw new Error(`Could not extract document ID from: ${urlOrId}`);
   }
 
-  const docs = getDocs();
-  if (!docs) {
-    throw new Error('Google Docs API not configured — missing GOOGLE_SERVICE_ACCOUNT_JSON');
-  }
-
   console.log(`[google-docs-reader] Reading document: ${docId}`);
 
-  try {
-    const response = await docs.documents.get({ documentId: docId });
-    const doc = response.data;
-
-    const title = doc.title ?? 'Untitled Document';
-    const content = extractDocumentText(doc);
-
-    console.log(`[google-docs-reader] Read "${title}" (${content.length} chars)`);
-
-    return { title, content };
-  } catch (err: any) {
-    console.error(`[google-docs-reader] readGoogleDoc failed: code=${err?.code} status=${err?.response?.status} message=${err?.message}`);
-    if (err?.code === 401 || err?.code === 403 || err?.code === 404 ||
-        err?.response?.status === 401 || err?.response?.status === 403 || err?.response?.status === 404) {
-      throw new Error(buildAccessError());
+  const docs = getDocs();
+  if (docs) {
+    try {
+      const response = await docs.documents.get({ documentId: docId });
+      const doc = response.data;
+      const title = doc.title ?? 'Untitled Document';
+      const content = extractDocumentText(doc);
+      console.log(`[google-docs-reader] Read via service account: "${title}" (${content.length} chars)`);
+      return { title, content };
+    } catch (err: any) {
+      const isAccessError =
+        err?.code === 401 || err?.code === 403 || err?.code === 404 ||
+        err?.response?.status === 401 || err?.response?.status === 403 || err?.response?.status === 404;
+      if (!isAccessError) throw err;
+      console.log(`[google-docs-reader] Service account denied, trying public export fallback`);
     }
-    throw err;
   }
+
+  // Public export fallback — works for "Anyone with the link" docs.
+  const pub = await readPublicDoc(docId);
+  if (pub) {
+    console.log(`[google-docs-reader] Read via public export: "${pub.title}" (${pub.content.length} chars)`);
+    return pub;
+  }
+
+  throw new Error(buildAccessError());
 }
