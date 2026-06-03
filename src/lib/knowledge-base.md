@@ -335,7 +335,7 @@ Some requests span multiple types (e.g., a conference that includes a webinar, o
 |-------|------|
 | Logo Files (white, blue, and black variants) | https://drive.google.com/drive/folders/1OsfB1H_sRtiaWdcwI-kxYpSF82nWu6Kf |
 | Logo with Tagline | https://drive.google.com/drive/folders/1YLXUnXPle3v2ofAhCJVv5XyFNdB87DnP |
-| App Logos — Pearl App (blue, homeowner audience) and Pearl for Professionals (white, professional audience) | https://drive.google.com/drive/folders/1OoHMChnTMsl7jDyOaF32Cj-Lm-n5ipzS |
+| App Logos — Pearl (blue, homeowner audience) and Pearl for professionals (white, professional audience) | https://drive.google.com/drive/folders/1OoHMChnTMsl7jDyOaF32Cj-Lm-n5ipzS |
 | Pearl Recognized Professional Badge | https://drive.google.com/drive/folders/1dxebl86q-fRazykQqtCVNoTIzCotjZ2c |
 
 ### Brand Guidelines
