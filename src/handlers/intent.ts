@@ -116,6 +116,16 @@ export function detectIntent(rawText: string): Intent {
   return 'intake';
 }
 
+function getTroubleFooter(): string {
+  const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
+  const scheduleLink = calUrl ? ` or <${calUrl}|schedule a quick call>` : '';
+  return (
+    '\n*Having trouble or found a bug?* DM me and say *"help"* to file a report with marketing' +
+    scheduleLink +
+    '.'
+  );
+}
+
 export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): string {
   if (channelRole === 'alerts') {
     return [
@@ -126,6 +136,8 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       "• *@Sage what's our logo URL?* — brand info works here too.",
       '',
       'To *file* a new request, head to your division\'s `#mktg_{division}_requests` channel. This channel is alerts-only.',
+      '',
+      getTroubleFooter(),
     ].join('\n');
   }
 
@@ -137,6 +149,8 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       "• *@Sage what's our logo?* — quick brand info.",
       "• *@Sage is this on-brand: [paste]* — quick brand-check on a draft.",
       "• *@Sage where's my request?* — status lookup.",
+      '',
+      getTroubleFooter(),
     ].join('\n');
   }
 
@@ -152,5 +166,7 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
     "• *In an existing request thread:* tag me with what you want to add or change and I'll update the request.",
     '',
     'I only respond when you @mention me — channel chatter without @Sage is ignored.',
+    '',
+    getTroubleFooter(),
   ].join('\n');
 }
