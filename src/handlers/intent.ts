@@ -116,12 +116,6 @@ export function detectIntent(rawText: string): Intent {
   return 'intake';
 }
 
-function getTroubleFooter(): string {
-  const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
-  const scheduleLink = calUrl ? ` · <${calUrl}|Schedule a call>` : '';
-  return `*Having trouble or found a bug?* DM me — say *"help"*, then describe what happened and I'll file a report with marketing.${scheduleLink}`;
-}
-
 export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): string {
   if (channelRole === 'alerts') {
     return [
@@ -130,10 +124,10 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       "• *Marketing's reply threads here are private to the team* — I don't listen to anything that isn't @-mentioned. Use those threads for internal coordination.",
       '• *@Sage what\'s BD working on?* or *@Sage show me open Product requests* — cross-division status reports.',
       "• *@Sage what's our logo URL?* — brand info works here too.",
+      "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
+      "• *@Sage I found a bug* — I'll get it to the marketing team.",
       '',
       'To *file* a new request, head to your division\'s `#mktg_{division}_requests` channel. This channel is alerts-only.',
-      '',
-      getTroubleFooter(),
     ].join('\n');
   }
 
@@ -145,8 +139,8 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       "• *@Sage what's our logo?* — quick brand info.",
       "• *@Sage is this on-brand: [paste copy or document link]* — quick brand-check on a draft.",
       "• *@Sage where's my request?* — status lookup.",
-      '',
-      getTroubleFooter(),
+      "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
+      "• *@Sage I found a bug* — I'll get it to the marketing team.",
     ].join('\n');
   }
 
@@ -159,10 +153,10 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
     "• *@Sage what's our logo?* (or tagline, colors, fonts) — quick brand info.",
     "• *@Sage is this on-brand: [paste copy or document link]* — quick brand-check on a draft.",
     "• *@Sage where's my request?* — status lookup from Monday.",
+    "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
+    "• *@Sage I found a bug* — I'll get it to the marketing team.",
     "• *In an existing request thread:* tag me with what you want to add or change and I'll update the request.",
     '',
     'I only respond when you @mention me — channel chatter without @Sage is ignored.',
-    '',
-    getTroubleFooter(),
   ].join('\n');
 }

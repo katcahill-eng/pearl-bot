@@ -105,6 +105,18 @@ export function isHelpRequest(rawText: string): boolean {
   );
 }
 
+export function isScheduleRequest(rawText: string): boolean {
+  const text = rawText.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+  return /\b(schedule|book)\s+(a\s+)?(call|meeting|time)\b/i.test(text) ||
+    /\bi\s+need\s+to\s+talk\s+to\s+marketing\b/i.test(text) ||
+    /\bcan\s+i\s+(talk|speak|chat)\s+(to|with)\s+marketing\b/i.test(text);
+}
+
+export function isBugReport(rawText: string): boolean {
+  const text = rawText.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+  return /\b(found\s+a?\s*bug|report\s+a?\s*bug|bug\s+report|something('?s|\s+is)\s+(broken|wrong|not\s+working))\b/i.test(text);
+}
+
 /**
  * Register the v2 channel router on the Bolt app. The handler:
  *   1. Filters out events from non-configured channels (delegates to
@@ -136,10 +148,28 @@ export function registerChannelRouter(app: App): void {
       return;
     }
 
-    // Help command — match before LLM classification to save a Haiku
-    // call for the trivial case.
+    // Fast-path commands — match before LLM classification.
     if (isHelpRequest(text)) {
       await say({ text: getHelpMessage(role), thread_ts: threadTs });
+      return;
+    }
+
+    if (isScheduleRequest(text)) {
+      const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
+      await say({
+        text: calUrl
+          ? `Here's a link to book time with marketing: <${calUrl}|Schedule a call>`
+          : `DM <@${process.env.MARKETING_LEAD_SLACK_ID ?? 'the marketing team'}> to set up time.`,
+        thread_ts: threadTs,
+      });
+      return;
+    }
+
+    if (isBugReport(text)) {
+      await say({
+        text: "To file a bug report, DM me directly — say *\"help\"*, then describe what happened and I'll get it to marketing.",
+        thread_ts: threadTs,
+      });
       return;
     }
 
