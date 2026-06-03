@@ -123,9 +123,10 @@ export function extractQCContent(text: string): string {
 export function formatLightQCResult(result: QCResult): string {
   const lines: string[] = [];
   const hasIssues = result.criticalIssues.length > 0 || result.importantIssues.length > 0 || result.minorIssues.length > 0;
+  const gradeEmoji = result.grade === 'A' ? '✅' : ['B'].includes(result.grade) ? '⚠️' : '🚫';
   const gradeLabel = result.grade === 'A'
-    ? `*Grade: A — ${hasIssues ? 'publish-ready once the suggestions below are addressed' : 'publish-ready'}*`
-    : `*Grade: ${result.grade}*`;
+    ? `${gradeEmoji} *Grade: A — ${hasIssues ? 'publish-ready once the suggestions below are addressed' : 'publish-ready'}*`
+    : `${gradeEmoji} *Grade: ${result.grade}*`;
   lines.push(gradeLabel);
   lines.push('');
   lines.push(result.summary || result.overallAssessment);
@@ -166,7 +167,7 @@ export function formatLightQCResult(result: QCResult): string {
   lines.push('---');
   lines.push('_*Grade guide:* A = publish-ready | B = fix issues above, try again | C/D/F = needs major revision_');
   lines.push('');
-  lines.push('*Does this need marketing sign-off?*');
+  lines.push('📤 *Does this need marketing sign-off?*');
   lines.push('External-facing corporate messaging requires a formal marketing review before publishing. Internal and customer engagement content is division-owned — no review needed.');
   lines.push('');
   lines.push('If this needs review, start a new thread here and say:');
