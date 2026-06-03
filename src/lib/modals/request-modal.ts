@@ -549,24 +549,28 @@ export function draftBlock(requestType: string | null | undefined): any {
   let hint: string;
   switch (requestType) {
     case 'email':
-      hint = 'Paste a link (or multiple) to your draft email — Google Doc, Word, etc.';
+      hint = 'What do you have that can help marketing get started? Paste a link to your draft email — Google Doc, Word, or even rough notes work.';
       break;
     case 'presentation':
-      hint = 'Paste a link (or multiple) to your draft deck. Audience and key message should already be decided.';
+      hint = 'What do you have that can help marketing get started? Paste a link to your draft deck — audience and key message should already be decided.';
       break;
     case 'webinar':
-      hint = 'Paste a link (or multiple) to your agenda or talking points: audience, goal, key info.';
+      hint = 'What do you have that can help marketing get started? Paste a link to your agenda, talking points, or any doc with audience, goal, and key info.';
       break;
     case 'press_release':
     case 'blog':
     case 'landing_page':
     case 'social_media':
     case 'document':
-      hint = 'Paste a link (or multiple) to your talking points: audience, goal, key info.';
+      hint = 'What do you have that can help marketing get started? Paste a link to your talking points, outline, or any relevant doc — even rough notes help.';
       break;
     default:
-      hint = 'Optional — paste a link (or multiple) to any source material, brand examples, or relevant context.';
+      hint = 'Optional — paste a link to any source material, brand examples, or relevant context that can help marketing understand what you need.';
   }
+
+  const label = policyApplies
+    ? 'Links to draft or source material (required)'
+    : 'Links to draft or source material';
 
   return {
     type: 'input',
@@ -574,7 +578,7 @@ export function draftBlock(requestType: string | null | undefined): any {
     optional: !policyApplies,
     label: {
       type: 'plain_text',
-      text: 'Links to draft or source material',
+      text: label,
       emoji: true,
     },
     hint: { type: 'plain_text', text: hint },
