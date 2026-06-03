@@ -122,7 +122,11 @@ export function extractQCContent(text: string): string {
  */
 export function formatLightQCResult(result: QCResult): string {
   const lines: string[] = [];
-  lines.push(`*Grade: ${result.grade}*`);
+  const hasIssues = result.criticalIssues.length > 0 || result.importantIssues.length > 0 || result.minorIssues.length > 0;
+  const gradeLabel = result.grade === 'A'
+    ? `*Grade: A — ${hasIssues ? 'publish-ready once the suggestions below are addressed' : 'publish-ready'}*`
+    : `*Grade: ${result.grade}*`;
+  lines.push(gradeLabel);
   lines.push('');
   lines.push(result.summary || result.overallAssessment);
 
