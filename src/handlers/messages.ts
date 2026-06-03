@@ -61,7 +61,10 @@ export function registerMessageHandler(app: App): void {
     // Exception: plain thread replies when a bug report is pending.
     if (event.channel && roleForChannel(event.channel) !== null) {
       const replyThreadTs = 'thread_ts' in event ? event.thread_ts : undefined;
-      const pendingBug = replyThreadTs ? pendingChannelBugReports.get(replyThreadTs) : undefined;
+      // Only intercept actual replies — not the triggering message itself.
+      // When thread_ts equals ts, this IS the root message, not a reply.
+      const isActualReply = replyThreadTs && replyThreadTs !== event.ts;
+      const pendingBug = isActualReply ? pendingChannelBugReports.get(replyThreadTs!) : undefined;
       if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000) {
         const reportUserId = 'user' in event ? (event.user as string) : '';
         const description = (event.text ?? '').replace(/^<@[A-Z0-9]+>\s*/, '').trim();
