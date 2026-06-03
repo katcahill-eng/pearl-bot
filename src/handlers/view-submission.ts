@@ -73,13 +73,17 @@ export function assessRush(
   if (!target) {
     return { isRush: false, daysUntilInHand: null, effectiveDate: null };
   }
-  const targetDate = new Date(target + 'T00:00:00');
-  if (Number.isNaN(targetDate.getTime())) {
+  // Compare calendar dates in Eastern time so day counts match what
+  // Pearl staff see on their clocks, not the UTC server clock.
+  const todayETStr = today.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const [ty, tm, td] = todayETStr.split('-').map(Number);
+  const [gy, gm, gd] = target.split('-').map(Number);
+  if (!gy || !gm || !gd) {
     return { isRush: false, daysUntilInHand: null, effectiveDate: null };
   }
-  const todayMidnight = new Date(today);
-  todayMidnight.setHours(0, 0, 0, 0);
-  const ms = targetDate.getTime() - todayMidnight.getTime();
+  const todayMidnight = new Date(ty, tm - 1, td);
+  const targetMidnight = new Date(gy, gm - 1, gd);
+  const ms = targetMidnight.getTime() - todayMidnight.getTime();
   const days = Math.round(ms / (1000 * 60 * 60 * 24));
   return {
     isRush: days < MIN_TURNAROUND_DAYS,
