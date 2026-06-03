@@ -182,6 +182,11 @@ export function formatLightQCResult(result: QCResult): string {
     lines.push('_Before submitting to marketing, consider workshopping your copy with <https://www.notion.so/ai|Notion AI> (sign in with your Pearl Google account) — then @Sage to file a review request._');
   }
 
+  lines.push('');
+  lines.push('---');
+  lines.push('_*Grade guide:* A = publish-ready | B = fix issues above, try again | C/D/F = needs major revision_');
+  lines.push('_*Who approves what:* Social posts, press releases, and web copy need a grade A + marketing sign-off before they go out. Internal emails and customer outreach are division-owned — this QC feedback is your guide, no marketing review needed._');
+
   return lines.join('\n');
 }
 
