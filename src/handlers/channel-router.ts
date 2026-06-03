@@ -38,7 +38,8 @@ import { config } from '../lib/config';
 
 // Threads where a user triggered the bug-report flow and we're waiting
 // for their description. Key: threadTs, value: {userId, channelId, ts}.
-const pendingChannelBugReports = new Map<string, { userId: string; channelId: string; ts: number }>();
+// Exported so messages.ts can intercept plain (non-@mention) thread replies.
+export const pendingChannelBugReports = new Map<string, { userId: string; channelId: string; ts: number }>();
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -173,7 +174,7 @@ export function registerChannelRouter(app: App): void {
     if (isBugReport(text)) {
       pendingChannelBugReports.set(threadTs, { userId, channelId, ts: Date.now() });
       await say({
-        text: "Got it — tag me with a description and I'll file it with marketing:\n`@Sage [what happened]`",
+        text: "Got it — what happened? Reply here and I'll file it with marketing.",
         thread_ts: threadTs,
       });
       return;

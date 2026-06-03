@@ -9,6 +9,7 @@ import { ConversationManager } from '../lib/conversation';
 import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
 import { roleForChannel } from '../lib/division-lookup';
+import { pendingChannelBugReports } from './channel-router';
 
 // Tracks users who said "help" in a DM and are about to describe their bug.
 // Keyed by userId, value is the timestamp of the "help" message.
@@ -57,7 +58,29 @@ export function registerMessageHandler(app: App): void {
     // channel-router.ts (which listens for app_mention, not message).
     // Skip them here so the v3 message handler doesn't double-handle
     // when a user @mentions Sage and Slack fires both events.
+    // Exception: plain thread replies when a bug report is pending.
     if (event.channel && roleForChannel(event.channel) !== null) {
+      const replyThreadTs = 'thread_ts' in event ? event.thread_ts : undefined;
+      const pendingBug = replyThreadTs ? pendingChannelBugReports.get(replyThreadTs) : undefined;
+      if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000) {
+        const reportUserId = 'user' in event ? (event.user as string) : '';
+        const description = (event.text ?? '').replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+        if (description) {
+          pendingChannelBugReports.delete(replyThreadTs!);
+          try {
+            await client.chat.postMessage({
+              channel: config.slackMarketingChannelId,
+              text: `:bug: *Bug report from <@${reportUserId}>:*\n${description}`,
+            });
+            await say({
+              text: "Logged — marketing will look into it.",
+              thread_ts: replyThreadTs,
+            });
+          } catch (err) {
+            console.error('[messages] Failed to file bug report:', err);
+          }
+        }
+      }
       return;
     }
 
