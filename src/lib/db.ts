@@ -920,6 +920,51 @@ export async function getRequestByThread(
   return (result.rows[0] as RequestRecord) ?? null;
 }
 
+const CLOSED_STATUSES = ["Completed/Live", "Declined", "Cancelled", "Done"];
+
+export async function getRequestsByUser(
+  requesterUserId: string,
+  includeClosedAfterDays = 7,
+): Promise<RequestRecord[]> {
+  const result = await pool.query(
+    `SELECT * FROM request_records
+     WHERE requester_user_id = $1
+       AND (
+         status NOT IN (${CLOSED_STATUSES.map((_, i) => `$${i + 2}`).join(',')})
+         OR submitted_at > NOW() - INTERVAL '${includeClosedAfterDays} days'
+       )
+     ORDER BY submitted_at DESC
+     LIMIT 20`,
+    [requesterUserId, ...CLOSED_STATUSES],
+  );
+  return result.rows as RequestRecord[];
+}
+
+export async function getRequestsByDivision(
+  division: string,
+): Promise<RequestRecord[]> {
+  const result = await pool.query(
+    `SELECT * FROM request_records
+     WHERE division = $1
+       AND status NOT IN (${CLOSED_STATUSES.map((_, i) => `$${i + 2}`).join(',')})
+     ORDER BY submitted_at DESC
+     LIMIT 20`,
+    [division, ...CLOSED_STATUSES],
+  );
+  return result.rows as RequestRecord[];
+}
+
+export async function getAllOpenRequests(): Promise<RequestRecord[]> {
+  const result = await pool.query(
+    `SELECT * FROM request_records
+     WHERE status NOT IN (${CLOSED_STATUSES.map((_, i) => `$${i + 1}`).join(',')})
+     ORDER BY submitted_at DESC
+     LIMIT 20`,
+    CLOSED_STATUSES,
+  );
+  return result.rows as RequestRecord[];
+}
+
 export async function getRequestByMondayItemId(
   mondayItemId: string,
 ): Promise<RequestRecord | null> {

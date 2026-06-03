@@ -19,7 +19,14 @@ import {
   type ChannelRole,
 } from '../lib/division-lookup';
 import { formatItemAttribution } from '../lib/format-monday-item';
-import { getRequestByThread, type RequestRecord } from '../lib/db';
+import {
+  getRequestByThread,
+  getRequestsByUser,
+  getRequestsByDivision,
+  getAllOpenRequests,
+  type RequestRecord,
+} from '../lib/db';
+import { buildMondayUrl } from '../lib/monday';
 import { config } from '../lib/config';
 
 let _haiku: Anthropic | null = null;
@@ -240,18 +247,44 @@ export async function handleVisibilityQuery(
   let spec = await parseQuery(text);
   spec = applyChannelDefaults(spec, channelId, role);
 
-  // Self-scoped queries don't run a Monday GraphQL search at this
-  // story level — we'd query request_records by requester_user_id
-  // and join to Monday for current state. For US-016 v1 we resolve
-  // the query spec and surface a placeholder + the Monday board link
-  // so the channel router doesn't fail closed; richer Monday-side
-  // querying lands when US-018's poller (which already pulls items)
-  // is wired in.
+  let records: RequestRecord[] = [];
+  if (spec.scope === 'self') {
+    records = await getRequestsByUser(userSlackId);
+  } else if (spec.scope === 'division' && spec.division) {
+    records = await getRequestsByDivision(spec.division);
+  } else {
+    records = await getAllOpenRequests();
+  }
+
+  // Apply status filter if specified.
+  if (spec.statusFilter && spec.statusFilter.length > 0) {
+    records = records.filter((r) => spec.statusFilter!.includes(r.status));
+  }
+
+  // Apply search term filter.
+  if (spec.searchTerm) {
+    const term = spec.searchTerm.toLowerCase();
+    records = records.filter(
+      (r) =>
+        r.deliverable_summary?.toLowerCase().includes(term) ||
+        r.request_type?.toLowerCase().includes(term),
+    );
+  }
+
+  const items: MondaySearchItem[] = records.map((r) => ({
+    id: r.monday_item_id,
+    name: r.deliverable_summary?.slice(0, 60) ?? `Request #${r.id}`,
+    url: buildMondayUrl(r.monday_item_id),
+    requesterName: r.requester_user_id,
+    requestingForName: r.requesting_for_user_id,
+    requestedDate: r.submitted_at,
+    status: r.status,
+    division: r.division,
+    owner: null,
+  }));
+
   await say({
-    text:
-      `_${describeSpec(spec, userSlackId)}_\n\n` +
-      `Inline list lands as part of US-018's Monday item-fetch path. ` +
-      `For now, see the board: <https://pearlcertification-team.monday.com/boards/${config.mondayBoardId}|Open in Monday>`,
+    text: formatQueryResult(spec, items, items.length),
     thread_ts: threadTs,
   });
 }
