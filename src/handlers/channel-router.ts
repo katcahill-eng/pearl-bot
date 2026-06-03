@@ -248,6 +248,7 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
         userSlackId: userId,
         role,
         say,
+        client,
       });
       break;
     case 'light_qc':

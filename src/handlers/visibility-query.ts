@@ -226,12 +226,13 @@ export interface VisibilityQueryInput {
   userSlackId: string;
   role: ChannelRole;
   say: (params: { text: string; thread_ts?: string }) => Promise<unknown>;
+  client?: { chat: { getPermalink: (args: { channel: string; message_ts: string }) => Promise<{ permalink?: string }> } };
 }
 
 export async function handleVisibilityQuery(
   input: VisibilityQueryInput,
 ): Promise<void> {
-  const { text, channelId, threadTs, userSlackId, role, say } = input;
+  const { text, channelId, threadTs, userSlackId, role, say, client } = input;
 
   // Special-case: in an existing request thread, "where's my request"
   // means *this* request — return its current state.
@@ -271,17 +272,43 @@ export async function handleVisibilityQuery(
     );
   }
 
-  const items: MondaySearchItem[] = records.map((r) => ({
-    id: r.monday_item_id,
-    name: r.deliverable_summary?.slice(0, 80) ?? `Request #${r.id}`,
-    url: buildMondayUrl(r.monday_item_id),
-    requesterName: spec.scope === 'self' ? 'you' : `<@${r.requester_user_id}>`,
-    requestingForName: r.requesting_for_user_id ? `<@${r.requesting_for_user_id}>` : null,
-    requestedDate: r.submitted_at,
-    status: r.status,
-    division: r.division,
-    owner: null,
-  }));
+  // Resolve permalinks for Pending review items where the querying
+  // user is an approver — they need to jump straight to the thread.
+  const permalinks = new Map<number, string>();
+  if (client) {
+    for (const r of records) {
+      if (r.status === 'Pending review' && r.approver_user_ids.includes(userSlackId)) {
+        try {
+          const res = await client.chat.getPermalink({
+            channel: r.originating_channel_id,
+            message_ts: r.originating_thread_ts,
+          });
+          if (res.permalink) permalinks.set(r.id, res.permalink);
+        } catch { /* best-effort */ }
+      }
+    }
+  }
+
+  const items: MondaySearchItem[] = records.map((r) => {
+    const needsApproval = r.status === 'Pending review' && r.approver_user_ids.includes(userSlackId);
+    const permalink = permalinks.get(r.id);
+    const actionNote = needsApproval
+      ? permalink
+        ? ` — *action needed:* <${permalink}|review & approve>`
+        : ` — *action needed:* <#${r.originating_channel_id}>`
+      : '';
+    return {
+      id: r.monday_item_id,
+      name: (r.deliverable_summary?.slice(0, 80) ?? `Request #${r.id}`) + actionNote,
+      url: buildMondayUrl(r.monday_item_id),
+      requesterName: spec.scope === 'self' ? 'you' : `<@${r.requester_user_id}>`,
+      requestingForName: r.requesting_for_user_id ? `<@${r.requesting_for_user_id}>` : null,
+      requestedDate: r.submitted_at,
+      status: r.status,
+      division: r.division,
+      owner: null,
+    };
+  });
 
   await say({
     text: formatQueryResult(spec, items, items.length),
