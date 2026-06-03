@@ -205,6 +205,7 @@ export function registerChannelRouter(app: App): void {
           userId,
           text,
           say,
+          client,
         });
         return;
     }
@@ -220,10 +221,12 @@ interface RouteIntentStubInput {
   text: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   say: (params: any) => Promise<unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client: any;
 }
 
 async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
-  const { intent, role, channelId, threadTs, userId, text, say } = input;
+  const { intent, role, channelId, threadTs, userId, text, say, client } = input;
 
   switch (intent) {
     case 'info_lookup': {
