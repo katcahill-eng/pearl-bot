@@ -145,11 +145,15 @@ async function readPublicDoc(
 ): Promise<{ title: string; content: string } | null> {
   const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=txt`;
   try {
-    const res = await fetch(exportUrl, { redirect: 'manual' });
-    // Google redirects to login page when not accessible — treat as private.
-    if (res.status === 302 || res.status === 301 || !res.ok) return null;
+    // Follow redirects — Google's export URL redirects before serving content.
+    // Detect inaccessible docs by checking whether the final response is HTML
+    // (login page) vs plain text (document content).
+    const res = await fetch(exportUrl);
+    if (!res.ok) return null;
+
     const contentType = res.headers.get('content-type') ?? '';
-    if (!contentType.includes('text/plain') && !contentType.includes('text/')) return null;
+    // If we ended up at a login page, content-type will be text/html.
+    if (contentType.includes('text/html')) return null;
 
     const text = await res.text();
     if (!text || text.length < 10) return null;
