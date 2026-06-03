@@ -86,7 +86,7 @@ const VALID_DIVISIONS: Division[] = [
   'Marketing',
 ];
 
-const OPEN_MODAL_ACTION_ID = 'sage_v2_open_request_modal';
+export const OPEN_MODAL_ACTION_ID = 'sage_v2_open_request_modal';
 
 export type ParsedIntake = ParsedRequest & {
   additionalDivisionsImpacted?: Division[] | null;

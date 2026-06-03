@@ -19,6 +19,7 @@
 import { runQC, type QCResult } from '../lib/qc-runner';
 import { withDisclaimer } from '../lib/disclaimer';
 import { readGoogleDoc, extractDocId } from '../lib/google-docs-reader';
+import { OPEN_MODAL_ACTION_ID } from './intake-modal';
 
 const GOOGLE_DOC_PATTERN = /https?:\/\/docs\.google\.com\/document\/d\/[a-zA-Z0-9_\-/]+/;
 
@@ -88,6 +89,30 @@ function isBareDocUrl(text: string): boolean {
   if (QC_INTENT_KEYWORDS.test(withoutMention)) return false;
   const withoutUrl = withoutMention.replace(GOOGLE_DOC_PATTERN, '').trim();
   return withoutUrl.length < 20;
+}
+
+/**
+ * True when the user's message signals the content is destined for a
+ * public Pearl channel: social media, press release, or web/website.
+ * These are the only content types that require a formal marketing review.
+ */
+const PUBLIC_CHANNEL_PATTERNS: RegExp[] = [
+  /\bsocial\s*(media|post|content)?\b/i,
+  /\blinkedin\b/i,
+  /\btwitter\b/i,
+  /\binstagram\b/i,
+  /\bfacebook\b/i,
+  /\bblueski?y\b/i,
+  /\bpress\s*release\b/i,
+  /\bmedia\s*release\b/i,
+  /\b(for\s+)?(the\s+)?(web(site)?|web\s*(page|copy)|landing\s*page|site\s*copy)\b/i,
+  /\bblog\s*post\b/i,
+  /\bfor\s+publication\b/i,
+  /\bpublic[\s-]facing\b/i,
+];
+
+export function isPublicChannelContent(text: string): boolean {
+  return PUBLIC_CHANNEL_PATTERNS.some((re) => re.test(text));
 }
 
 const PUB_BOUND_PATTERNS: RegExp[] = [
@@ -174,6 +199,55 @@ export type LightQCOutcome = 'qc_returned' | 'routed_to_modal' | 'no_content';
  * Run light QC on a v2 channel mention. Returns an outcome indicator
  * so the caller can log the right event type.
  */
+/**
+ * After posting a QC result, optionally prompt for a formal marketing review.
+ * Only fires when the user's message signals public-channel content
+ * (social, press release, web). Grade A → submit button. Grade B–F →
+ * tell them to revise to A first.
+ */
+async function postReviewPrompt(params: {
+  result: QCResult;
+  docUrl: string | null;
+  text: string;
+  threadTs: string;
+  say: (p: { text?: string; blocks?: any[]; thread_ts?: string }) => Promise<unknown>;
+}): Promise<void> {
+  const { result, docUrl, text, threadTs, say } = params;
+  if (!isPublicChannelContent(text)) return;
+
+  if (result.grade === 'A') {
+    await say({
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: "Grade A — this is ready for a formal marketing review before it goes out. Want to submit it?",
+          },
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              style: 'primary',
+              text: { type: 'plain_text', text: 'Submit for marketing review' },
+              action_id: docUrl ? REVIEW_DOC_ACTION_ID : OPEN_MODAL_ACTION_ID,
+              value: docUrl ?? 'open',
+            },
+          ],
+        },
+      ],
+      thread_ts: threadTs,
+    });
+  } else {
+    await say({
+      text: `_Marketing requires a grade A before formal review. Work through the suggestions above, revise your copy, and @Sage again when you're ready._`,
+      thread_ts: threadTs,
+    });
+  }
+}
+
 export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome> {
   const { text, threadTs, say, userId = '', channelId = '' } = input;
 
@@ -237,6 +311,7 @@ export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome
       const result = await runQC(content, title);
       const body = formatLightQCResult(result);
       await say({ text: withDisclaimer(`*${title}*\n\n${body}`), thread_ts: threadTs });
+      await postReviewPrompt({ result, docUrl, text, threadTs, say });
       return 'qc_returned';
     } catch (err: any) {
       const errorSummary = err.message ?? 'unknown error';
@@ -261,5 +336,6 @@ export async function handleLightQC(input: LightQCInput): Promise<LightQCOutcome
   const result = await runQC(content);
   const body = formatLightQCResult(result);
   await say({ text: withDisclaimer(body), thread_ts: threadTs });
+  await postReviewPrompt({ result, docUrl: null, text, threadTs, say });
   return 'qc_returned';
 }
