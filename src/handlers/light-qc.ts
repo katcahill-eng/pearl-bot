@@ -140,7 +140,15 @@ export function formatLightQCResult(result: QCResult): string {
     lines.push('');
     lines.push('*Worth checking:*');
     for (const issue of result.importantIssues.slice(0, 3)) {
-      lines.push(`• ${issue.issue}`);
+      lines.push(`• ${issue.issue}${issue.suggestedFix ? ` → ${issue.suggestedFix}` : ''}`);
+    }
+  }
+
+  if (result.criticalIssues.length === 0 && result.importantIssues.length === 0 && result.minorIssues.length > 0) {
+    lines.push('');
+    lines.push('*Minor suggestions:*');
+    for (const issue of result.minorIssues.slice(0, 3)) {
+      lines.push(`• ${issue.issue}${issue.suggestedFix ? ` → ${issue.suggestedFix}` : ''}`);
     }
   }
 
