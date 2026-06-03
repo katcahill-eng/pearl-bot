@@ -163,10 +163,10 @@ export function formatLightQCResult(result: QCResult): string {
   lines.push('_*Grade guide:* A = publish-ready | B = fix issues above, try again | C/D/F = needs major revision_');
   lines.push('');
   lines.push('*Does this need marketing sign-off?*');
-  lines.push('Social posts, press releases, and web copy require a formal marketing review before publishing. Internal and customer engagement content is division-owned — no review needed.');
+  lines.push('External-facing corporate messaging requires a formal marketing review before publishing. Internal and customer engagement content is division-owned — no review needed.');
   lines.push('');
   lines.push('If this needs review, start a new thread here and say:');
-  lines.push('`@Sage I need marketing to review this [social post / press release / web copy] before it goes out: [link or paste your copy]`');
+  lines.push('`@Sage I need marketing to review this before it goes out: [link or paste your copy]`');
 
   return lines.join('\n');
 }
