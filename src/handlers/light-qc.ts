@@ -170,7 +170,7 @@ export function formatLightQCResult(result: QCResult): string {
   lines.push('📤 *Does this need marketing sign-off?*');
   lines.push('External-facing corporate messaging requires a formal marketing review before publishing. Internal and customer engagement content is division-owned — no review needed.');
   lines.push('');
-  lines.push('If this needs review, start a new thread here and say:');
+  lines.push('To submit for review, post a new message in this channel and say:');
   lines.push('`@Sage I need marketing to review this before it goes out: [link or paste your copy]`');
 
   return lines.join('\n');
