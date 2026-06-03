@@ -110,7 +110,6 @@ export function registerApprovalActionsV2(app: App): void {
           await client.chat.postMessage({
             channel: record.alert_channel_id,
             thread_ts: record.alert_message_ts,
-            reply_broadcast: true,
             text: `Approved by <@${userId}>`,
           });
         } catch (err) {
@@ -236,7 +235,6 @@ export function registerApprovalActionsV2(app: App): void {
           await client.chat.postMessage({
             channel: record.alert_channel_id,
             thread_ts: record.alert_message_ts,
-            reply_broadcast: true,
             text: `Changes requested by <@${userId}>: ${changes}`,
           });
         }

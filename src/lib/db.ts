@@ -179,6 +179,26 @@ export async function initDb(): Promise<void> {
   // Add triage_reminder_count column (migration — safe to run repeatedly)
   await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS triage_reminder_count INTEGER NOT NULL DEFAULT 0`);
 
+  // Approver nudge multi-level migration
+  await pool.query(`ALTER TABLE request_records ADD COLUMN IF NOT EXISTS pending_review_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE request_approver_nudges ADD COLUMN IF NOT EXISTS nudge_level INTEGER NOT NULL DEFAULT 1`);
+  // Upgrade UNIQUE constraint to include nudge_level so we can track 3 tiers.
+  // Drop the old constraint idempotently, then add the new one.
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE request_approver_nudges DROP CONSTRAINT IF EXISTS request_approver_nudges_request_id_approver_user_id_key;
+    EXCEPTION WHEN others THEN NULL;
+    END $$;
+  `);
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE request_approver_nudges
+        ADD CONSTRAINT request_approver_nudges_request_approver_level_key
+        UNIQUE (request_id, approver_user_id, nudge_level);
+    EXCEPTION WHEN duplicate_table THEN NULL;
+    END $$;
+  `);
+
   // Register this instance as the active leader
   await pool.query(
     `INSERT INTO bot_instance (id, instance_id, started_at) VALUES (1, $1, NOW())
@@ -811,6 +831,7 @@ export interface RequestRecord {
   deliverable_summary: string | null;
   status: string;
   submitted_at: Date;
+  pending_review_at: Date | null;
 }
 
 export interface InsertRequestRecordInput {
@@ -900,10 +921,17 @@ export async function setRequestStatus(
   requestId: number,
   status: string,
 ): Promise<void> {
-  await pool.query(
-    `UPDATE request_records SET status = $1 WHERE id = $2`,
-    [status, requestId],
-  );
+  if (status === 'Pending review') {
+    await pool.query(
+      `UPDATE request_records SET status = $1, pending_review_at = NOW() WHERE id = $2`,
+      [status, requestId],
+    );
+  } else {
+    await pool.query(
+      `UPDATE request_records SET status = $1 WHERE id = $2`,
+      [status, requestId],
+    );
+  }
 }
 
 export async function recordApproverAction(
@@ -932,34 +960,62 @@ export async function getApproverActions(
   return result.rows;
 }
 
-export async function getPendingApproverNudges(
-  hoursThreshold = 48,
-): Promise<{ request: RequestRecord; pending_approver_user_ids: string[] }[]> {
+/**
+ * Returns requests in "Pending review" where approvers haven't acted,
+ * grouped by which nudge level is due based on business hours elapsed.
+ * Nudge levels: 1=24h, 2=48h, 3=72h. Weekends are excluded.
+ */
+export async function getPendingApproverNudges(): Promise<
+  { request: RequestRecord; pending_approver_user_ids: string[]; nudgeLevel: 1 | 2 | 3 }[]
+> {
   const result = await pool.query(
     `SELECT r.*
        FROM request_records r
-       WHERE r.status = 'pending_approval'
-         AND r.submitted_at < NOW() - INTERVAL '${hoursThreshold} hours'
+       WHERE r.status = 'Pending review'
+         AND r.pending_review_at IS NOT NULL
          AND array_length(r.approver_user_ids, 1) > 0`,
   );
-  const out: { request: RequestRecord; pending_approver_user_ids: string[] }[] = [];
+
+  const NUDGE_THRESHOLDS: [1 | 2 | 3, number][] = [
+    [3, 72],
+    [2, 48],
+    [1, 24],
+  ];
+
+  const out: { request: RequestRecord; pending_approver_user_ids: string[]; nudgeLevel: 1 | 2 | 3 }[] = [];
+  const now = new Date();
+
   for (const row of result.rows as RequestRecord[]) {
+    const elapsed = businessHoursElapsed(row.pending_review_at!, now);
+
+    // Determine the highest nudge level that has been crossed.
+    const dueLevel = NUDGE_THRESHOLDS.find(([, threshold]) => elapsed >= threshold)?.[0];
+    if (!dueLevel) continue; // Not yet 24 business hours — skip
+
     const actions = await pool.query(
       `SELECT approver_user_id FROM request_approver_actions WHERE request_id = $1`,
       [row.id],
     );
     const acted = new Set(actions.rows.map((a: any) => a.approver_user_id as string));
-    const nudged = await pool.query(
-      `SELECT approver_user_id FROM request_approver_nudges WHERE request_id = $1`,
+
+    const nudges = await pool.query(
+      `SELECT approver_user_id, nudge_level FROM request_approver_nudges WHERE request_id = $1`,
       [row.id],
     );
-    const alreadyNudged = new Set(
-      nudged.rows.map((a: any) => a.approver_user_id as string),
-    );
-    const pending = row.approver_user_ids.filter(
-      (uid) => !acted.has(uid) && !alreadyNudged.has(uid),
-    );
-    if (pending.length > 0) out.push({ request: row, pending_approver_user_ids: pending });
+    // Map approver → highest level already sent
+    const nudgeLevels = new Map<string, number>();
+    for (const n of nudges.rows) {
+      const cur = nudgeLevels.get(n.approver_user_id as string) ?? 0;
+      if ((n.nudge_level as number) > cur) nudgeLevels.set(n.approver_user_id as string, n.nudge_level as number);
+    }
+
+    const pending = row.approver_user_ids.filter((uid) => {
+      if (acted.has(uid)) return false;
+      const lastSent = nudgeLevels.get(uid) ?? 0;
+      return dueLevel > lastSent;
+    });
+
+    if (pending.length > 0) out.push({ request: row, pending_approver_user_ids: pending, nudgeLevel: dueLevel });
   }
   return out;
 }
@@ -967,13 +1023,26 @@ export async function getPendingApproverNudges(
 export async function recordApproverNudge(
   requestId: number,
   approverUserId: string,
+  nudgeLevel: 1 | 2 | 3 = 1,
 ): Promise<void> {
   await pool.query(
-    `INSERT INTO request_approver_nudges (request_id, approver_user_id)
-     VALUES ($1, $2)
-     ON CONFLICT (request_id, approver_user_id) DO NOTHING`,
-    [requestId, approverUserId],
+    `INSERT INTO request_approver_nudges (request_id, approver_user_id, nudge_level)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (request_id, approver_user_id, nudge_level) DO NOTHING`,
+    [requestId, approverUserId, nudgeLevel],
   );
+}
+
+/** Count elapsed weekday hours between two timestamps. Saturdays and Sundays are excluded. */
+export function businessHoursElapsed(from: Date, to: Date): number {
+  let hours = 0;
+  const cur = new Date(from);
+  while (cur < to) {
+    const day = cur.getDay(); // 0=Sun, 6=Sat
+    if (day !== 0 && day !== 6) hours++;
+    cur.setHours(cur.getHours() + 1);
+  }
+  return hours;
 }
 
 /**

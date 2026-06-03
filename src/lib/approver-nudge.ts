@@ -1,14 +1,9 @@
 /**
- * Sage v2 48-hour approver nudge.
+ * Sage v2 approver nudge scheduler.
  *
- * Per PRD US-017 (renumbered as US-023 in prd.json): if an approver
- * hasn't acted on a request after 48 hours, DM them a deep-link back
- * to the originating channel thread so they can approve from the
- * channel. Each approver gets at most ONE nudge per request — tracked
- * in the request_approver_nudges table.
- *
- * The 48-hour DM is the only legitimate staff-facing DM use case in
- * v2 (the other DM use case is the maintainer weekly digest, US-024).
+ * When a request is in "Pending review" and approvers haven't acted,
+ * DMs are sent at 24, 48, and 72 *business* hours (weekends excluded).
+ * Each approver gets at most one DM per nudge level per request.
  */
 
 import type { WebClient } from '@slack/web-api';
@@ -19,21 +14,29 @@ import {
 import { logRequestEvent } from './event-log';
 import { trackError } from './error-tracker';
 
-const NUDGE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const NUDGE_THRESHOLD_HOURS = 48;
+const NUDGE_INTERVAL_MS = 60 * 60 * 1000; // check every hour
+
+const NUDGE_COPY: Record<1 | 2 | 3, (summary: string, requesterUserId: string, permalink: string) => string> = {
+  1: (summary, requester, link) =>
+    `Heads up — <@${requester}> is waiting on your review for "${summary}". ${link ? `Take a look here: <${link}>` : ''}`.trim(),
+  2: (summary, requester, link) =>
+    `Reminder: <@${requester}>'s request ("${summary}") still needs your approval. ${link ? `<${link}>` : ''}`.trim(),
+  3: (summary, requester, link) =>
+    `Final reminder: <@${requester}>'s request ("${summary}") has been waiting 72 business hours for your approval. ${link ? `<${link}>` : ''}`.trim(),
+};
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
 export function startApproverNudgeScheduler(client: WebClient): void {
   const tick = async () => {
     try {
-      const pending = await getPendingApproverNudges(NUDGE_THRESHOLD_HOURS);
+      const pending = await getPendingApproverNudges();
       let dmsSent = 0;
       for (const item of pending) {
         for (const approverUserId of item.pending_approver_user_ids) {
           try {
-            await sendApproverNudge(client, item.request, approverUserId);
-            await recordApproverNudge(item.request.id, approverUserId);
+            await sendApproverNudge(client, item.request, approverUserId, item.nudgeLevel);
+            await recordApproverNudge(item.request.id, approverUserId, item.nudgeLevel);
             dmsSent++;
           } catch (err) {
             console.error('[approver-nudge] DM failed:', err);
@@ -46,7 +49,7 @@ export function startApproverNudgeScheduler(client: WebClient): void {
         }
       }
       if (dmsSent > 0) {
-        console.log(`[approver-nudge] Sent ${dmsSent} nudges`);
+        console.log(`[approver-nudge] Sent ${dmsSent} nudge(s)`);
       }
     } catch (err) {
       console.error('[approver-nudge] tick failed:', err);
@@ -58,9 +61,7 @@ export function startApproverNudgeScheduler(client: WebClient): void {
     tick().catch((err) => console.error('[approver-nudge] tick error:', err));
   }, NUDGE_INTERVAL_MS);
 
-  // Don't immediately fire on startup — wait one tick so a fresh
-  // deploy doesn't double-DM if the previous instance just nudged.
-  console.log('[approver-nudge] scheduler started (1h interval, 48h threshold)');
+  console.log('[approver-nudge] scheduler started (1h interval, 24/48/72h business-hour thresholds)');
 }
 
 export function stopApproverNudgeScheduler(): void {
@@ -81,6 +82,7 @@ export async function sendApproverNudge(
     deliverable_summary: string | null;
   },
   approverUserId: string,
+  nudgeLevel: 1 | 2 | 3 = 1,
 ): Promise<void> {
   let permalink = '';
   try {
@@ -93,13 +95,8 @@ export async function sendApproverNudge(
     // Best-effort; DM still goes without a deep link.
   }
 
-  const summary = request.deliverable_summary
-    ? request.deliverable_summary.slice(0, 100)
-    : 'a marketing request';
-
-  const text =
-    `Reminder: <@${request.requester_user_id}> is waiting on your approval for "${summary}".` +
-    (permalink ? ` Approve here: <${permalink}>` : '');
+  const summary = (request.deliverable_summary ?? 'a marketing request').slice(0, 100);
+  const text = NUDGE_COPY[nudgeLevel](summary, request.requester_user_id, permalink);
 
   await client.chat.postMessage({
     channel: approverUserId,
