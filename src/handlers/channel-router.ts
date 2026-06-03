@@ -28,7 +28,7 @@ import type { App } from '@slack/bolt';
 import { roleForChannel, divisionForChannel, type ChannelRole } from '../lib/division-lookup';
 import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
-import { handleQuickInfo } from './quick-info';
+import { getQuickInfoResponse } from './quick-info';
 import { handleLightQC } from './light-qc';
 import { postOpenModalButton } from './intake-modal';
 import { getHelpMessage } from './intent';
@@ -227,7 +227,8 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
 
   switch (intent) {
     case 'info_lookup': {
-      await handleQuickInfo({ text, threadTs, say });
+      const body = getQuickInfoResponse(text);
+      await say({ text: `${body}\n\n_Need something else? Just ask, or say *help* to see what I can do._`, thread_ts: threadTs });
       break;
     }
     case 'work_request':
