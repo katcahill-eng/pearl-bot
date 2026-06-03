@@ -30,6 +30,7 @@ import {
   getRequestById,
 } from '../lib/db';
 import { addMondayItemUpdate, updateMondayItemStatus } from '../lib/monday';
+import { getSlackDisplayName } from '../lib/slack-monday-bridge';
 import { logRequestEvent } from '../lib/event-log';
 import { trackError } from '../lib/error-tracker';
 
@@ -80,6 +81,19 @@ export function registerApprovalActionsV2(app: App): void {
         thread_ts: record.originating_thread_ts,
         text: `Approved by <@${userId}>.`,
       });
+
+      // Mirror to alert thread in #mktg_incoming_requests.
+      if (record.alert_channel_id && record.alert_message_ts) {
+        try {
+          await client.chat.postMessage({
+            channel: record.alert_channel_id,
+            thread_ts: record.alert_message_ts,
+            text: `Approved by <@${userId}>`,
+          });
+        } catch (err) {
+          console.error('[approval-actions] alert mirror for approval failed:', err);
+        }
+      }
 
       await logRequestEvent({
         eventType: 'request_approved',
@@ -169,10 +183,18 @@ export function registerApprovalActionsV2(app: App): void {
 
       await recordApproverAction(metadata.requestId, userId, 'requested_changes', changes);
 
+      // Resolve display name for the Monday comment.
+      let actorName: string;
+      try {
+        actorName = await getSlackDisplayName(userId, client) ?? userId;
+      } catch {
+        actorName = userId;
+      }
+
       try {
         await addMondayItemUpdate(
           metadata.monday_item_id,
-          `Changes requested by Slack user ${userId}: ${changes}`,
+          `Changes requested by ${actorName}: ${changes}`,
         );
       } catch (err) {
         console.error('[approval-actions] Monday update failed:', err);
@@ -183,6 +205,20 @@ export function registerApprovalActionsV2(app: App): void {
         thread_ts: metadata.threadTs,
         text: `Changes requested by <@${userId}>:\n> ${changes}`,
       });
+
+      // Mirror to alert thread in #mktg_incoming_requests.
+      try {
+        const record = await getRequestById(metadata.requestId);
+        if (record?.alert_channel_id && record?.alert_message_ts) {
+          await client.chat.postMessage({
+            channel: record.alert_channel_id,
+            thread_ts: record.alert_message_ts,
+            text: `Changes requested by <@${userId}>: ${changes}`,
+          });
+        }
+      } catch (err) {
+        console.error('[approval-actions] alert mirror for changes failed:', err);
+      }
 
       await logRequestEvent({
         eventType: 'changes_requested',
