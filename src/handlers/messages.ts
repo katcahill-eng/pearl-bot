@@ -8,7 +8,7 @@ import { handleQuickInfo } from './quick-info';
 import { ConversationManager } from '../lib/conversation';
 import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
-import { roleForChannel } from '../lib/division-lookup';
+import { roleForChannel, findChannelsByRole } from '../lib/division-lookup';
 import { pendingChannelBugReports } from './channel-router';
 
 // Tracks users who said "help" in a DM and are about to describe their bug.
@@ -71,8 +71,9 @@ export function registerMessageHandler(app: App): void {
         if (description) {
           pendingChannelBugReports.delete(replyThreadTs!);
           try {
+            const bugChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
             await client.chat.postMessage({
-              channel: config.slackMarketingChannelId,
+              channel: bugChannel,
               text: `:bug: *Bug report from <@${reportUserId}>:*\n${description}`,
             });
             await say({

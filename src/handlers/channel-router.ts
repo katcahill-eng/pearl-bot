@@ -25,7 +25,7 @@
  */
 
 import type { App } from '@slack/bolt';
-import { roleForChannel, divisionForChannel, type ChannelRole } from '../lib/division-lookup';
+import { roleForChannel, divisionForChannel, findChannelsByRole, type ChannelRole } from '../lib/division-lookup';
 import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
 import { getQuickInfoResponse } from './quick-info';
@@ -185,8 +185,9 @@ export function registerChannelRouter(app: App): void {
     if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000) {
       pendingChannelBugReports.delete(threadTs);
       const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+      const bugChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
       await client.chat.postMessage({
-        channel: config.slackMarketingChannelId,
+        channel: bugChannel,
         text: `:bug: *Bug report from <@${userId}>:*\n${description}`,
       });
       await say({
