@@ -173,7 +173,7 @@ export function registerChannelRouter(app: App): void {
     if (isBugReport(text)) {
       pendingChannelBugReports.set(threadTs, { userId, channelId, ts: Date.now() });
       await say({
-        text: "Got it — what happened? Describe the issue here and I'll file it with marketing.",
+        text: "Got it — tag me with a description and I'll file it with marketing:\n`@Sage [what happened]`",
         thread_ts: threadTs,
       });
       return;
