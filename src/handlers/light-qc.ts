@@ -161,8 +161,9 @@ export function formatLightQCResult(result: QCResult): string {
   lines.push('');
   lines.push('---');
   lines.push('_*Grade guide:* A = publish-ready | B = fix issues above, try again | C/D/F = needs major revision_');
-  lines.push('_*Who approves what:* Social posts, press releases, and web copy need a grade A + marketing sign-off before going out. Content for internal or customer engagement is division-owned — this QC feedback is your guide._');
-  lines.push('_*Next steps:* If this is going to a public channel (social, press release, or web) and needs marketing sign-off, @Sage in your division\'s `#mktg_[division]_requests` channel to submit for review._');
+  lines.push('_*Who approves what:* Social, press releases, and web copy need grade A + marketing sign-off. Internal and customer engagement content is division-owned._');
+  lines.push('');
+  lines.push('*Going to social, a press release, or the website?* @Sage in your division\'s `#mktg_[division]_requests` channel to submit for marketing review.');
 
   return lines.join('\n');
 }
