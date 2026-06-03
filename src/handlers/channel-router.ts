@@ -28,8 +28,7 @@ import type { App } from '@slack/bolt';
 import { roleForChannel, divisionForChannel, type ChannelRole } from '../lib/division-lookup';
 import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
-import { withDisclaimer } from '../lib/disclaimer';
-import { getQuickInfoResponse } from './quick-info';
+import { handleQuickInfo } from './quick-info';
 import { handleLightQC } from './light-qc';
 import { postOpenModalButton } from './intake-modal';
 import { getHelpMessage } from './intent';
@@ -228,8 +227,7 @@ async function routeIntentStub(input: RouteIntentStubInput): Promise<void> {
 
   switch (intent) {
     case 'info_lookup': {
-      const body = getQuickInfoResponse(text);
-      await say({ text: withDisclaimer(body), thread_ts: threadTs });
+      await handleQuickInfo({ text, threadTs, say });
       break;
     }
     case 'work_request':
