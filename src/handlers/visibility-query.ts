@@ -289,31 +289,62 @@ export async function handleVisibilityQuery(
     }
   }
 
-  const items: MondaySearchItem[] = records.map((r) => {
-    const needsApproval = r.status === 'Pending review' && r.approver_user_ids.includes(userSlackId);
-    const permalink = permalinks.get(r.id);
-    const actionNote = needsApproval
-      ? permalink
-        ? ` — *action needed:* <${permalink}|review & approve>`
-        : ` — *action needed:* <#${r.originating_channel_id}>`
-      : '';
-    return {
-      id: r.monday_item_id,
-      name: (r.deliverable_summary?.slice(0, 80) ?? `Request #${r.id}`) + actionNote,
-      url: buildMondayUrl(r.monday_item_id),
-      requesterName: spec.scope === 'self' ? 'you' : `<@${r.requester_user_id}>`,
-      requestingForName: r.requesting_for_user_id ? `<@${r.requesting_for_user_id}>` : null,
-      requestedDate: r.submitted_at,
-      status: r.status,
-      division: r.division,
-      owner: null,
-    };
-  });
-
   await say({
-    text: formatQueryResult(spec, items, items.length),
+    text: formatRecordList(spec, records, userSlackId, permalinks),
     thread_ts: threadTs,
   });
+}
+
+/**
+ * Build the status query reply directly from RequestRecord[] to avoid
+ * nested <url|text> rendering issues in Slack mrkdwn.
+ * Format per item: "{n}. {title} · *{status}* · <mondayUrl|View in Monday> [· <permalink|Review & approve>]"
+ */
+function formatRecordList(
+  spec: QuerySpec,
+  records: RequestRecord[],
+  userSlackId: string,
+  permalinks: Map<number, string>,
+): string {
+  const dateStr = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date());
+  const headerScope =
+    spec.scope === 'self'
+      ? 'Your open requests'
+      : spec.scope === 'division'
+      ? `Open ${spec.division ?? '?'} requests`
+      : 'Open requests (Pearl-wide)';
+
+  const boardUrl = `https://pearlcertification-team.monday.com/boards/${config.mondayBoardId}`;
+  const lines: string[] = [`${headerScope} (as of ${dateStr}):`];
+
+  if (records.length === 0) {
+    lines.push('');
+    lines.push('_No matching items._');
+    lines.push('');
+    lines.push(`See full board: <${boardUrl}|Open in Monday>`);
+    return lines.join('\n');
+  }
+
+  const shown = records.slice(0, spec.limit);
+  shown.forEach((r, i) => {
+    const title = r.deliverable_summary?.slice(0, 70) ?? `Request #${r.id}`;
+    const mondayUrl = buildMondayUrl(r.monday_item_id);
+    const needsApproval = r.status === 'Pending review' && r.approver_user_ids.includes(userSlackId);
+    const permalink = permalinks.get(r.id);
+    const approvalLink = needsApproval
+      ? permalink
+        ? ` · <${permalink}|Review & approve>`
+        : ` · <#${r.originating_channel_id}>`
+      : '';
+    lines.push(`${i + 1}. ${title} · *${r.status}* · <${mondayUrl}|View in Monday>${approvalLink}`);
+  });
+
+  lines.push('');
+  lines.push(
+    `${records.length} open${shown.length < records.length ? ` · showing ${shown.length}` : ''}`,
+  );
+  lines.push(`See full board: <${boardUrl}|Open in Monday>`);
+  return lines.join('\n');
 }
 
 export function describeSpec(spec: QuerySpec, userSlackId: string): string {
