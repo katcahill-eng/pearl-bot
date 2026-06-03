@@ -74,8 +74,7 @@ describe('disclaimer', () => {
   describe('DISCLAIMER_TEXT', () => {
     it('matches the canonical wording', () => {
       expect(DISCLAIMER_TEXT).toContain('AI-generated');
-      expect(DISCLAIMER_TEXT).toContain('marketing team');
-      expect(DISCLAIMER_TEXT).toContain('@Sage');
+      expect(DISCLAIMER_TEXT).toContain("Pearl's brand guidelines");
     });
   });
 });

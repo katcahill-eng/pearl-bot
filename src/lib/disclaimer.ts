@@ -10,9 +10,7 @@
  * appended to the message).
  */
 
-export const DISCLAIMER_TEXT =
-  'AI-generated based on Pearl\'s brand guidelines. ' +
-  'To submit to the marketing team for review, @Sage in your division\'s #mktg_requests channel.';
+export const DISCLAIMER_TEXT = 'AI-generated based on Pearl\'s brand guidelines.';
 
 /**
  * Append the disclaimer to a plain-text Slack message.
