@@ -118,12 +118,8 @@ export function detectIntent(rawText: string): Intent {
 
 function getTroubleFooter(): string {
   const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
-  const scheduleLink = calUrl ? ` or <${calUrl}|schedule a quick call>` : '';
-  return (
-    '*Having trouble or found a bug?* DM me and say *"help"* to file a report with marketing' +
-    scheduleLink +
-    '.'
-  );
+  const scheduleLink = calUrl ? ` · <${calUrl}|Schedule a call>` : '';
+  return `*Having trouble or found a bug?* DM me — say *"help"*, then describe what happened and I'll file a report with marketing.${scheduleLink}`;
 }
 
 export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): string {

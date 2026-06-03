@@ -10,6 +10,10 @@ import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
 import { roleForChannel } from '../lib/division-lookup';
 
+// Tracks users who said "help" in a DM and are about to describe their bug.
+// Keyed by userId, value is the timestamp of the "help" message.
+const pendingBugReports = new Map<string, number>();
+
 // --- Per-thread message debounce ---
 // When users send multiple messages quickly ("Yeah" + "here"), only process
 // the last one. Each new message cancels the previous pending message for
@@ -76,7 +80,7 @@ export function registerMessageHandler(app: App): void {
 
     console.log(`[messages] Message from ${userId} in ${isDM ? 'DM' : 'channel'} (thread=${isThreadReply}, inBotChannel=${isInBotChannel}): "${text.substring(0, 80)}" thread_ts=${thread_ts}`);
 
-    // --- DM handling: redirect to channel ---
+    // --- DM handling ---
     if (isDM) {
       try {
         const intent = detectIntent(text);
@@ -87,16 +91,34 @@ export function registerMessageHandler(app: App): void {
           return;
         }
 
-        // Help: show help message + channel redirect
+        // "help" → enter bug-report mode: ask for description
         if (intent === 'help') {
+          pendingBugReports.set(userId, Date.now());
           await say({
-            text: getHelpMessage() + `\n\nHead to <#${config.slackMarketingChannelId}> to get started — no @mention needed!`,
+            text: "Got it — I'll flag this with marketing. What happened? Give me a quick description and I'll pass it along.",
             thread_ts,
           });
           return;
         }
 
-        // Everything else: redirect to the bot channel
+        // Pending bug report — user is describing their issue
+        const bugTs = pendingBugReports.get(userId);
+        if (bugTs && Date.now() - bugTs < 10 * 60 * 1000) {
+          pendingBugReports.delete(userId);
+          await client.chat.postMessage({
+            channel: config.slackMarketingChannelId,
+            text: `:bug: *Bug report from <@${userId}>:*\n${text}`,
+          });
+          const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
+          const calLink = calUrl ? ` or <${calUrl}|schedule a quick call>` : '';
+          await say({
+            text: `Logged — marketing will look into it. In the meantime, feel free to post in <#${config.slackMarketingChannelId}>${calLink} if you need faster help.`,
+            thread_ts,
+          });
+          return;
+        }
+
+        // Everything else: redirect to the intake channel
         await say({
           text: `Hey! I work best in <#${config.slackMarketingChannelId}>. Head over there and tell me what you need — no @mention needed, I'll pick it up automatically.`,
           thread_ts,
