@@ -155,10 +155,16 @@ export function formatThreadReply(
  * changes that would be silent on the requester thread (Stuck,
  * Declined) — these are exactly the moments marketing wants to see.
  */
+const ALERT_MIRROR_SILENT = new Set(['Under Review', 'Moved to 02 board']);
+
 export function formatAlertMirror(event: LifecycleEvent): string | null {
   switch (event.kind) {
-    case 'status_change':
+    case 'status_change': {
+      if (ALERT_MIRROR_SILENT.has(event.newStatus)) return null;
+      // "Working on it" from non-New states is an internal revert — silent.
+      if (event.newStatus === 'Working on it' && event.oldStatus !== 'New') return null;
       return `Status → ${event.newStatus}${event.ownerName ? ` (${event.ownerName} assigned)` : ''}`;
+    }
     case 'deliverable_attached':
       // Marketing attached a WIP file — they don't need an alert
       // mirror about their own action.
@@ -324,9 +330,11 @@ async function postPendingReviewMessage(
   // Tag the requester too so their channel sidebar highlights.
   const requesterTag = `<@${record.requester_user_id}>`;
 
+  const { buildMondayUrl } = await import('./monday');
+  const mondayItemUrl = buildMondayUrl(record.monday_item_id);
   const deliverableLine = deliverableUrl
     ? `${requesterTag} — draft ready for review: <${deliverableUrl}>`
-    : `${requesterTag} — draft ready for review (Marketing: please add the Deliverable URL on the Monday item).`;
+    : `${requesterTag} — draft ready for review. <${mondayItemUrl}|Open your request in Monday> and check the Deliverables column for the link.`;
 
   const approverLine = approverMentions
     ? `\n${approverMentions} — please review when you have a moment.`
