@@ -920,19 +920,18 @@ export async function getRequestByThread(
   return (result.rows[0] as RequestRecord) ?? null;
 }
 
-const CLOSED_STATUSES = ["Completed/Live", "Declined", "Cancelled", "Done"];
+const CLOSED_STATUSES = [
+  "Completed/Live", "Declined", "Cancelled", "Done",
+  "Moved to 02 board", "pending_approval",
+];
 
 export async function getRequestsByUser(
   requesterUserId: string,
-  includeClosedAfterDays = 7,
 ): Promise<RequestRecord[]> {
   const result = await pool.query(
     `SELECT * FROM request_records
      WHERE requester_user_id = $1
-       AND (
-         status NOT IN (${CLOSED_STATUSES.map((_, i) => `$${i + 2}`).join(',')})
-         OR submitted_at > NOW() - INTERVAL '${includeClosedAfterDays} days'
-       )
+       AND status NOT IN (${CLOSED_STATUSES.map((_, i) => `$${i + 2}`).join(',')})
      ORDER BY submitted_at DESC
      LIMIT 20`,
     [requesterUserId, ...CLOSED_STATUSES],

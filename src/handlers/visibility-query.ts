@@ -273,10 +273,10 @@ export async function handleVisibilityQuery(
 
   const items: MondaySearchItem[] = records.map((r) => ({
     id: r.monday_item_id,
-    name: r.deliverable_summary?.slice(0, 60) ?? `Request #${r.id}`,
+    name: r.deliverable_summary?.slice(0, 80) ?? `Request #${r.id}`,
     url: buildMondayUrl(r.monday_item_id),
-    requesterName: r.requester_user_id,
-    requestingForName: r.requesting_for_user_id,
+    requesterName: spec.scope === 'self' ? 'you' : `<@${r.requester_user_id}>`,
+    requestingForName: r.requesting_for_user_id ? `<@${r.requesting_for_user_id}>` : null,
     requestedDate: r.submitted_at,
     status: r.status,
     division: r.division,
