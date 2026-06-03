@@ -122,7 +122,7 @@ export function extractQCContent(text: string): string {
  */
 export function formatLightQCResult(result: QCResult): string {
   const lines: string[] = [];
-  lines.push(`*QC: ${result.grade}*`);
+  lines.push(`*Grade: ${result.grade}*`);
   lines.push('');
   lines.push(result.summary || result.overallAssessment);
 

@@ -90,7 +90,7 @@ describe('formatLightQCResult', () => {
   it('renders grade and summary when no critical issues', () => {
     const result = mkResult({ summary: 'Reads on-brand.' });
     const out = formatLightQCResult(result);
-    expect(out).toContain('*QC: A*');
+    expect(out).toContain('*Grade: A*');
     expect(out).toContain('Reads on-brand.');
   });
 
