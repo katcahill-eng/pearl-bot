@@ -120,7 +120,7 @@ function getTroubleFooter(): string {
   const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
   const scheduleLink = calUrl ? ` or <${calUrl}|schedule a quick call>` : '';
   return (
-    '\n*Having trouble or found a bug?* DM me and say *"help"* to file a report with marketing' +
+    '*Having trouble or found a bug?* DM me and say *"help"* to file a report with marketing' +
     scheduleLink +
     '.'
   );
@@ -147,7 +147,7 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       '',
       "• *@Sage I need [a thing]* — I'll open a request form for you to review.",
       "• *@Sage what's our logo?* — quick brand info.",
-      "• *@Sage is this on-brand: [paste]* — quick brand-check on a draft.",
+      "• *@Sage is this on-brand: [paste copy or document link]* — quick brand-check on a draft.",
       "• *@Sage where's my request?* — status lookup.",
       '',
       getTroubleFooter(),
@@ -161,7 +161,7 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
     '',
     "• *@Sage I need [a thing]* — I'll open a request form for you to review.",
     "• *@Sage what's our logo?* (or tagline, colors, fonts) — quick brand info.",
-    "• *@Sage is this on-brand: [paste]* — quick brand-check on a draft.",
+    "• *@Sage is this on-brand: [paste copy or document link]* — quick brand-check on a draft.",
     "• *@Sage where's my request?* — status lookup from Monday.",
     "• *In an existing request thread:* tag me with what you want to add or change and I'll update the request.",
     '',
