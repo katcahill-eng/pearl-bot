@@ -349,7 +349,7 @@ function deliverableBlock(initial: string | null | undefined): any {
     block_id: 'deliverable',
     label: {
       type: 'plain_text',
-      text: 'What do you need? (a sentence or two — more context = better result)',
+      text: 'What do you need? (more context = better result)',
       emoji: true,
     },
     element: {
