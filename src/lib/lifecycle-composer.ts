@@ -129,7 +129,10 @@ export function formatThreadReply(
         return null;
       }
       if (newStatus === 'Completed/Live') {
-        return `${tag}all set — approved and complete.`;
+        return (
+          `${tag}thanks so much for working with marketing on this — we're marking this request as complete. ` +
+          `If you need help on a future project, @Sage in a new thread and we'll jump right in.`
+        );
       }
       // Any other status change is silent.
       return null;

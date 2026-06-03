@@ -56,7 +56,7 @@ describe('formatThreadReply (status_change)', () => {
       oldStatus: 'Pending review',
       newStatus: 'Completed/Live',
     });
-    expect(out).toContain('approved and complete');
+    expect(out).toContain('marking this request as complete');
   });
 
   it('is silent on Stuck (internal-only state)', () => {
