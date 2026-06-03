@@ -327,7 +327,8 @@ function formatRecordList(
 
   const shown = records.slice(0, spec.limit);
   shown.forEach((r, i) => {
-    const title = r.deliverable_summary?.slice(0, 70) ?? `Request #${r.id}`;
+    const full = r.deliverable_summary ?? `Request #${r.id}`;
+    const title = full.length > 70 ? full.slice(0, 70) + '…' : full;
     const mondayUrl = buildMondayUrl(r.monday_item_id);
     const needsApproval = r.status === 'Pending review' && r.approver_user_ids.includes(userSlackId);
     const permalink = permalinks.get(r.id);
