@@ -51,7 +51,7 @@ Respond ONLY with a JSON object matching this exact schema (no markdown, no expl
 {
   "requestType":   string | null,   // e.g. "webinar", "email", "graphic", "campaign", "blog", "presentation"
   "deliverable":   string | null,   // a 1-2 sentence description of what they're asking for
-  "audience":      string | null,   // who the deliverable targets — extract phrases like "for X", "to X", "targeting X" (e.g. "real estate agents", "homeowners", "BD partners")
+  "audience":      string | null,   // who the deliverable targets — extract phrases like "for X", "to X", "targeting X" (e.g. "real estate agents", "homeowners", "BD partners"). IMPORTANT: social media platform names (LinkedIn, Instagram, Facebook, X, Twitter, BlueSky, YouTube) are NOT audiences — they are distribution channels. If "for LinkedIn" is the only "for X" phrase, set audience to null and include the platform in the deliverable instead.
   "deadline":      string | null,   // ISO-8601 (YYYY-MM-DD) if a date is given, null otherwise
   "eventOrProject": string | null,  // event/project name if mentioned (e.g. "NAR Houston", "Pearl Pro launch")
   "additionalDivisionsImpacted": string[] | null  // any of: BD, P2, CX/Core, Corporate, Product, Marketing
@@ -71,6 +71,9 @@ Examples:
 
 "Press release for the Pearl Pro launch in June"
   → { "requestType": "press_release", "deliverable": "Press release announcing Pearl Pro", "audience": null, "deadline": null, "eventOrProject": "Pearl Pro launch", "additionalDivisionsImpacted": null }
+
+"I need a social post for LinkedIn"
+  → { "requestType": "social_media", "deliverable": "Social media post for LinkedIn", "audience": null, "deadline": null, "eventOrProject": null, "additionalDivisionsImpacted": null }
 
 If a field is not mentioned or cannot be confidently extracted, set it to null.`;
 
