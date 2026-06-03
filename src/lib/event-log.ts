@@ -22,6 +22,7 @@ export type RequestEventType =
   | 'alert_posted'
   | 'lifecycle_reply_posted'
   | 'approver_nudged_dm'
+  | 'requester_nudged'
   | 'calendar_link_offered'
   | 'follow_up_received'
   | 'request_approved'

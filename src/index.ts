@@ -13,6 +13,7 @@ import { registerApprovalActionsV2 } from './handlers/approval-actions';
 import { registerDocUrlActions } from './handlers/doc-url-actions';
 import { startMondayPoller } from './lib/monday-poller';
 import { startApproverNudgeScheduler } from './lib/approver-nudge';
+import { startRequesterNudgeScheduler } from './lib/requester-nudge';
 import { startWeeklyDigestScheduler } from './lib/weekly-digest';
 import { checkTimeouts } from './handlers/timeout';
 import { startWebhookServer } from './lib/webhook';
@@ -136,8 +137,11 @@ process.on('SIGTERM', async () => {
   // Start v2 Monday poller (only fires if MONDAY_USE_POLLING=true).
   startMondayPoller(app.client);
 
-  // Start v2 approver-nudge scheduler (1h interval, 48h threshold).
+  // Start v2 approver-nudge scheduler (24/48/72h business hours).
   startApproverNudgeScheduler(app.client);
+
+  // Start v2 requester-nudge scheduler — thread replies when "More information needed" stalls.
+  startRequesterNudgeScheduler(app.client);
 
   // Start v2 weekly digest scheduler (Mondays 8am ET).
   startWeeklyDigestScheduler(app.client);

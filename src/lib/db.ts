@@ -179,6 +179,18 @@ export async function initDb(): Promise<void> {
   // Add triage_reminder_count column (migration — safe to run repeatedly)
   await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS triage_reminder_count INTEGER NOT NULL DEFAULT 0`);
 
+  // More-info requester nudge — table + column migrations
+  await pool.query(`ALTER TABLE request_records ADD COLUMN IF NOT EXISTS more_info_at TIMESTAMPTZ`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS request_requester_nudges (
+      id SERIAL PRIMARY KEY,
+      request_id INTEGER NOT NULL REFERENCES request_records(id) ON DELETE CASCADE,
+      nudge_level INTEGER NOT NULL,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(request_id, nudge_level)
+    )
+  `);
+
   // Approver nudge multi-level migration
   await pool.query(`ALTER TABLE request_records ADD COLUMN IF NOT EXISTS pending_review_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE request_approver_nudges ADD COLUMN IF NOT EXISTS nudge_level INTEGER NOT NULL DEFAULT 1`);
@@ -832,6 +844,7 @@ export interface RequestRecord {
   status: string;
   submitted_at: Date;
   pending_review_at: Date | null;
+  more_info_at: Date | null;
 }
 
 export interface InsertRequestRecordInput {
@@ -924,6 +937,11 @@ export async function setRequestStatus(
   if (status === 'Pending review') {
     await pool.query(
       `UPDATE request_records SET status = $1, pending_review_at = NOW() WHERE id = $2`,
+      [status, requestId],
+    );
+  } else if (status === 'More information needed') {
+    await pool.query(
+      `UPDATE request_records SET status = $1, more_info_at = NOW() WHERE id = $2`,
       [status, requestId],
     );
   } else {
@@ -1030,6 +1048,56 @@ export async function recordApproverNudge(
      VALUES ($1, $2, $3)
      ON CONFLICT (request_id, approver_user_id, nudge_level) DO NOTHING`,
     [requestId, approverUserId, nudgeLevel],
+  );
+}
+
+/**
+ * Returns requests stuck in "More information needed" where requester
+ * nudges (thread replies) haven't been sent yet at each business-hour tier.
+ */
+export async function getMoreInfoNudges(): Promise<
+  { request: RequestRecord; nudgeLevel: 1 | 2 | 3 }[]
+> {
+  const result = await pool.query(
+    `SELECT r.*
+       FROM request_records r
+       WHERE r.status = 'More information needed'
+         AND r.more_info_at IS NOT NULL`,
+  );
+
+  const THRESHOLDS: [1 | 2 | 3, number][] = [
+    [3, 72],
+    [2, 48],
+    [1, 24],
+  ];
+
+  const out: { request: RequestRecord; nudgeLevel: 1 | 2 | 3 }[] = [];
+  const now = new Date();
+
+  for (const row of result.rows as RequestRecord[]) {
+    const elapsed = businessHoursElapsed(row.more_info_at!, now);
+    const dueLevel = THRESHOLDS.find(([, t]) => elapsed >= t)?.[0];
+    if (!dueLevel) continue;
+
+    const sent = await pool.query(
+      `SELECT nudge_level FROM request_requester_nudges WHERE request_id = $1`,
+      [row.id],
+    );
+    const maxSent = Math.max(0, ...sent.rows.map((r: any) => r.nudge_level as number));
+    if (dueLevel > maxSent) out.push({ request: row, nudgeLevel: dueLevel });
+  }
+  return out;
+}
+
+export async function recordRequesterNudge(
+  requestId: number,
+  nudgeLevel: 1 | 2 | 3,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO request_requester_nudges (request_id, nudge_level)
+     VALUES ($1, $2)
+     ON CONFLICT (request_id, nudge_level) DO NOTHING`,
+    [requestId, nudgeLevel],
   );
 }
 
