@@ -785,6 +785,7 @@ export async function createFeedbackItem(params: {
   submitterSlackUserId: string;
   mondayUserId?: number | null;
   submissionLink?: string | null;
+  requesterLabel?: string | null;
 }): Promise<{ id: string; url: string }> {
   const prefix = params.kind === 'bug' ? '🐛 Bug:' : '💡 Feature:';
   const itemName = `${prefix} ${params.description.slice(0, 120)}`;
@@ -792,7 +793,7 @@ export async function createFeedbackItem(params: {
   const columnValues: Record<string, unknown> = {
     [COL.status]: { label: 'New' },
     [COL.context]: { text: params.description },
-    [COL.requester]: params.submitterSlackUserId,
+    [COL.requester]: params.requesterLabel ?? params.submitterSlackUserId,
   };
 
   if (params.mondayUserId) {

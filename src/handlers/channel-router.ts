@@ -29,7 +29,7 @@ import { roleForChannel, divisionForChannel, findChannelsByRole, type ChannelRol
 import { classifyChannelMention, type V2Intent } from '../lib/v2-classifier';
 import { logRequestEvent } from '../lib/event-log';
 import { getQuickInfoResponse } from './quick-info';
-import { resolveMondayUserId } from '../lib/slack-monday-bridge';
+import { resolveMondayUserId, getSlackDisplayName } from '../lib/slack-monday-bridge';
 import { handleLightQC } from './light-qc';
 import { postOpenModalButton } from './intake-modal';
 import { getHelpMessage } from './intent';
@@ -204,12 +204,15 @@ export function registerChannelRouter(app: App): void {
       pendingChannelBugReports.delete(threadTs);
       const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
       const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
-      const [permalink, mondayUserId] = await Promise.all([
+      const [permalink, mondayUserId, displayName] = await Promise.all([
         client.chat.getPermalink({ channel: channelId, message_ts: threadTs }).catch(() => null),
         resolveMondayUserId(userId, client),
+        getSlackDisplayName(userId, client),
       ]);
       const threadLink = (permalink as any)?.permalink;
-      const mondayItem = await createFeedbackItem({ kind: 'bug', description, submitterSlackUserId: userId, mondayUserId, submissionLink: threadLink }).catch(() => null);
+      const division = divisionForChannel(channelId);
+      const requesterLabel = division ? `${displayName} — ${division}` : displayName;
+      const mondayItem = await createFeedbackItem({ kind: 'bug', description, submitterSlackUserId: userId, mondayUserId, submissionLink: threadLink, requesterLabel }).catch(() => null);
       await client.chat.postMessage({
         channel: alertChannel,
         text: `:bug: *Bug report from <@${userId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
@@ -249,12 +252,15 @@ export function registerChannelRouter(app: App): void {
       pendingChannelFeatureRequests.delete(threadTs);
       const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
       const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
-      const [permalink, mondayUserId] = await Promise.all([
+      const [permalink, mondayUserId, displayName] = await Promise.all([
         client.chat.getPermalink({ channel: channelId, message_ts: threadTs }).catch(() => null),
         resolveMondayUserId(userId, client),
+        getSlackDisplayName(userId, client),
       ]);
       const threadLink = (permalink as any)?.permalink;
-      const mondayItem = await createFeedbackItem({ kind: 'feature', description, submitterSlackUserId: userId, mondayUserId, submissionLink: threadLink }).catch(() => null);
+      const division = divisionForChannel(channelId);
+      const requesterLabel = division ? `${displayName} — ${division}` : displayName;
+      const mondayItem = await createFeedbackItem({ kind: 'feature', description, submitterSlackUserId: userId, mondayUserId, submissionLink: threadLink, requesterLabel }).catch(() => null);
       await client.chat.postMessage({
         channel: alertChannel,
         text: `:bulb: *Feature suggestion from <@${userId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
