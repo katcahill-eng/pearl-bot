@@ -9,7 +9,7 @@ import { ConversationManager } from '../lib/conversation';
 import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
 import { roleForChannel, findChannelsByRole } from '../lib/division-lookup';
-import { pendingChannelBugReports, pendingChannelFeatureRequests, isFeatureRequest } from './channel-router';
+import { pendingChannelBugReports, pendingChannelFeatureRequests, isFeatureRequest, isBugReport } from './channel-router';
 import { createFeedbackItem } from '../lib/monday';
 
 // Tracks users who said "help"/"feature idea" in a DM and are about to describe their issue.
@@ -120,11 +120,20 @@ export function registerMessageHandler(app: App): void {
           return;
         }
 
-        // "help" → enter bug-report mode: ask for description
+        // "help" → show help and redirect to channels for requests
         if (intent === 'help') {
+          await say({
+            text: `Hey — for marketing requests, head to your division's requests channel. I can also help with:\n• Bug reports or feedback — just describe the issue and I'll pass it along\n• Brand info (logos, colors, guidelines) — ask me anytime`,
+            thread_ts,
+          });
+          return;
+        }
+
+        // Bug report
+        if (isBugReport(text)) {
           pendingBugReports.set(userId, Date.now());
           await say({
-            text: "Got it — I'll flag this with marketing. What happened? Give me a quick description and I'll pass it along.",
+            text: "Got it — what happened? Give me a quick description and I'll pass it along to marketing.",
             thread_ts,
           });
           return;

@@ -106,7 +106,7 @@ export function isHelpRequest(rawText: string): boolean {
     .replace(/^[-–—]\s*/, '')
     .trim()
     .toLowerCase();
-  if (!text) return false;
+  if (!text) return true; // bare @mention → show help
   return (
     text === 'help' ||
     /^what\s+can\s+you\s+(do|help|offer)\b/.test(text) ||
