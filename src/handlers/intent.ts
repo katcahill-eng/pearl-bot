@@ -126,6 +126,7 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       "• *@Sage what's our logo URL?* — brand info works here too.",
       "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
       "• *@Sage I found a bug* — I'll get it to the marketing team.",
+      "• *@Sage I have a feature idea* — I'll pass your suggestion along.",
       '',
       'To *file* a new request, head to your division\'s `#mktg_{division}_requests` channel. This channel is alerts-only.',
     ].join('\n');
@@ -141,6 +142,7 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       "• *@Sage where's my request?* — status lookup.",
       "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
       "• *@Sage I found a bug* — I'll get it to the marketing team.",
+      "• *@Sage I have a feature idea* — I'll pass your suggestion along.",
     ].join('\n');
   }
 
@@ -155,6 +157,7 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
     "• *@Sage where's my request?* — status lookup from Monday.",
     "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
     "• *@Sage I found a bug* — I'll get it to the marketing team.",
+      "• *@Sage I have a feature idea* — I'll pass your suggestion along.",
     "• *In an existing request thread:* tag me with what you want to add or change and I'll update the request.",
     '',
     'I only respond when you @mention me — channel chatter without @Sage is ignored.',

@@ -9,11 +9,12 @@ import { ConversationManager } from '../lib/conversation';
 import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
 import { roleForChannel, findChannelsByRole } from '../lib/division-lookup';
-import { pendingChannelBugReports } from './channel-router';
+import { pendingChannelBugReports, pendingChannelFeatureRequests, isFeatureRequest } from './channel-router';
 
-// Tracks users who said "help" in a DM and are about to describe their bug.
-// Keyed by userId, value is the timestamp of the "help" message.
+// Tracks users who said "help"/"feature idea" in a DM and are about to describe their issue.
+// Keyed by userId, value is the timestamp of the trigger message.
 const pendingBugReports = new Map<string, number>();
+const pendingFeatureDMs = new Map<string, number>();
 
 // --- Per-thread message debounce ---
 // When users send multiple messages quickly ("Yeah" + "here"), only process
@@ -58,32 +59,30 @@ export function registerMessageHandler(app: App): void {
     // channel-router.ts (which listens for app_mention, not message).
     // Skip them here so the v3 message handler doesn't double-handle
     // when a user @mentions Sage and Slack fires both events.
-    // Exception: plain thread replies when a bug report is pending.
+    // Exception: plain thread replies when a bug/feature report is pending.
     if (event.channel && roleForChannel(event.channel) !== null) {
       const replyThreadTs = 'thread_ts' in event ? event.thread_ts : undefined;
       // Only intercept actual replies — not the triggering message itself.
       // When thread_ts equals ts, this IS the root message, not a reply.
       const isActualReply = replyThreadTs && replyThreadTs !== event.ts;
       const pendingBug = isActualReply ? pendingChannelBugReports.get(replyThreadTs!) : undefined;
-      if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000) {
-        const reportUserId = 'user' in event ? (event.user as string) : '';
-        const description = (event.text ?? '').replace(/^<@[A-Z0-9]+>\s*/, '').trim();
-        if (description) {
-          pendingChannelBugReports.delete(replyThreadTs!);
-          try {
-            const bugChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
-            await client.chat.postMessage({
-              channel: bugChannel,
-              text: `:bug: *Bug report from <@${reportUserId}>:*\n${description}`,
-            });
-            await say({
-              text: "Logged — marketing will look into it.",
-              thread_ts: replyThreadTs,
-            });
-          } catch (err) {
-            console.error('[messages] Failed to file bug report:', err);
-          }
-        }
+      const pendingFeature = isActualReply ? pendingChannelFeatureRequests.get(replyThreadTs!) : undefined;
+      const reportUserId = 'user' in event ? (event.user as string) : '';
+      const description = (event.text ?? '').replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+      const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+
+      if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000 && description) {
+        pendingChannelBugReports.delete(replyThreadTs!);
+        try {
+          await client.chat.postMessage({ channel: alertChannel, text: `:bug: *Bug report from <@${reportUserId}>:*\n${description}` });
+          await say({ text: "Logged — marketing will look into it.", thread_ts: replyThreadTs });
+        } catch (err) { console.error('[messages] Failed to file bug report:', err); }
+      } else if (pendingFeature && Date.now() - pendingFeature.ts < 10 * 60 * 1000 && description) {
+        pendingChannelFeatureRequests.delete(replyThreadTs!);
+        try {
+          await client.chat.postMessage({ channel: alertChannel, text: `:bulb: *Feature suggestion from <@${reportUserId}>:*\n${description}` });
+          await say({ text: "Passed along — thanks for the idea!", thread_ts: replyThreadTs });
+        } catch (err) { console.error('[messages] Failed to file feature request:', err); }
       }
       return;
     }
@@ -128,18 +127,35 @@ export function registerMessageHandler(app: App): void {
           return;
         }
 
-        // Pending bug report — user is describing their issue
-        const bugTs = pendingBugReports.get(userId);
-        if (bugTs && Date.now() - bugTs < 10 * 60 * 1000) {
+        // Feature request
+        if (isFeatureRequest(text)) {
+          pendingFeatureDMs.set(userId, Date.now());
+          await say({
+            text: "Love it — what would you like to see? Give me a quick description and I'll pass it along to marketing.",
+            thread_ts,
+          });
+          return;
+        }
+
+        // Pending bug/feature report — user is describing their issue
+        const pendingEntry = pendingBugReports.get(userId) ?? pendingFeatureDMs.get(userId);
+        const isBug = !!pendingBugReports.get(userId);
+        if (pendingEntry && Date.now() - pendingEntry < 10 * 60 * 1000) {
           pendingBugReports.delete(userId);
+          pendingFeatureDMs.delete(userId);
+          const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
           await client.chat.postMessage({
-            channel: config.slackMarketingChannelId,
-            text: `:bug: *Bug report from <@${userId}>:*\n${text}`,
+            channel: alertChannel,
+            text: isBug
+              ? `:bug: *Bug report from <@${userId}>:*\n${text}`
+              : `:bulb: *Feature suggestion from <@${userId}>:*\n${text}`,
           });
           const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
           const calLink = calUrl ? ` or <${calUrl}|schedule a quick call>` : '';
           await say({
-            text: `Logged — marketing will look into it. In the meantime, feel free to post in <#${config.slackMarketingChannelId}>${calLink} if you need faster help.`,
+            text: isBug
+              ? `Logged — marketing will look into it.${calLink ? ` In the meantime, feel free to${calLink} if you need faster help.` : ''}`
+              : `Passed along — thanks for the idea!${calLink ? ` Feel free to${calLink} if you'd like to discuss it.` : ''}`,
             thread_ts,
           });
           return;

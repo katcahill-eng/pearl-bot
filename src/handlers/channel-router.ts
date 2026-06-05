@@ -40,6 +40,7 @@ import { config } from '../lib/config';
 // for their description. Key: threadTs, value: {userId, channelId, ts}.
 // Exported so messages.ts can intercept plain (non-@mention) thread replies.
 export const pendingChannelBugReports = new Map<string, { userId: string; channelId: string; ts: number }>();
+export const pendingChannelFeatureRequests = new Map<string, { userId: string; channelId: string; ts: number }>();
 
 export type RoutingDecision =
   | { kind: 'reject_unconfigured' }
@@ -123,6 +124,11 @@ export function isBugReport(rawText: string): boolean {
   return /\b(found\s+a?\s*bug|report\s+a?\s*bug|bug\s+report|something('?s|\s+is)\s+(broken|wrong|not\s+working))\b/i.test(text);
 }
 
+export function isFeatureRequest(rawText: string): boolean {
+  const text = rawText.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+  return /\b(feature\s+(request|idea|suggestion)|suggest\s+(a\s+)?(feature|improvement|upgrade|change)|i('d|\s+would)\s+like\s+to\s+suggest|have\s+a\s+(feature\s+)?(idea|suggestion)|idea\s+for\s+(sage|the\s+bot|an?\s+upgrade|an?\s+improvement))\b/i.test(text);
+}
+
 /**
  * Register the v2 channel router on the Bolt app. The handler:
  *   1. Filters out events from non-configured channels (delegates to
@@ -190,10 +196,30 @@ export function registerChannelRouter(app: App): void {
         channel: bugChannel,
         text: `:bug: *Bug report from <@${userId}>:*\n${description}`,
       });
+      await say({ text: "Logged — marketing will look into it.", thread_ts: threadTs });
+      return;
+    }
+
+    if (isFeatureRequest(text)) {
+      pendingChannelFeatureRequests.set(threadTs, { userId, channelId, ts: Date.now() });
       await say({
-        text: "Logged — marketing will look into it.",
+        text: "Love it — what would you like to see? Reply here and I'll pass it along to marketing.",
         thread_ts: threadTs,
       });
+      return;
+    }
+
+    // Pending feature request — this @mention is the user's description
+    const pendingFeature = pendingChannelFeatureRequests.get(threadTs);
+    if (pendingFeature && Date.now() - pendingFeature.ts < 10 * 60 * 1000) {
+      pendingChannelFeatureRequests.delete(threadTs);
+      const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+      const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+      await client.chat.postMessage({
+        channel: alertChannel,
+        text: `:bulb: *Feature suggestion from <@${userId}>:*\n${description}`,
+      });
+      await say({ text: "Passed along — thanks for the idea!", thread_ts: threadTs });
       return;
     }
 
