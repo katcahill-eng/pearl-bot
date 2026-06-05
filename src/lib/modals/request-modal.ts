@@ -44,11 +44,16 @@ const PRESENTATION_POLICY_TEXT =
 const TALKING_POINTS_POLICY_TEXT =
   ":warning: *Heads up:* You will need to provide talking points (audience, goal, key info) before Marketing can start.";
 
+const PRESS_RELEASE_POLICY_TEXT_DIVISION =
+  ":warning: *Heads up:* Press releases are written by Pearl's PR firm and published by Marketing. The fee ($500–$2,000 depending on length) is charged back to your division's budget. You will need to provide talking points (audience, goal, key info) before we can start.";
+
+const PRESS_RELEASE_POLICY_TEXT_CORPORATE =
+  ":warning: *Heads up:* Press releases are written by Pearl's PR firm and published by Marketing. Corporate messaging press release costs are covered by Marketing. You will need to provide talking points (audience, goal, key info) before we can start.";
+
 interface RequestTypePolicy {
-  /** Returns true when the policy should fire for this request in this channel. */
   appliesTo: (channelDivision: string | null) => boolean;
-  /** Slack mrkdwn text shown to the requester. */
   text: string;
+  textForDivision?: (channelDivision: string | null) => string;
 }
 
 const WEBINAR_POLICY_TEXT =
@@ -69,7 +74,9 @@ const REQUEST_TYPE_POLICIES: Record<string, RequestTypePolicy> = {
   },
   press_release: {
     appliesTo: () => true,
-    text: TALKING_POINTS_POLICY_TEXT,
+    text: PRESS_RELEASE_POLICY_TEXT_DIVISION,
+    textForDivision: (d: string | null) =>
+      d === 'Corporate' ? PRESS_RELEASE_POLICY_TEXT_CORPORATE : PRESS_RELEASE_POLICY_TEXT_DIVISION,
   },
   blog: {
     appliesTo: () => true,
@@ -109,13 +116,14 @@ export function requestTypePolicy(
   if (!policy) return null;
   const division = divisionForChannel(channelId);
   if (!policy.appliesTo(division)) return null;
+  const text = policy.textForDivision ? policy.textForDivision(division) : policy.text;
   return {
     block: {
       type: 'context',
       block_id: POLICY_BLOCK_ID,
-      elements: [{ type: 'mrkdwn', text: policy.text }],
+      elements: [{ type: 'mrkdwn', text }],
     },
-    text: policy.text,
+    text,
   };
 }
 
@@ -249,7 +257,11 @@ export function buildRequestModal(
     requestingForBlock(),
   );
 
-  const trimmedRecs = recommendations.slice(0, MAX_RECOMMENDATIONS);
+  // Don't offer a press release add-on if the request is already a press release.
+  const filteredRecs = parsed.requestType === 'press_release'
+    ? recommendations.filter((r) => !/press.release/i.test(r.name + ' ' + r.deliverable))
+    : recommendations;
+  const trimmedRecs = filteredRecs.slice(0, MAX_RECOMMENDATIONS);
   if (trimmedRecs.length > 0) {
     // Group reasonings — recommendations from the same rule share a
     // single explanation. We surface that ONCE as a context block,
