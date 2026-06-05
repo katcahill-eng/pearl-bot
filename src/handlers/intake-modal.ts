@@ -246,24 +246,35 @@ export function registerOpenModalAction(app: App): void {
       if (!action?.value || !triggerId) return;
 
       const value: ButtonValue = JSON.parse(action.value);
-      const parsed = await parseIntakeText(value.text);
-      const recommendations: Recommendation[] = matchRecommendations(parsed);
+      const metadata = { channelId: value.channelId, threadTs: value.threadTs };
+      const cleaned = value.text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
 
-      const view = buildRequestModal(parsed, recommendations, {
-        channelId: value.channelId,
-        threadTs: value.threadTs,
-      });
+      // Open immediately with just the raw text so we don't burn the
+      // 3-second trigger_id window waiting on Claude to parse.
+      const emptyParsed: ParsedIntake = { deliverable: cleaned };
+      const initialView = buildRequestModal(emptyParsed, [], metadata);
+      const openResp = await client.views.open({ trigger_id: triggerId, view: initialView });
+      const viewId = (openResp as any).view?.id as string | undefined;
 
-      await client.views.open({ trigger_id: triggerId, view });
-
-      await logRequestEvent({
-        eventType: 'modal_opened',
-        userId,
-        channelId: value.channelId,
-        intent: 'work_request',
-        parsedFields: parsed,
-        recommendationsOffered: recommendations,
-      });
+      // Parse + recommendations run after the modal is already open,
+      // then we push an update so the user sees pre-filled fields.
+      parseIntakeText(value.text)
+        .then(async (parsed) => {
+          const recommendations: Recommendation[] = matchRecommendations(parsed);
+          const updatedView = buildRequestModal(parsed, recommendations, metadata);
+          if (viewId) {
+            await client.views.update({ view_id: viewId, view: updatedView }).catch(() => {});
+          }
+          await logRequestEvent({
+            eventType: 'modal_opened',
+            userId,
+            channelId: value.channelId,
+            intent: 'work_request',
+            parsedFields: parsed,
+            recommendationsOffered: recommendations,
+          });
+        })
+        .catch(() => {});
     } catch (err) {
       console.error('[intake-modal] open-modal action failed:', err);
     }
