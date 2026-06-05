@@ -127,7 +127,7 @@ export function isScheduleRequest(rawText: string): boolean {
 
 export function isBugReport(rawText: string): boolean {
   const text = rawText.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
-  return /\b(found\s+a?\s*bug|report\s+a?\s*bug|bug\s+report|something('?s|\s+is)\s+(broken|wrong|not\s+working))\b/i.test(text);
+  return /\b(found\s+a?\s*bug|report\s+a?\s*bug|bug\s+report|something('?s|\s+is)\s+(broken|wrong|not\s+working)|report\s+(an?\s+)?(issue|problem|error)|i\s+(have|found|noticed|got)\s+(an?\s+)?(issue|problem|error|bug)|there'?s\s+(an?\s+)?(issue|problem|error)|not\s+working|isn'?t\s+working|doesn'?t\s+work|stopped\s+working)\b/i.test(text);
 }
 
 export function isFeatureRequest(rawText: string): boolean {
