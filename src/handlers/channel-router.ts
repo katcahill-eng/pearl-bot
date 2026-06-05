@@ -129,6 +129,12 @@ export function isFeatureRequest(rawText: string): boolean {
   return /\b(feature\s+(request|idea|suggestion)|suggest\s+(a\s+)?(feature|improvement|upgrade|change)|i('d|\s+would)\s+like\s+to\s+suggest|have\s+a\s+(feature\s+)?(idea|suggestion)|idea\s+for\s+(sage|the\s+bot|an?\s+upgrade|an?\s+improvement))\b/i.test(text);
 }
 
+export function isPrintRequest(rawText: string): boolean {
+  const text = rawText.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+  return /\b(print(ing|ed)?|physical\s+cop(y|ies)|hard\s+cop(y|ies))\b/i.test(text) &&
+    /\b(material(s)?|flyer(s)?|brochure(s)?|banner(s)?|poster(s)?|handout(s)?|card(s)?|sheet(s)?|copies|packet(s)?|folder(s)?|collateral)\b/i.test(text);
+}
+
 /**
  * Register the v2 channel router on the Bolt app. The handler:
  *   1. Filters out events from non-configured channels (delegates to
@@ -204,6 +210,22 @@ export function registerChannelRouter(app: App): void {
       pendingChannelFeatureRequests.set(threadTs, { userId, channelId, ts: Date.now() });
       await say({
         text: "Love it — what would you like to see? Reply here and I'll pass it along to marketing.",
+        thread_ts: threadTs,
+      });
+      return;
+    }
+
+    if (isPrintRequest(text)) {
+      await say({
+        text: [
+          "Printing is self-serve — here's how marketing can help:",
+          '',
+          '• *Marketing-owned assets* (logos, branded templates, official collateral): tag me with what you need and I\'ll pull the files, or say *@Sage I need [asset]* to file a request for print-ready files.',
+          '• *Already in Canva?* You can order prints directly through Canva and have them shipped to any address — no middleman needed.',
+          '• *Need a new design?* File a request and marketing will create print-ready files for you.',
+          '',
+          'What do you need?',
+        ].join('\n'),
         thread_ts: threadTs,
       });
       return;
