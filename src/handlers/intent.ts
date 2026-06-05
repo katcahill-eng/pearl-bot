@@ -68,6 +68,8 @@ const HELP_PATTERNS = [
   /^\s*options\s*$/i,
   /^\s*commands?\s*$/i,
   /\bshow\s+me\s+what\s+you\s+can\b/i,
+  /\bwhat\s+can\s+you\s+help\s+(me\s+)?with\b/i,
+  /\bwhat\s+are\s+you\s+(able\s+to\s+)?(do|help\s+with)\b/i,
   /\bwhat\s+are\s+you\b/i,
   /\bwho\s+are\s+you\b/i,
   /\bget\s+started\b/i,
@@ -77,7 +79,7 @@ const HELP_PATTERNS = [
 ];
 
 function stripMention(text: string): string {
-  return text.replace(/<@[A-Z0-9]+>/g, '').trim();
+  return text.replace(/<@[A-Z0-9]+>/g, '').replace(/^\s*[-–—]\s*/, '').trim();
 }
 
 export function detectIntent(rawText: string): Intent {

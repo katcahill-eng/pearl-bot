@@ -103,13 +103,17 @@ export async function isExistingSageThread(
 export function isHelpRequest(rawText: string): boolean {
   const text = rawText
     .replace(/^<@[A-Z0-9]+>\s*/, '')
+    .replace(/^[-–—]\s*/, '')
     .trim()
     .toLowerCase();
   if (!text) return false;
   return (
     text === 'help' ||
-    /^what\s+can\s+you\s+do\b/.test(text) ||
-    /^how\s+(do\s+i|can\s+i|to)\s+use\b/.test(text)
+    /^what\s+can\s+you\s+(do|help|offer)\b/.test(text) ||
+    /\bwhat\s+can\s+you\s+help\s+(me\s+)?with\b/.test(text) ||
+    /\bwhat\s+do\s+you\s+(do|help\s+with|offer)\b/.test(text) ||
+    /^how\s+(do\s+i|can\s+i|to)\s+use\b/.test(text) ||
+    /\bwhat\s+are\s+you\s+(able\s+to\s+)?(do|help\s+with)\b/.test(text)
   );
 }
 
