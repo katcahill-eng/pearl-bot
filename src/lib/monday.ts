@@ -774,3 +774,41 @@ export async function createV2SubItem(
   if (!id) throw new Error('[monday-v2] create_subitem returned no id');
   return { id };
 }
+
+/**
+ * Create a minimal Monday item for a bug report or feature suggestion.
+ * Lands in the same "Incoming Requests" group so marketing sees it in triage.
+ */
+export async function createFeedbackItem(params: {
+  kind: 'bug' | 'feature';
+  description: string;
+  submitterSlackUserId: string;
+}): Promise<{ id: string; url: string }> {
+  const prefix = params.kind === 'bug' ? '🐛 Bug:' : '💡 Feature:';
+  const itemName = `${prefix} ${params.description.slice(0, 120)}`;
+
+  const columnValues: Record<string, unknown> = {
+    [COL.status]: { label: 'New' },
+    [COL.context]: { text: params.description },
+    [COL.requester]: `<@${params.submitterSlackUserId}>`,
+  };
+
+  const query = `
+    mutation ($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON!) {
+      create_item (board_id: $boardId, group_id: $groupId, item_name: $itemName, column_values: $columnValues) {
+        id
+      }
+    }
+  `;
+
+  const result = await mondayApi<{ create_item: { id: string } | null }>(query, {
+    boardId: config.mondayBoardId,
+    groupId: BOARD_GROUP_ID,
+    itemName,
+    columnValues: JSON.stringify(columnValues),
+  });
+
+  const id = result.create_item?.id;
+  if (!id) throw new Error('[monday] createFeedbackItem returned no id');
+  return { id, url: buildMondayUrl(id) };
+}

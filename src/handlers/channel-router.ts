@@ -35,6 +35,7 @@ import { getHelpMessage } from './intent';
 import { handleVisibilityQuery } from './visibility-query';
 import { handlePostSubmissionFollowUp } from './post-submission';
 import { config } from '../lib/config';
+import { createFeedbackItem } from '../lib/monday';
 
 // Threads where a user triggered the bug-report flow and we're waiting
 // for their description. Key: threadTs, value: {userId, channelId, ts}.
@@ -197,10 +198,11 @@ export function registerChannelRouter(app: App): void {
     if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000) {
       pendingChannelBugReports.delete(threadTs);
       const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
-      const bugChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+      const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+      const mondayItem = await createFeedbackItem({ kind: 'bug', description, submitterSlackUserId: userId }).catch(() => null);
       await client.chat.postMessage({
-        channel: bugChannel,
-        text: `:bug: *Bug report from <@${userId}>:*\n${description}`,
+        channel: alertChannel,
+        text: `:bug: *Bug report from <@${userId}>:*\n${description}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
       });
       await say({ text: "Logged — marketing will look into it.", thread_ts: threadTs });
       return;
@@ -237,9 +239,10 @@ export function registerChannelRouter(app: App): void {
       pendingChannelFeatureRequests.delete(threadTs);
       const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
       const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+      const mondayItem = await createFeedbackItem({ kind: 'feature', description, submitterSlackUserId: userId }).catch(() => null);
       await client.chat.postMessage({
         channel: alertChannel,
-        text: `:bulb: *Feature suggestion from <@${userId}>:*\n${description}`,
+        text: `:bulb: *Feature suggestion from <@${userId}>:*\n${description}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
       });
       await say({ text: "Passed along — thanks for the idea!", thread_ts: threadTs });
       return;
