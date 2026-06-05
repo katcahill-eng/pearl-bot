@@ -75,15 +75,19 @@ export function registerMessageHandler(app: App): void {
       if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000 && description) {
         pendingChannelBugReports.delete(replyThreadTs!);
         try {
+          const permalink = await client.chat.getPermalink({ channel: event.channel, message_ts: replyThreadTs! }).catch(() => null);
+          const threadLink = (permalink as any)?.permalink;
           const mondayItem = await createFeedbackItem({ kind: 'bug', description, submitterSlackUserId: reportUserId }).catch(() => null);
-          await client.chat.postMessage({ channel: alertChannel, text: `:bug: *Bug report from <@${reportUserId}>:*\n${description}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}` });
+          await client.chat.postMessage({ channel: alertChannel, text: `:bug: *Bug report from <@${reportUserId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}` });
           await say({ text: "Logged — marketing will look into it.", thread_ts: replyThreadTs });
         } catch (err) { console.error('[messages] Failed to file bug report:', err); }
       } else if (pendingFeature && Date.now() - pendingFeature.ts < 10 * 60 * 1000 && description) {
         pendingChannelFeatureRequests.delete(replyThreadTs!);
         try {
+          const permalink = await client.chat.getPermalink({ channel: event.channel, message_ts: replyThreadTs! }).catch(() => null);
+          const threadLink = (permalink as any)?.permalink;
           const mondayItem = await createFeedbackItem({ kind: 'feature', description, submitterSlackUserId: reportUserId }).catch(() => null);
-          await client.chat.postMessage({ channel: alertChannel, text: `:bulb: *Feature suggestion from <@${reportUserId}>:*\n${description}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}` });
+          await client.chat.postMessage({ channel: alertChannel, text: `:bulb: *Feature suggestion from <@${reportUserId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}` });
           await say({ text: "Passed along — thanks for the idea!", thread_ts: replyThreadTs });
         } catch (err) { console.error('[messages] Failed to file feature request:', err); }
       }
@@ -156,12 +160,14 @@ export function registerMessageHandler(app: App): void {
           pendingBugReports.delete(userId);
           pendingFeatureDMs.delete(userId);
           const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+          const permalink = await client.chat.getPermalink({ channel: event.channel, message_ts: thread_ts }).catch(() => null);
+          const threadLink = (permalink as any)?.permalink;
           const mondayItem = await createFeedbackItem({ kind: isBug ? 'bug' : 'feature', description: text, submitterSlackUserId: userId }).catch(() => null);
           await client.chat.postMessage({
             channel: alertChannel,
             text: isBug
-              ? `:bug: *Bug report from <@${userId}>:*\n${text}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`
-              : `:bulb: *Feature suggestion from <@${userId}>:*\n${text}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
+              ? `:bug: *Bug report from <@${userId}>:*\n${text}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`
+              : `:bulb: *Feature suggestion from <@${userId}>:*\n${text}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
           });
           const calUrl = process.env.MARKETING_LEAD_CALENDAR_URL;
           const calLink = calUrl ? ` or <${calUrl}|schedule a quick call>` : '';

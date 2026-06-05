@@ -203,10 +203,12 @@ export function registerChannelRouter(app: App): void {
       pendingChannelBugReports.delete(threadTs);
       const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
       const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+      const permalink = await client.chat.getPermalink({ channel: channelId, message_ts: threadTs }).catch(() => null);
+      const threadLink = (permalink as any)?.permalink;
       const mondayItem = await createFeedbackItem({ kind: 'bug', description, submitterSlackUserId: userId }).catch(() => null);
       await client.chat.postMessage({
         channel: alertChannel,
-        text: `:bug: *Bug report from <@${userId}>:*\n${description}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
+        text: `:bug: *Bug report from <@${userId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
       });
       await say({ text: "Logged — marketing will look into it.", thread_ts: threadTs });
       return;
@@ -243,10 +245,12 @@ export function registerChannelRouter(app: App): void {
       pendingChannelFeatureRequests.delete(threadTs);
       const description = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
       const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
+      const permalink = await client.chat.getPermalink({ channel: channelId, message_ts: threadTs }).catch(() => null);
+      const threadLink = (permalink as any)?.permalink;
       const mondayItem = await createFeedbackItem({ kind: 'feature', description, submitterSlackUserId: userId }).catch(() => null);
       await client.chat.postMessage({
         channel: alertChannel,
-        text: `:bulb: *Feature suggestion from <@${userId}>:*\n${description}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
+        text: `:bulb: *Feature suggestion from <@${userId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}`,
       });
       await say({ text: "Passed along — thanks for the idea!", thread_ts: threadTs });
       return;
