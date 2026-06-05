@@ -10,6 +10,7 @@ import { getActiveConversationForUser } from '../lib/db';
 import { config } from '../lib/config';
 import { roleForChannel, findChannelsByRole } from '../lib/division-lookup';
 import { pendingChannelBugReports, pendingChannelFeatureRequests, isFeatureRequest, isBugReport } from './channel-router';
+import { resolveMondayUserId } from '../lib/slack-monday-bridge';
 import { createFeedbackItem } from '../lib/monday';
 
 // Tracks users who said "help"/"feature idea" in a DM and are about to describe their issue.
@@ -75,18 +76,24 @@ export function registerMessageHandler(app: App): void {
       if (pendingBug && Date.now() - pendingBug.ts < 10 * 60 * 1000 && description) {
         pendingChannelBugReports.delete(replyThreadTs!);
         try {
-          const permalink = await client.chat.getPermalink({ channel: event.channel, message_ts: replyThreadTs! }).catch(() => null);
+          const [permalink, mondayUserId] = await Promise.all([
+            client.chat.getPermalink({ channel: event.channel, message_ts: replyThreadTs! }).catch(() => null),
+            resolveMondayUserId(reportUserId, client),
+          ]);
           const threadLink = (permalink as any)?.permalink;
-          const mondayItem = await createFeedbackItem({ kind: 'bug', description, submitterSlackUserId: reportUserId }).catch(() => null);
+          const mondayItem = await createFeedbackItem({ kind: 'bug', description, submitterSlackUserId: reportUserId, mondayUserId, submissionLink: threadLink }).catch(() => null);
           await client.chat.postMessage({ channel: alertChannel, text: `:bug: *Bug report from <@${reportUserId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}` });
           await say({ text: "Logged — marketing will look into it.", thread_ts: replyThreadTs });
         } catch (err) { console.error('[messages] Failed to file bug report:', err); }
       } else if (pendingFeature && Date.now() - pendingFeature.ts < 10 * 60 * 1000 && description) {
         pendingChannelFeatureRequests.delete(replyThreadTs!);
         try {
-          const permalink = await client.chat.getPermalink({ channel: event.channel, message_ts: replyThreadTs! }).catch(() => null);
+          const [permalink, mondayUserId] = await Promise.all([
+            client.chat.getPermalink({ channel: event.channel, message_ts: replyThreadTs! }).catch(() => null),
+            resolveMondayUserId(reportUserId, client),
+          ]);
           const threadLink = (permalink as any)?.permalink;
-          const mondayItem = await createFeedbackItem({ kind: 'feature', description, submitterSlackUserId: reportUserId }).catch(() => null);
+          const mondayItem = await createFeedbackItem({ kind: 'feature', description, submitterSlackUserId: reportUserId, mondayUserId, submissionLink: threadLink }).catch(() => null);
           await client.chat.postMessage({ channel: alertChannel, text: `:bulb: *Feature suggestion from <@${reportUserId}>:*\n${description}${threadLink ? `\n<${threadLink}|View thread>` : ''}${mondayItem ? `\n<${mondayItem.url}|View in Monday>` : ''}` });
           await say({ text: "Passed along — thanks for the idea!", thread_ts: replyThreadTs });
         } catch (err) { console.error('[messages] Failed to file feature request:', err); }
@@ -160,9 +167,12 @@ export function registerMessageHandler(app: App): void {
           pendingBugReports.delete(userId);
           pendingFeatureDMs.delete(userId);
           const alertChannel = findChannelsByRole('alerts')[0] ?? config.slackMarketingChannelId;
-          const permalink = await client.chat.getPermalink({ channel: event.channel, message_ts: thread_ts }).catch(() => null);
+          const [permalink, mondayUserId] = await Promise.all([
+            client.chat.getPermalink({ channel: event.channel, message_ts: thread_ts }).catch(() => null),
+            resolveMondayUserId(userId, client),
+          ]);
           const threadLink = (permalink as any)?.permalink;
-          const mondayItem = await createFeedbackItem({ kind: isBug ? 'bug' : 'feature', description: text, submitterSlackUserId: userId }).catch(() => null);
+          const mondayItem = await createFeedbackItem({ kind: isBug ? 'bug' : 'feature', description: text, submitterSlackUserId: userId, mondayUserId, submissionLink: threadLink }).catch(() => null);
           await client.chat.postMessage({
             channel: alertChannel,
             text: isBug

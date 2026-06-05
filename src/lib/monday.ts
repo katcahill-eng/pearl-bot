@@ -783,6 +783,8 @@ export async function createFeedbackItem(params: {
   kind: 'bug' | 'feature';
   description: string;
   submitterSlackUserId: string;
+  mondayUserId?: number | null;
+  submissionLink?: string | null;
 }): Promise<{ id: string; url: string }> {
   const prefix = params.kind === 'bug' ? '🐛 Bug:' : '💡 Feature:';
   const itemName = `${prefix} ${params.description.slice(0, 120)}`;
@@ -790,8 +792,18 @@ export async function createFeedbackItem(params: {
   const columnValues: Record<string, unknown> = {
     [COL.status]: { label: 'New' },
     [COL.context]: { text: params.description },
-    [COL.requester]: `<@${params.submitterSlackUserId}>`,
+    [COL.requester]: params.submitterSlackUserId,
   };
+
+  if (params.mondayUserId) {
+    columnValues[COL_V2.requesterPeople] = {
+      personsAndTeams: [{ id: params.mondayUserId, kind: 'person' }],
+    };
+  }
+
+  if (params.submissionLink) {
+    columnValues[COL.submissionLink] = { url: params.submissionLink, text: 'Slack thread' };
+  }
 
   const query = `
     mutation ($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON!) {
