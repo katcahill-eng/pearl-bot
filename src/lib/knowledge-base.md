@@ -346,6 +346,7 @@ Some requests span multiple types (e.g., a conference that includes a webinar, o
 | Brand Assets Folder | https://drive.google.com/drive/folders/1duNsCSKoocVhMmduqkHoLwA5oCzk8nwn |
 | Brand Guidelines | https://canva.link/pearl-brand-guide |
 | Slide Master Template | https://docs.google.com/presentation/d/1lUUFUoKNtBriDKznU5J_RykHypqdHtsjCfC4vRlasFM/edit?usp=sharing |
+| Pearl Recognized Professional Badge Guidelines | https://canva.link/dft0v8ui802iuid |
 
 ### Fonts
 
