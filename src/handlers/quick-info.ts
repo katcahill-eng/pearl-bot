@@ -1,7 +1,7 @@
 import type { SayFn } from '@slack/bolt';
 import { getBrandInfo, type BrandInfo } from '../lib/brand-info';
 
-type Topic = 'colors' | 'logos' | 'guidelines' | 'fonts' | 'tagline' | 'all';
+type Topic = 'colors' | 'logos' | 'guidelines' | 'email_signature' | 'fonts' | 'tagline' | 'all';
 
 const FOOTER = '\n_Need something else? Just ask, or say *help* to see what I can do._';
 
@@ -31,10 +31,11 @@ export function detectTopic(rawText: string): Topic {
 
   if (/\bcolou?rs?\b/.test(text) || /\b(palette|hex)\b/.test(text)) return 'colors';
   if (/\blogos?\b/.test(text)) return 'logos';
-  if (/\bguidelines?\b/.test(text) || /\bstyle\s+guide\b/.test(text)) return 'guidelines';
+  if (/\bemail\s+signature\b/i.test(text)) return 'email_signature';
+  if (/\bguidelines?\b/.test(text) || /\bstyle\s+guide\b/.test(text) || /\bbrand\s+guide(book|lines?)?\b/i.test(text)) return 'guidelines';
   if (/\bfonts?\b/.test(text) || /\btypography\b/.test(text)) return 'fonts';
   if (/\btagline\b/.test(text) || /\b(slogan|motto)\b/.test(text)) return 'tagline';
-  if (/\b(template|master\s+(slide|deck)|email\s+signature)\b/.test(text)) return 'guidelines';
+  if (/\b(template|master\s+(slide|deck))\b/.test(text)) return 'guidelines';
 
   return 'all';
 }
@@ -47,6 +48,8 @@ function formatResponse(topic: Topic, info: BrandInfo): string {
       return formatLogos(info);
     case 'guidelines':
       return formatGuidelines(info);
+    case 'email_signature':
+      return formatEmailSignature(info);
     case 'fonts':
       return formatFonts(info);
     case 'tagline':
@@ -69,9 +72,17 @@ function formatLogos(info: BrandInfo): string {
 }
 
 function formatGuidelines(info: BrandInfo): string {
-  if (info.guidelines.length === 0) return ':book: No brand guidelines on file yet.';
-  const rows = info.guidelines.map((g) => `• <${g.url}|${g.label}>`);
+  // Email signature has its own flow — exclude it from the general guidelines list
+  const links = info.guidelines.filter((g) => !/email\s+signature/i.test(g.label));
+  if (links.length === 0) return ':book: No brand guidelines on file yet.';
+  const rows = links.map((g) => `• <${g.url}|${g.label}>`);
   return [':book: *Brand Guidelines*', '', ...rows].join('\n');
+}
+
+function formatEmailSignature(info: BrandInfo): string {
+  const link = info.guidelines.find((g) => /email\s+signature/i.test(g.label));
+  if (!link) return ':email: No email signature instructions on file yet.';
+  return `:email: *Pearl Email Signature*\n\n<${link.url}|${link.label}> — follow the instructions to copy the signature into Gmail or Outlook.`;
 }
 
 function formatFonts(info: BrandInfo): string {

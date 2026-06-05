@@ -49,6 +49,7 @@ export const QUICK_INFO_PATTERNS = [
   /\b(slide|presentation)\s+template\b/i,
   /\bmaster\s+(slide|deck|template)\b/i,
   /\bemail\s+signature\b/i,
+  /\bbrand\s+guide(book|lines?)?\b/i,
   /\bbrand\s+colors?\b/i,
   /\bwhere\s+(can\s+i\s+find|do\s+i\s+find|are)\s+(the\s+)?(brand|logo|asset|template)s?\b/i,
 ];
@@ -117,13 +118,20 @@ export function detectIntent(rawText: string): Intent {
 }
 
 export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): string {
+  const brandBullets = [
+    "• *@Sage what's our logo?* — download Pearl logo files.",
+    "• *@Sage brand guidelines* — link to the Pearl brand guidebook.",
+    "• *@Sage email signature* — set up your Pearl email signature.",
+    "• *@Sage brand colors* (or fonts, tagline, slide template) — quick brand reference.",
+  ];
+
   if (channelRole === 'alerts') {
     return [
       "Hey — I'm Sage. This is the marketing alerts channel — I post here when new requests come in and reply with status updates as they progress.",
       '',
       "• *Marketing's reply threads here are private to the team* — I don't listen to anything that isn't @-mentioned. Use those threads for internal coordination.",
       '• *@Sage what\'s BD working on?* or *@Sage show me open Product requests* — cross-division status reports.',
-      "• *@Sage what's our logo?* — logos, colors, fonts, brand guidelines, email signature, and more.",
+      ...brandBullets,
       "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
       "• *@Sage I found a bug* — I'll get it to the marketing team.",
       "• *@Sage I have a feature idea* — I'll pass your suggestion along.",
@@ -137,7 +145,7 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
       "Hey — I'm Sage running in *[TEST mode]*. This channel mirrors the production flow so you can try things out.",
       '',
       "• *@Sage I need [a thing]* — I'll open a request form for you to review.",
-      "• *@Sage what's our logo?* — logos, colors, fonts, brand guidelines, email signature, and more.",
+      ...brandBullets,
       "• *@Sage is this on-brand: [paste copy or document link]* — quick brand-check on a draft.",
       "• *@Sage where's my request?* — status lookup.",
       "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
@@ -152,12 +160,13 @@ export function getHelpMessage(channelRole?: 'intake' | 'alerts' | 'test'): stri
     "Hey — I'm Sage, the marketing team's helper. In this channel:",
     '',
     "• *@Sage I need [a thing]* — I'll open a request form for you to review.",
-    "• *@Sage what's our logo?* — logos, brand colors, fonts, tagline, brand guidelines, email signature, or slide template — just ask.",
+    ...brandBullets,
     "• *@Sage is this on-brand: [paste copy or document link]* — quick brand-check on a draft.",
     "• *@Sage where's my request?* — status lookup from Monday.",
+    "• *@Sage I need to print [materials]* — how to handle print orders.",
     "• *@Sage I need to talk to marketing* — I'll share a link to schedule time.",
     "• *@Sage I found a bug* — I'll get it to the marketing team.",
-      "• *@Sage I have a feature idea* — I'll pass your suggestion along.",
+    "• *@Sage I have a feature idea* — I'll pass your suggestion along.",
     "• *In an existing request thread:* tag me with what you want to add or change and I'll update the request.",
     '',
     'I only respond when you @mention me — channel chatter without @Sage is ignored.',
