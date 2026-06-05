@@ -345,7 +345,7 @@ Some requests span multiple types (e.g., a conference that includes a webinar, o
 | Email Signature Instructions | https://docs.google.com/presentation/d/1pVoj9LcVbpUnG5-lT6uzPWgKlENq30QeQNjIdD_1mBs/edit?slide=id.p2#slide=id.p2 |
 | Brand Assets Folder | https://drive.google.com/drive/folders/1duNsCSKoocVhMmduqkHoLwA5oCzk8nwn |
 | Brand Guidelines | https://canva.link/pearl-brand-guide |
-| Slide Master Template | Available in Google Slides — go to File > New > From template, search for "Pearl_Master Slide Deck_Template_FINAL_2025" |
+| Slide Master Template | https://docs.google.com/presentation/d/1lUUFUoKNtBriDKznU5J_RykHypqdHtsjCfC4vRlasFM/edit?usp=sharing |
 
 ### Fonts
 
