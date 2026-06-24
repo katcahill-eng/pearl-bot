@@ -56,6 +56,7 @@ async function createFolder(
       parents: [parentId],
     },
     fields: 'id, webViewLink',
+    supportsAllDrives: true,
   });
   return {
     id: res.data.id ?? '',
@@ -81,6 +82,7 @@ async function createDoc(
       body: markdownContent,
     },
     fields: 'id, webViewLink',
+    supportsAllDrives: true,
   });
   return {
     id: res.data.id ?? '',
@@ -178,6 +180,8 @@ async function getNextMktNumber(
       fields: 'files(name)',
       pageSize: 1000,
       orderBy: 'name desc',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
     });
 
     let maxNumber = 0;
@@ -214,6 +218,8 @@ async function findOrCreateFolder(
     q: query,
     fields: 'files(id, webViewLink)',
     pageSize: 1,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   });
 
   if (list.data.files && list.data.files.length > 0) {

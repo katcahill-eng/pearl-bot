@@ -701,6 +701,25 @@ export function registerApprovalHandler(app: App): void {
           }
         }
 
+        // Surface the project links in the triage thread so the marketing team can find them fast
+        if (result.success && body.message && body.channel?.id) {
+          const linkLines: string[] = [];
+          if (result.folderUrl) linkLines.push(`• *Drive folder:* <${result.folderUrl}|Open folder>`);
+          if (result.briefDocUrl) linkLines.push(`• *Brief:* <${result.briefDocUrl}|View brief>`);
+          if (result.mondayUrl) linkLines.push(`• *Monday.com:* <${result.mondayUrl}|View task>`);
+          if (linkLines.length > 0) {
+            try {
+              await client.chat.postMessage({
+                channel: body.channel.id,
+                text: `:open_file_folder: *Project setup complete:*\n${linkLines.join('\n')}`,
+                thread_ts: body.message.ts,
+              });
+            } catch (err) {
+              console.error('[approval] Failed to post project links to triage:', err);
+            }
+          }
+        }
+
         // Always send the success message to the requester — never expose internal errors
         try {
           await client.chat.postMessage({
