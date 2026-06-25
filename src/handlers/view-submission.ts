@@ -297,7 +297,7 @@ export function registerViewSubmissionHandler(app: App): void {
       );
 
       const requesterName = await getSlackDisplayName(requesterSlackId, client);
-      const itemName = deriveItemName(state.deliverable);
+      const primaryName = deriveItemName(state.deliverable);
 
       // Capture the Slack thread permalink so marketing can jump back
       // to the original request from Monday.
@@ -322,15 +322,26 @@ export function registerViewSubmissionHandler(app: App): void {
       // status column gets set in the same write as everything else.
       const rush = assessRush(state.deadline, state.liveDate);
 
+      // Multiple deliverables turn the request into a themed container:
+      // the parent is named for the overall initiative and every deliverable
+      // (primary + extras) becomes its own typed sub-task. A single
+      // deliverable stays a flat item with its type on the parent.
+      const hasMultiple = state.additionalDeliverables.length > 0;
+      const primaryTypeLabel = requestTypeToDeliverableLabel(state.requestType);
+
       const mondayItem = await createV2RequestItem({
-        name: itemName,
+        // Container parent → the initiative (Related event/project) when given,
+        // else fall back to the primary deliverable's derived name.
+        name: hasMultiple ? (state.eventOrProject?.trim() || primaryName) : primaryName,
         division,
         submitterSlackUserId: submitterSlackId,
         requesterMondayUserId: requesterMondayId,
         approverMondayUserIds: approverMondayIds,
         requestingForMondayUserId: requestingForMondayId,
         additionalDivisions: state.additionalDivisions,
-        deliverableType: requestTypeToDeliverableLabel(state.requestType),
+        // Container parent carries no single type — each type lives on a
+        // sub-task. A flat (single-deliverable) item keeps its type.
+        deliverableType: hasMultiple ? null : primaryTypeLabel,
         // Monday's Deliverable(s) long_text column is no longer written —
         // the Type of Deliverable status column captures the format,
         // and the full description lives in Context & Background.
@@ -343,11 +354,35 @@ export function registerViewSubmissionHandler(app: App): void {
         legacyApproversText: null, // set in US-012 once we have approver names
         legacyRequesterText: `${requesterName} — ${division}`,
         rush: rush.isRush,
-        // Bundling extra deliverables makes this a multi-asset campaign.
-        scope: state.additionalDeliverables.length > 0 ? 'Campaign' : null,
+        // Bundling deliverables makes this a multi-asset campaign.
+        scope: hasMultiple ? 'Campaign' : null,
       });
 
-      // Create sub-items for checked recommendations.
+      // Container mode: fan out every deliverable into its own typed sub-task,
+      // starting with the primary (named from the request description), then
+      // each additional deliverable selected on the form.
+      if (hasMultiple) {
+        const deliverableSubItems: { name: string; type: string | null }[] = [
+          { name: primaryName, type: primaryTypeLabel },
+          ...state.additionalDeliverables.map((dt) => {
+            const label = requestTypeToDeliverableLabel(dt) ?? dt;
+            return { name: label, type: label };
+          }),
+        ];
+        for (const d of deliverableSubItems) {
+          try {
+            await createV2DeliverableSubItem(mondayItem.id, d.name, d.type);
+          } catch (subErr) {
+            console.error(`[view-submission] deliverable sub-item "${d.name}" failed:`, subErr);
+            await trackError(subErr, undefined, {
+              source: 'view-submission-deliverable-subitem',
+              deliverable: d.name,
+            });
+          }
+        }
+      }
+
+      // Create sub-items for checked recommendations (applies in both modes).
       for (const rec of checkedRecommendations) {
         try {
           await createV2SubItem({
@@ -362,25 +397,6 @@ export function registerViewSubmissionHandler(app: App): void {
           await trackError(subErr, undefined, {
             source: 'view-submission-subitem',
             recommendation: rec.name,
-          });
-        }
-      }
-
-      // Fan out additional deliverables into their own sub-items so each
-      // is individually trackable (own owner/status on the subitems board).
-      for (const deliverableType of state.additionalDeliverables) {
-        const subItemName =
-          requestTypeToDeliverableLabel(deliverableType) ?? deliverableType;
-        try {
-          await createV2DeliverableSubItem(mondayItem.id, subItemName);
-        } catch (subErr) {
-          console.error(
-            `[view-submission] additional deliverable sub-item "${subItemName}" failed:`,
-            subErr,
-          );
-          await trackError(subErr, undefined, {
-            source: 'view-submission-deliverable-subitem',
-            deliverableType,
           });
         }
       }

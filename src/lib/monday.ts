@@ -788,25 +788,33 @@ export async function createV2SubItem(
   return { id };
 }
 
+// "Type of Deliverable" status column on the Subitems board — mirrors the
+// parent board's status_16 labels so each sub-task carries a real type chip.
+const SUBITEM_DELIVERABLE_TYPE_COL = 'color_mm4nxg4g';
+
 /**
- * Create a plain sub-item under a parent request, named after a deliverable.
- * Used to fan out additional deliverables selected on the form into
- * individually trackable sub-items (own owner/status on the subitems board).
+ * Create a sub-item under a parent request representing a single deliverable.
+ * Sets the sub-task's "Type of Deliverable" column when a type label is given,
+ * so each deliverable is individually trackable (own owner/status/type).
  */
 export async function createV2DeliverableSubItem(
   parentItemId: string,
   name: string,
+  deliverableTypeLabel?: string | null,
 ): Promise<{ id: string }> {
   const query = `
-    mutation ($parentId: ID!, $itemName: String!) {
-      create_subitem (parent_item_id: $parentId, item_name: $itemName) {
+    mutation ($parentId: ID!, $itemName: String!, $columnValues: JSON) {
+      create_subitem (parent_item_id: $parentId, item_name: $itemName, column_values: $columnValues) {
         id
       }
     }
   `;
+  const columnValues = deliverableTypeLabel
+    ? JSON.stringify({ [SUBITEM_DELIVERABLE_TYPE_COL]: { label: deliverableTypeLabel } })
+    : undefined;
   const result = await mondayApi<{ create_subitem: { id: string } | null }>(
     query,
-    { parentId: parentItemId, itemName: name.slice(0, 255) },
+    { parentId: parentItemId, itemName: name.slice(0, 255), columnValues },
   );
   const id = result.create_subitem?.id;
   if (!id) throw new Error('[monday-v2] create_subitem (deliverable) returned no id');
