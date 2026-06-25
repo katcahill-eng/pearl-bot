@@ -1,0 +1,94 @@
+# Competitor Intelligence — Watchlist
+#
+# Seeded from the Q1 2026 Competitive Landscape Analysis.
+# Kat can add/edit entries directly; the spoke also appends a "suggested"
+# list each week from its market research for approval (see `proposed` section).
+#
+# Pearl's frame: the 5 pillars — Safety, Comfort, Operations, Resilience, Energy.
+# Pearl is the only standardized score covering all 5 for existing homes.
+# `pillars` = which pillars each competitor touches (for the gap view).
+
+pillars:
+  - Safety
+  - Comfort
+  - Operations
+  - Resilience
+  - Energy
+
+# Tier reflects threat level from the Q1 analysis.
+competitors:
+  - name: Zillow
+    category: Real Estate Platform
+    domain: zillow.com
+    tier: 1
+    pillars: [Resilience]
+    notes: >
+      Removed First Street climate data Dec 2025 under industry pressure.
+      Partnership opening. Massive reach. Watch for climate-data reversals
+      and any home-score / condition features.
+
+  - name: Redfin
+    category: Real Estate Platform
+    domain: redfin.com
+    tier: 1
+    pillars: [Resilience]
+    notes: >
+      Kept First Street climate data when Zillow pulled it. Tier-1 partnership
+      target. Watch transparency positioning and any scoring features.
+
+  - name: First Street
+    category: Climate / Risk Assessment
+    domain: firststreet.org
+    tier: 2
+    pillars: [Resilience]
+    notes: >
+      Climate-risk data provider. Lost Zillow distribution Dec 2025.
+      Potential complementary-data partner. Watch new platform deals.
+
+  - name: Kukun
+    category: Property Condition & Valuation
+    domain: mykukun.com
+    tier: 1
+    pillars: [Operations]
+    notes: >
+      CLOSEST competitor. PICO Score (500-850) ties condition to value,
+      claims traditional estimates off $20K-$50K. Free forever. Covers only
+      the Operations pillar today. Watch pillar expansion and partnerships.
+
+  - name: Sense
+    category: Smart Home / Energy
+    domain: sense.com
+    tier: 3
+    pillars: [Energy]
+    notes: >
+      Pivoting to B2B, exiting consumer hardware Dec 2025. Reduced direct
+      threat. Watch B2B/utility deals.
+
+# Categories to monitor broadly (not single named players)
+watch_categories:
+  - Energy Efficiency (crowded — home energy scores, audits)
+  - Smart Home Platforms
+  - Home Management apps
+  - Contractor ecosystem / marketplaces
+  - Lenders & insurers using property-level data (B2B)
+
+# Standing themes the weekly research should always check
+standing_threads:
+  - M&A / consolidation (2-3 players merging could close Pearl's 5-pillar gap)
+  - Funding rounds in any tracked category
+  - Climate-data inclusion/removal moves by real estate platforms
+  - New entrants claiming a multi-pillar / whole-home score
+  - AI-answer visibility for category queries (who gets cited)
+
+# AI-answer visibility probe prompts — run against AI engines weekly to see
+# who gets cited for category-defining questions. Pearl wants share of voice here.
+ai_visibility_prompts:
+  - What is a home energy score and who provides one?
+  - How can I tell the condition and quality of a house before buying?
+  - What is the best whole-home assessment or scoring system?
+  - How do I find out a home's climate risk?
+  - What increases a home's resale value through condition and efficiency?
+
+# Spoke-proposed additions land here each week for Kat's review, then she
+# promotes them into `competitors:` above.
+proposed: []

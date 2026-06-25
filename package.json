@@ -7,6 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "npx tsc -p tsconfig.json && cp src/lib/knowledge-base.md dist/lib/ && mkdir -p dist/config && cp src/config/*.yaml dist/config/",
     "start": "node dist/index.js",
+    "competitor-intel": "node dist/competitor-intel/run.js",
+    "competitor-intel:dev": "tsx src/competitor-intel/run.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

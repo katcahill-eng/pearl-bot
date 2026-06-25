@@ -107,7 +107,10 @@ interface ButtonValue {
  * fallback that puts the user's text in the deliverable field.
  */
 export async function parseIntakeText(text: string): Promise<ParsedIntake> {
-  const cleaned = text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+  // Strip ALL bot/user mentions (not just a leading one) — people drop
+  // "@Sage" anywhere in the sentence, and a stray <@U…> shouldn't leak
+  // into the prefilled description.
+  const cleaned = text.replace(/<@[A-Z0-9]+>/g, '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return { deliverable: null };
 
   try {
@@ -249,7 +252,7 @@ export function registerOpenModalAction(app: App): void {
 
       const value: ButtonValue = JSON.parse(action.value);
       const metadata = { channelId: value.channelId, threadTs: value.threadTs };
-      const cleaned = value.text.replace(/^<@[A-Z0-9]+>\s*/, '').trim();
+      const cleaned = value.text.replace(/<@[A-Z0-9]+>/g, '').replace(/\s+/g, ' ').trim();
 
       // Open immediately with just the raw text so we don't burn the
       // 3-second trigger_id window waiting on Claude to parse.

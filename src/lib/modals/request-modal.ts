@@ -234,7 +234,7 @@ export function buildRequestModal(
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: '*What do you need?* Check all that apply for this project — each one you pick becomes its own tracked item on Monday.',
+        text: '*What do you need?* Check all that apply — pick at least one. Each one you pick becomes its own tracked item on Monday.',
       },
     },
     deliverableCheckboxBlock(DELIVERABLE_GROUP_A, 'Content & comms', deliverableOptions(DELIVERABLE_GROUP_A_VALUES), selectedTypes),
