@@ -210,7 +210,7 @@ export function rushBannerBlock(
  * recommendations.
  */
 export function buildRequestModal(
-  parsed: ParsedRequest & { additionalDivisionsImpacted?: Division[] | null; deadline?: string | null },
+  parsed: ParsedRequest & { additionalDivisionsImpacted?: Division[] | null; deadline?: string | null; additionalDeliverables?: string[] | null },
   recommendations: Recommendation[],
   metadata: ModalMetadata,
 ): any {
@@ -231,6 +231,7 @@ export function buildRequestModal(
   }
 
   blocks.push(
+    additionalDeliverablesBlock(parsed.additionalDeliverables ?? null),
     deliverableBlock(parsed.deliverable),
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
@@ -341,7 +342,7 @@ function requestTypeBlock(initial: string | null | undefined): any {
     label: { type: 'plain_text', text: 'Primary deliverable', emoji: true },
     hint: {
       type: 'plain_text',
-      text: 'The main thing you need. If your request includes several deliverables, pick the primary one here and describe the rest below.',
+      text: 'Pick the main thing you need. If this is part of a bigger initiative — like an event — you can add the rest under "Anything else you need?" just below.',
       emoji: true,
     },
     element: {
@@ -360,6 +361,45 @@ function requestTypeBlock(initial: string | null | undefined): any {
     };
   }
   return block;
+}
+
+// Additional deliverables reuse the SAME menu as the primary deliverable
+// (minus "Other"), so the two lists can never drift apart.
+const ADDITIONAL_DELIVERABLE_OPTIONS = REQUEST_TYPE_OPTIONS.filter(
+  (o) => o.value !== 'other',
+);
+
+function additionalDeliverablesBlock(initial: string[] | null | undefined): any {
+  const selected = (initial ?? [])
+    .map((v) => ADDITIONAL_DELIVERABLE_OPTIONS.find((o) => o.value === v))
+    .filter(Boolean) as { value: string; label: string }[];
+  const element: any = {
+    type: 'multi_static_select',
+    action_id: 'value',
+    placeholder: { type: 'plain_text', text: 'Select any additional deliverables' },
+    options: ADDITIONAL_DELIVERABLE_OPTIONS.map(({ value, label }) => ({
+      value,
+      text: { type: 'plain_text', text: label },
+    })),
+  };
+  if (selected.length > 0) {
+    element.initial_options = selected.map(({ value, label }) => ({
+      value,
+      text: { type: 'plain_text', text: label },
+    }));
+  }
+  return {
+    type: 'input',
+    block_id: 'additional_deliverables',
+    optional: true,
+    label: { type: 'plain_text', text: 'Anything else you need?', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: 'Add any other deliverables for the same initiative — each becomes its own tracked item, so you only fill this out once.',
+      emoji: true,
+    },
+    element,
+  };
 }
 
 function deliverableBlock(initial: string | null | undefined): any {

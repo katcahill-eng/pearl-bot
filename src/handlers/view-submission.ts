@@ -24,6 +24,7 @@ import {
 import {
   createV2RequestItem,
   createV2SubItem,
+  createV2DeliverableSubItem,
   buildMondayUrl,
 } from '../lib/monday';
 import { insertRequestRecord } from '../lib/db';
@@ -43,6 +44,7 @@ interface ParsedModalState {
   additionalDivisions: Division[];
   requestingForSlackId: string | null;
   recommendationNames: string[];
+  additionalDeliverables: string[];
 }
 
 /**
@@ -147,6 +149,11 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
       (o: any) => o.value as string,
     );
 
+  const additionalDeliverables: string[] =
+    (v.additional_deliverables?.value?.selected_options ?? []).map(
+      (o: any) => o.value as string,
+    );
+
   return {
     requestType,
     deliverable,
@@ -159,6 +166,7 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
     additionalDivisions,
     requestingForSlackId,
     recommendationNames,
+    additionalDeliverables,
   };
 }
 
@@ -335,6 +343,8 @@ export function registerViewSubmissionHandler(app: App): void {
         legacyApproversText: null, // set in US-012 once we have approver names
         legacyRequesterText: `${requesterName} — ${division}`,
         rush: rush.isRush,
+        // Bundling extra deliverables makes this a multi-asset campaign.
+        scope: state.additionalDeliverables.length > 0 ? 'Campaign' : null,
       });
 
       // Create sub-items for checked recommendations.
@@ -352,6 +362,25 @@ export function registerViewSubmissionHandler(app: App): void {
           await trackError(subErr, undefined, {
             source: 'view-submission-subitem',
             recommendation: rec.name,
+          });
+        }
+      }
+
+      // Fan out additional deliverables into their own sub-items so each
+      // is individually trackable (own owner/status on the subitems board).
+      for (const deliverableType of state.additionalDeliverables) {
+        const subItemName =
+          requestTypeToDeliverableLabel(deliverableType) ?? deliverableType;
+        try {
+          await createV2DeliverableSubItem(mondayItem.id, subItemName);
+        } catch (subErr) {
+          console.error(
+            `[view-submission] additional deliverable sub-item "${subItemName}" failed:`,
+            subErr,
+          );
+          await trackError(subErr, undefined, {
+            source: 'view-submission-deliverable-subitem',
+            deliverableType,
           });
         }
       }

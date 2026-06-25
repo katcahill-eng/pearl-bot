@@ -576,6 +576,7 @@ const COL_V2 = {
   requestingDivision: 'color_mm2q52zc',        // "Requesting Division" (status)
   additionalDivisions: 'dropdown_mm32cr4w',    // "Additional Divisions Impacted" (dropdown)
   rush: 'color_mm33neda',                       // "Rush" (status: Standard / Rush)
+  scope: 'color_mm2qccjd',                      // "Scope" (status: Quick / Project / Campaign)
 } as const;
 
 export interface CreateV2RequestParams {
@@ -611,6 +612,10 @@ export interface CreateV2RequestParams {
   supportingLinks?: string | null;
   /** Rush flag — true when deadline is less than Pearl's 2-week minimum. */
   rush?: boolean;
+  /** Scope — "Quick" | "Project" | "Campaign". Set to Campaign when the
+   *  request has multiple deliverables; left unset otherwise so triage
+   *  picks Quick vs Project. */
+  scope?: string | null;
 }
 
 /**
@@ -660,6 +665,11 @@ export async function createV2RequestItem(
 
   // Rush flag — Standard by default, Rush if assessRush flagged it.
   columnValues[COL_V2.rush] = { label: params.rush ? 'Rush' : 'Standard' };
+
+  // Scope — set to Campaign when the request bundles multiple deliverables.
+  if (params.scope) {
+    columnValues[COL_V2.scope] = { label: params.scope };
+  }
 
   // Type of Deliverable (status enum)
   if (params.deliverableType) {
@@ -775,6 +785,31 @@ export async function createV2SubItem(
   );
   const id = result.create_subitem?.id;
   if (!id) throw new Error('[monday-v2] create_subitem returned no id');
+  return { id };
+}
+
+/**
+ * Create a plain sub-item under a parent request, named after a deliverable.
+ * Used to fan out additional deliverables selected on the form into
+ * individually trackable sub-items (own owner/status on the subitems board).
+ */
+export async function createV2DeliverableSubItem(
+  parentItemId: string,
+  name: string,
+): Promise<{ id: string }> {
+  const query = `
+    mutation ($parentId: ID!, $itemName: String!) {
+      create_subitem (parent_item_id: $parentId, item_name: $itemName) {
+        id
+      }
+    }
+  `;
+  const result = await mondayApi<{ create_subitem: { id: string } | null }>(
+    query,
+    { parentId: parentItemId, itemName: name.slice(0, 255) },
+  );
+  const id = result.create_subitem?.id;
+  if (!id) throw new Error('[monday-v2] create_subitem (deliverable) returned no id');
   return { id };
 }
 

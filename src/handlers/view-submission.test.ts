@@ -42,6 +42,9 @@ describe('parseModalState', () => {
           ],
         },
       },
+      additional_deliverables: {
+        value: { selected_options: [{ value: 'email' }, { value: 'graphic' }] },
+      },
     };
 
     const state = parseModalState(values);
@@ -55,6 +58,7 @@ describe('parseModalState', () => {
     expect(state.additionalDivisions).toEqual(['BD', 'P2']);
     expect(state.requestingForSlackId).toBe('U3');
     expect(state.recommendationNames).toEqual(['registration-email', 'social-promo']);
+    expect(state.additionalDeliverables).toEqual(['email', 'graphic']);
   });
 
   it('handles a minimal modal state with only deliverable', () => {
@@ -68,6 +72,7 @@ describe('parseModalState', () => {
     expect(state.approverSlackIds).toEqual([]);
     expect(state.additionalDivisions).toEqual([]);
     expect(state.recommendationNames).toEqual([]);
+    expect(state.additionalDeliverables).toEqual([]);
   });
 
   it('handles entirely empty values gracefully', () => {
