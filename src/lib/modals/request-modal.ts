@@ -210,37 +210,37 @@ export function rushBannerBlock(
  * recommendations.
  */
 export function buildRequestModal(
-  parsed: ParsedRequest & { additionalDivisionsImpacted?: Division[] | null; deadline?: string | null; additionalDeliverables?: string[] | null },
+  parsed: ParsedRequest & { additionalDivisionsImpacted?: Division[] | null; deadline?: string | null; deliverables?: string[] | null },
   recommendations: Recommendation[],
   metadata: ModalMetadata,
 ): any {
   const blocks: any[] = [];
+
+  // Selected deliverable types (multi-select). Prefill from the parsed
+  // requestType when a conversational request was pre-classified. The
+  // first policy-bearing type drives the draft requirement + schedule-call
+  // off-ramp; submission enforces the draft for any policy type selected.
+  const selectedTypes =
+    parsed.deliverables ?? (parsed.requestType ? [parsed.requestType] : []);
+  const driverType =
+    selectedTypes.find((t) => t in REQUEST_TYPE_POLICIES) ?? selectedTypes[0] ?? null;
 
   blocks.push(
     {
       type: 'header',
       text: { type: 'plain_text', text: 'Request details', emoji: true },
     },
-    requestTypeBlock(parsed.requestType),
-  );
-
-  // Conditionally insert the email-policy banner right after Request Type.
-  const policyBlock = emailPolicyBlock(parsed.requestType ?? null, metadata.channelId);
-  if (policyBlock) {
-    blocks.push(policyBlock);
-  }
-
-  blocks.push(
-    additionalDeliverablesBlock(parsed.additionalDeliverables ?? null),
+    deliverablesBlock(selectedTypes),
+    deliverablePolicyNote(),
     deliverableBlock(parsed.deliverable),
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
-    draftBlock(parsed.requestType),
+    draftBlock(driverType),
   );
 
   // "Don't have a draft yet? Schedule a call" — sits right under the
   // draft field so it's visible in context, not buried in the footer.
-  const scheduleBlock = scheduleCallBlock(parsed.requestType);
+  const scheduleBlock = scheduleCallBlock(driverType);
   if (scheduleBlock) blocks.push(scheduleBlock);
 
   blocks.push(
@@ -260,8 +260,8 @@ export function buildRequestModal(
     requestingForBlock(),
   );
 
-  // Don't offer a press release add-on if the request is already a press release.
-  const filteredRecs = parsed.requestType === 'press_release'
+  // Don't offer a press release add-on if a press release is already selected.
+  const filteredRecs = selectedTypes.includes('press_release')
     ? recommendations.filter((r) => !/press.release/i.test(r.name + ' ' + r.deliverable))
     : recommendations;
   const trimmedRecs = filteredRecs.slice(0, MAX_RECOMMENDATIONS);
@@ -331,53 +331,18 @@ export function buildRequestModal(
 
 // --- Block builders ---
 
-function requestTypeBlock(initial: string | null | undefined): any {
-  const matched = REQUEST_TYPE_OPTIONS.find((o) => o.value === initial);
-  const block: any = {
-    type: 'input',
-    block_id: 'request_type',
-    // dispatch_action so the email-policy banner can show/hide
-    // when the user changes the selection.
-    dispatch_action: true,
-    label: { type: 'plain_text', text: 'Primary deliverable', emoji: true },
-    hint: {
-      type: 'plain_text',
-      text: 'Pick the main thing you need. If this is part of a bigger initiative — like an event — you can add the rest under "Anything else you need?" just below.',
-      emoji: true,
-    },
-    element: {
-      type: 'static_select',
-      action_id: REQUEST_TYPE_ACTION_ID,
-      options: REQUEST_TYPE_OPTIONS.map(({ value, label }) => ({
-        value,
-        text: { type: 'plain_text', text: label },
-      })),
-    },
-  };
-  if (matched) {
-    block.element.initial_option = {
-      value: matched.value,
-      text: { type: 'plain_text', text: matched.label },
-    };
-  }
-  return block;
-}
-
-// Additional deliverables reuse the SAME menu as the primary deliverable
-// (minus "Other"), so the two lists can never drift apart.
-const ADDITIONAL_DELIVERABLE_OPTIONS = REQUEST_TYPE_OPTIONS.filter(
-  (o) => o.value !== 'other',
-);
-
-function additionalDeliverablesBlock(initial: string[] | null | undefined): any {
+// Single multi-select of deliverables — replaces the old primary +
+// additional dropdowns. Pick one or many; each becomes its own tracked
+// item on Monday.
+function deliverablesBlock(initial: string[] | null | undefined): any {
   const selected = (initial ?? [])
-    .map((v) => ADDITIONAL_DELIVERABLE_OPTIONS.find((o) => o.value === v))
+    .map((v) => REQUEST_TYPE_OPTIONS.find((o) => o.value === v))
     .filter(Boolean) as { value: string; label: string }[];
   const element: any = {
     type: 'multi_static_select',
     action_id: 'value',
-    placeholder: { type: 'plain_text', text: 'Select any additional deliverables' },
-    options: ADDITIONAL_DELIVERABLE_OPTIONS.map(({ value, label }) => ({
+    placeholder: { type: 'plain_text', text: 'Select all that apply' },
+    options: REQUEST_TYPE_OPTIONS.map(({ value, label }) => ({
       value,
       text: { type: 'plain_text', text: label },
     })),
@@ -390,15 +355,30 @@ function additionalDeliverablesBlock(initial: string[] | null | undefined): any 
   }
   return {
     type: 'input',
-    block_id: 'additional_deliverables',
-    optional: true,
-    label: { type: 'plain_text', text: 'Anything else you need?', emoji: true },
+    block_id: 'deliverable_types',
+    label: { type: 'plain_text', text: 'What do you need?', emoji: true },
     hint: {
       type: 'plain_text',
-      text: 'Add any other deliverables for the same initiative — each becomes its own tracked item, so you only fill this out once.',
+      text: 'Select everything this request needs. Pick more than one and each becomes its own tracked item on Monday.',
       emoji: true,
     },
     element,
+  };
+}
+
+// Static expectations note shown under the deliverables picker. Replaces
+// the old dynamic per-type policy banner (a multi-select can't re-render
+// mid-selection without disrupting the picker). The draft requirement is
+// still enforced at submission for any policy-bearing type selected.
+function deliverablePolicyNote(): any {
+  return {
+    type: 'context',
+    elements: [
+      {
+        type: 'mrkdwn',
+        text: ':information_source: Heads up: press releases carry a cost, and emails, blog posts, presentations & landing pages need a draft or talking points to begin — you can add a link below.',
+      },
+    ],
   };
 }
 
@@ -408,7 +388,7 @@ function deliverableBlock(initial: string | null | undefined): any {
     block_id: 'deliverable',
     label: {
       type: 'plain_text',
-      text: 'What do you need? (more context = better result)',
+      text: 'Tell us more (context & specifics — the more detail, the better)',
       emoji: true,
     },
     element: {

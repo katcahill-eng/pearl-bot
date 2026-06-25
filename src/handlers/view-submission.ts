@@ -44,7 +44,8 @@ interface ParsedModalState {
   additionalDivisions: Division[];
   requestingForSlackId: string | null;
   recommendationNames: string[];
-  additionalDeliverables: string[];
+  /** All deliverable types selected on the form (multi-select). */
+  deliverables: string[];
 }
 
 /**
@@ -106,10 +107,13 @@ export interface ModalMetadata {
 export function parseModalState(viewStateValues: any): ParsedModalState {
   const v = viewStateValues ?? {};
 
-  const requestType =
-    v.request_type?.sage_v2_request_type_change?.selected_option?.value ??
-    v.request_type?.value?.selected_option?.value ?? // legacy fallback
-    null;
+  // Deliverables multi-select. The first selected type acts as the
+  // implicit "primary" for policy/recommendation logic that still keys
+  // off a single requestType.
+  const deliverables: string[] = (
+    v.deliverable_types?.value?.selected_options ?? []
+  ).map((o: any) => o.value as string);
+  const requestType = deliverables[0] ?? null;
 
   const deliverable =
     v.deliverable?.value?.value ?? '';
@@ -149,11 +153,6 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
       (o: any) => o.value as string,
     );
 
-  const additionalDeliverables: string[] =
-    (v.additional_deliverables?.value?.selected_options ?? []).map(
-      (o: any) => o.value as string,
-    );
-
   return {
     requestType,
     deliverable,
@@ -166,7 +165,7 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
     additionalDivisions,
     requestingForSlackId,
     recommendationNames,
-    additionalDeliverables,
+    deliverables,
   };
 }
 
@@ -201,7 +200,7 @@ export function registerViewSubmissionHandler(app: App): void {
       'document',
     ]);
 
-    const draftRequired = state.requestType ? policyTypes.has(state.requestType) : false;
+    const draftRequired = state.deliverables.some((d) => policyTypes.has(d));
     const draftMissing =
       draftRequired && !(state.draftSource && state.draftSource.trim());
 
@@ -324,9 +323,9 @@ export function registerViewSubmissionHandler(app: App): void {
 
       // Multiple deliverables turn the request into a themed container:
       // the parent is named for the overall initiative and every deliverable
-      // (primary + extras) becomes its own typed sub-task. A single
-      // deliverable stays a flat item with its type on the parent.
-      const hasMultiple = state.additionalDeliverables.length > 0;
+      // becomes its own typed sub-task. A single deliverable stays a flat
+      // item with its type on the parent.
+      const hasMultiple = state.deliverables.length > 1;
       const primaryTypeLabel = requestTypeToDeliverableLabel(state.requestType);
 
       const mondayItem = await createV2RequestItem({
@@ -358,25 +357,19 @@ export function registerViewSubmissionHandler(app: App): void {
         scope: hasMultiple ? 'Campaign' : null,
       });
 
-      // Container mode: fan out every deliverable into its own typed sub-task,
-      // starting with the primary (named from the request description), then
-      // each additional deliverable selected on the form.
+      // Container mode: fan out every selected deliverable into its own
+      // typed sub-task. Each is named by its deliverable type; the overall
+      // description lives in the parent's Context & Background.
       if (hasMultiple) {
-        const deliverableSubItems: { name: string; type: string | null }[] = [
-          { name: primaryName, type: primaryTypeLabel },
-          ...state.additionalDeliverables.map((dt) => {
-            const label = requestTypeToDeliverableLabel(dt) ?? dt;
-            return { name: label, type: label };
-          }),
-        ];
-        for (const d of deliverableSubItems) {
+        for (const dt of state.deliverables) {
+          const label = requestTypeToDeliverableLabel(dt) ?? dt;
           try {
-            await createV2DeliverableSubItem(mondayItem.id, d.name, d.type);
+            await createV2DeliverableSubItem(mondayItem.id, label, label);
           } catch (subErr) {
-            console.error(`[view-submission] deliverable sub-item "${d.name}" failed:`, subErr);
+            console.error(`[view-submission] deliverable sub-item "${label}" failed:`, subErr);
             await trackError(subErr, undefined, {
               source: 'view-submission-deliverable-subitem',
-              deliverable: d.name,
+              deliverable: label,
             });
           }
         }

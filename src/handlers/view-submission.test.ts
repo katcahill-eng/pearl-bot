@@ -24,7 +24,9 @@ import {
 describe('parseModalState', () => {
   it('extracts a fully-populated modal state', () => {
     const values = {
-      request_type: { value: { selected_option: { value: 'webinar' } } },
+      deliverable_types: {
+        value: { selected_options: [{ value: 'webinar' }, { value: 'email' }] },
+      },
       deliverable: { value: { value: 'Registration email for May 12 webinar' } },
       audience: { value: { value: 'real estate agents' } },
       event_or_project: { value: { value: 'Realtor Association webinar' } },
@@ -42,14 +44,12 @@ describe('parseModalState', () => {
           ],
         },
       },
-      additional_deliverables: {
-        value: { selected_options: [{ value: 'email' }, { value: 'graphic' }] },
-      },
     };
 
     const state = parseModalState(values);
 
-    expect(state.requestType).toBe('webinar');
+    expect(state.deliverables).toEqual(['webinar', 'email']);
+    expect(state.requestType).toBe('webinar'); // first selected = implicit primary
     expect(state.deliverable).toContain('Registration email');
     expect(state.audience).toBe('real estate agents');
     expect(state.eventOrProject).toBe('Realtor Association webinar');
@@ -58,7 +58,6 @@ describe('parseModalState', () => {
     expect(state.additionalDivisions).toEqual(['BD', 'P2']);
     expect(state.requestingForSlackId).toBe('U3');
     expect(state.recommendationNames).toEqual(['registration-email', 'social-promo']);
-    expect(state.additionalDeliverables).toEqual(['email', 'graphic']);
   });
 
   it('handles a minimal modal state with only deliverable', () => {
@@ -72,7 +71,7 @@ describe('parseModalState', () => {
     expect(state.approverSlackIds).toEqual([]);
     expect(state.additionalDivisions).toEqual([]);
     expect(state.recommendationNames).toEqual([]);
-    expect(state.additionalDeliverables).toEqual([]);
+    expect(state.deliverables).toEqual([]);
   });
 
   it('handles entirely empty values gracefully', () => {
