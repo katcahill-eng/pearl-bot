@@ -441,15 +441,17 @@ export function requestTypeToDeliverableLabel(
   if (!requestType) return null;
   const map: Record<string, string> = {
     webinar: 'Webinar',
-    email: 'Emails',
-    graphic: 'Social Media',
-    blog: 'B2B Blog Post',
-    presentation: 'Presentation',
-    press_release: 'Press Release',
-    event: 'Event',
-    landing_page: 'Landing Page',
+    email: 'Email',
     social_media: 'Social Media',
     advertising: 'Advertising',
+    blog: 'B2B Blog Post', // one form option; triage sets B2C by audience
+    landing_page: 'New Webpage',
+    website_update: 'Website Update',
+    graphic: 'Graphic Design Support',
+    presentation: 'Presentation',
+    press_release: 'Press Release',
+    event: 'Event', // one form option; triage sets Trade show Support when relevant
+    ebook: 'Ebook/White Paper',
     document: 'Document',
     research: 'Research',
     other: 'Other (Describe below)',

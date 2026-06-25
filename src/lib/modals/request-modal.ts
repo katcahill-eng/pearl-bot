@@ -140,15 +140,17 @@ export function emailPolicyBlock(
 
 const REQUEST_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'webinar', label: 'Webinar' },
-  { value: 'email', label: 'Email / campaign' },
-  { value: 'graphic', label: 'Graphic / visual asset' },
-  { value: 'blog', label: 'Blog post' },
-  { value: 'presentation', label: 'Presentation / deck' },
-  { value: 'press_release', label: 'Press release' },
-  { value: 'event', label: 'Event / conference support' },
-  { value: 'landing_page', label: 'Landing page / website' },
+  { value: 'email', label: 'Email' },
   { value: 'social_media', label: 'Social media' },
   { value: 'advertising', label: 'Advertising / paid ads' },
+  { value: 'blog', label: 'Blog post' },
+  { value: 'landing_page', label: 'New webpage' },
+  { value: 'website_update', label: 'Website update' },
+  { value: 'graphic', label: 'Graphic / design support' },
+  { value: 'presentation', label: 'Presentation / deck' },
+  { value: 'press_release', label: 'Press release' },
+  { value: 'event', label: 'Event / trade show' },
+  { value: 'ebook', label: 'Ebook / white paper' },
   { value: 'document', label: 'Document / one-pager' },
   { value: 'research', label: 'Research / analysis' },
   { value: 'other', label: 'Other' },
@@ -589,6 +591,7 @@ export function draftBlock(requestType: string | null | undefined): any {
     case 'landing_page':
     case 'social_media':
     case 'document':
+    case 'ebook':
       hint = 'What do you have that can help marketing get started? Paste a link to your talking points, outline, or any relevant doc — even rough notes help.';
       break;
     default:

@@ -113,10 +113,12 @@ export async function discoverBoardColumns(): Promise<void> {
 // When the user updates Monday labels, update this map to match.
 
 const DELIVERABLE_TYPE_KEYWORDS: { label: string; patterns: RegExp[] }[] = [
-  { label: 'Emails', patterns: [/\bemail/i, /\bnewsletter/i, /\bemail\s*campaign/i, /\bemail\s*sequence/i, /\bemail\s*template/i] },
+  { label: 'Email', patterns: [/\bemail/i, /\bnewsletter/i, /\bemail\s*campaign/i, /\bemail\s*sequence/i, /\bemail\s*template/i] },
   { label: 'Presentation', patterns: [/\bpresentation/i, /\bslide\s*deck/i, /\bslides?\b/i, /\bkeynote/i, /\bpowerpoint/i, /\bgoogle\s*slides/i] },
   { label: 'Social Media', patterns: [/\bsocial\s*media/i, /\bsocial\s*post/i, /\bsocial\s*graphic/i, /\blinkedin\s*post/i, /\binstagram/i, /\btwitter/i, /\bfacebook\s*post/i] },
-  { label: 'Landing Page', patterns: [/\blanding\s*page/i, /\bweb\s*page/i, /\bcampaign\s*page/i] },
+  { label: 'New Webpage', patterns: [/\blanding\s*page/i, /\bnew\s*(web)?page/i, /\bcampaign\s*page/i] },
+  { label: 'Website Update', patterns: [/\bwebsite\s*update/i, /\bupdate\s+(the\s+)?(website|webpage|site|page)/i, /\bweb\s*(page\s*)?edit/i, /\bedit\s+(the\s+)?(website|webpage|page)/i] },
+  { label: 'Graphic Design Support', patterns: [/\bgraphic/i, /\blogo\b/i, /\bvisual\s*asset/i, /\bdesign\s*support/i, /\binfographic/i] },
   { label: 'Advertising', patterns: [/\b(digital\s*)?ads?\b/i, /\badvertis/i, /\bad\s*creative/i, /\bad\s*campaign/i, /\bgoogle\s*ads?/i, /\blinkedin\s*ads?/i, /\bmeta\s*ads?/i, /\bfacebook\s*ads?/i] },
   { label: 'Ebook/White Paper', patterns: [/\bebook/i, /\be-book/i, /\bwhite\s*paper/i, /\bwhitepaper/i, /\bguide\b/i] },
   { label: 'Press Release', patterns: [/\bpress\s*release/i, /\bpr\s*release/i, /\bmedia\s*release/i] },
@@ -165,14 +167,15 @@ export function classifyDeliverableType(
       conference: 'Trade show Support',
       webinar: 'Webinar',
       insider_dinner: 'Event',
-      email: 'Emails',
-      graphic_design: 'Document',
+      email: 'Email',
+      graphic_design: 'Graphic Design Support',
       blog_post: 'B2B Blog Post',  // default to B2B; keyword matching can override to B2C
       ebook: 'Ebook/White Paper',
       press_release: 'Press Release',
       research: 'Research',
       advertising: 'Advertising',
-      landing_page: 'Landing Page',
+      landing_page: 'New Webpage',
+      website_update: 'Website Update',
       presentation: 'Presentation',
       social_media: 'Social Media',
     };

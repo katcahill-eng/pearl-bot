@@ -99,10 +99,14 @@ describe('deriveItemName', () => {
 describe('requestTypeToDeliverableLabel', () => {
   it('maps modal request types to existing Type-of-Deliverable labels', () => {
     expect(requestTypeToDeliverableLabel('webinar')).toBe('Webinar');
-    expect(requestTypeToDeliverableLabel('email')).toBe('Emails');
+    expect(requestTypeToDeliverableLabel('email')).toBe('Email');
     expect(requestTypeToDeliverableLabel('blog')).toBe('B2B Blog Post');
     expect(requestTypeToDeliverableLabel('press_release')).toBe('Press Release');
     expect(requestTypeToDeliverableLabel('event')).toBe('Event');
+    expect(requestTypeToDeliverableLabel('landing_page')).toBe('New Webpage');
+    expect(requestTypeToDeliverableLabel('website_update')).toBe('Website Update');
+    expect(requestTypeToDeliverableLabel('graphic')).toBe('Graphic Design Support');
+    expect(requestTypeToDeliverableLabel('ebook')).toBe('Ebook/White Paper');
   });
 
   it('returns null for null or unknown input', () => {
