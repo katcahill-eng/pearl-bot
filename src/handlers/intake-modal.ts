@@ -28,7 +28,9 @@ import {
   emailPolicyBlock,
   rushBannerBlock,
   scheduleCallBlock,
-  REQUEST_TYPE_ACTION_ID,
+  deliverablePolicyNote,
+  DELIVERABLES_ACTION_ID,
+  DELIVERABLE_GROUP_B,
   DEADLINE_ACTION_ID,
   LIVE_DATE_ACTION_ID,
   EMAIL_POLICY_BLOCK_ID,
@@ -283,16 +285,16 @@ export function registerOpenModalAction(app: App): void {
   // When the user changes the Request Type dropdown, show or hide the
   // email-policy banner accordingly. This keeps the warning in front
   // of the user before they submit, not just at the start.
-  app.action(REQUEST_TYPE_ACTION_ID, async ({ ack, body, client }) => {
+  // When a deliverable checkbox is toggled, re-render the policy note so it
+  // reflects exactly what's currently checked (press-release cost, draft /
+  // talking-points requirements). The note sits right under the checkbox
+  // groups.
+  app.action(DELIVERABLES_ACTION_ID, async ({ ack, body, client }) => {
     await ack();
 
     try {
       const view = (body as any).view;
       if (!view) return;
-
-      const action = (body as any).actions?.[0];
-      const newRequestType = action?.selected_option?.value as string | undefined;
-      if (!newRequestType) return;
 
       let metadata: { channelId: string; threadTs: string };
       try {
@@ -301,54 +303,31 @@ export function registerOpenModalAction(app: App): void {
         return;
       }
 
-      const newBanner = emailPolicyBlock(newRequestType, metadata.channelId);
+      // Read ALL currently-checked deliverables from both checkbox groups —
+      // the action payload only reports the single toggled box.
+      const vals = view.state?.values ?? {};
+      const selectedTypes: string[] = [
+        ...(vals.deliverable_types_a?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []),
+        ...(vals.deliverable_types_b?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []),
+      ].map((o: any) => o.value as string);
 
-      // Strip any existing banner block, then conditionally insert a
-      // fresh one right after the request_type input.
+      const newNote = deliverablePolicyNote(selectedTypes, metadata.channelId);
+
+      // Strip the existing note, then re-insert a fresh one right after the
+      // second checkbox group.
       const filtered = (view.blocks ?? []).filter(
         (b: any) => b.block_id !== EMAIL_POLICY_BLOCK_ID,
       );
-
-      if (newBanner) {
-        const requestTypeIdx = filtered.findIndex(
-          (b: any) => b.block_id === 'request_type',
+      if (newNote) {
+        const groupBIdx = filtered.findIndex(
+          (b: any) => b.block_id === DELIVERABLE_GROUP_B,
         );
-        if (requestTypeIdx >= 0) {
-          filtered.splice(requestTypeIdx + 1, 0, newBanner);
+        if (groupBIdx >= 0) {
+          filtered.splice(groupBIdx + 1, 0, newNote);
         } else {
-          filtered.unshift(newBanner);
+          filtered.unshift(newNote);
         }
       }
-
-      // Rebuild the draft_source block — required state and hint text
-      // depend on the request type. Keep the same block_id so Slack
-      // preserves any user-entered text.
-      const { draftBlock } = await import('../lib/modals/request-modal');
-      const newDraft = draftBlock(newRequestType);
-      const draftIdx = filtered.findIndex(
-        (b: any) => b.block_id === 'draft_source',
-      );
-      if (draftIdx >= 0) {
-        filtered[draftIdx] = newDraft;
-      }
-
-      // Keep the contextual "Schedule a call" block in sync — it sits
-      // right under the draft field, only when the request type has
-      // a policy. Strip the old one and conditionally re-insert.
-      const filteredWithoutSchedule = filtered.filter(
-        (b: any) => b.block_id !== SCHEDULE_CALL_BLOCK_ID,
-      );
-      const newScheduleBlock = scheduleCallBlock(newRequestType);
-      if (newScheduleBlock) {
-        const newDraftIdx = filteredWithoutSchedule.findIndex(
-          (b: any) => b.block_id === 'draft_source',
-        );
-        if (newDraftIdx >= 0) {
-          filteredWithoutSchedule.splice(newDraftIdx + 1, 0, newScheduleBlock);
-        }
-      }
-      filtered.length = 0;
-      filtered.push(...filteredWithoutSchedule);
 
       await client.views.update({
         view_id: view.id,
@@ -364,7 +343,7 @@ export function registerOpenModalAction(app: App): void {
         },
       });
     } catch (err) {
-      console.error('[intake-modal] request-type-change action failed:', err);
+      console.error('[intake-modal] deliverables-change action failed:', err);
     }
   });
 

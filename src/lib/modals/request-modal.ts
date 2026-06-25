@@ -239,7 +239,14 @@ export function buildRequestModal(
     },
     deliverableCheckboxBlock(DELIVERABLE_GROUP_A, 'Content & comms', deliverableOptions(DELIVERABLE_GROUP_A_VALUES), selectedTypes),
     deliverableCheckboxBlock(DELIVERABLE_GROUP_B, 'Web, design & promotion', deliverableOptions(DELIVERABLE_GROUP_B_VALUES), selectedTypes),
-    deliverablePolicyNote(),
+  );
+
+  // Policy note for whatever's checked at open time (prefilled / conversational
+  // requests). Re-rendered on toggle by the DELIVERABLES_ACTION_ID handler.
+  const initialPolicyNote = deliverablePolicyNote(selectedTypes, metadata.channelId);
+  if (initialPolicyNote) blocks.push(initialPolicyNote);
+
+  blocks.push(
     deliverableBlock(parsed.deliverable),
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
@@ -345,6 +352,9 @@ export function buildRequestModal(
 // both block_ids back into one deliverables list.
 export const DELIVERABLE_GROUP_A = 'deliverable_types_a';
 export const DELIVERABLE_GROUP_B = 'deliverable_types_b';
+// Fired (dispatch_action) when a deliverable checkbox is toggled, so the
+// policy note can re-render to match what's currently checked.
+export const DELIVERABLES_ACTION_ID = 'sage_v2_deliverables_change';
 
 const DELIVERABLE_GROUP_A_VALUES = [
   'blog', 'ebook', 'document', 'email', 'press_release', 'research', 'presentation',
@@ -367,7 +377,7 @@ function deliverableCheckboxBlock(
 ): any {
   const element: any = {
     type: 'checkboxes',
-    action_id: 'value',
+    action_id: DELIVERABLES_ACTION_ID,
     options: options.map(({ value, label }) => ({
       value,
       text: { type: 'plain_text', text: label },
@@ -386,25 +396,40 @@ function deliverableCheckboxBlock(
     // Both groups optional at the block level; submission enforces that at
     // least one deliverable is checked across the two.
     optional: true,
+    // Re-render the policy note when a box is toggled.
+    dispatch_action: true,
     label: { type: 'plain_text', text: label, emoji: true },
     element,
   };
 }
 
-// Static expectations note shown under the deliverables picker. Replaces
-// the old dynamic per-type policy banner (a multi-select can't re-render
-// mid-selection without disrupting the picker). The draft requirement is
-// still enforced at submission for any policy-bearing type selected.
-function deliverablePolicyNote(): any {
-  return {
-    type: 'context',
-    elements: [
-      {
-        type: 'mrkdwn',
-        text: ':information_source: Heads up: press releases carry a cost, and emails, blog posts, presentations & landing pages need a draft or talking points to begin — you can add a link below.',
-      },
-    ],
-  };
+// Dynamic policy note shown directly under the deliverables checkboxes.
+// Lists the specific expectation for each CHECKED deliverable that has a
+// policy (press-release cost, draft/talking-points requirements). Returns
+// null when nothing checked needs a note. Re-rendered on each toggle by
+// the DELIVERABLES_ACTION_ID handler. Slack can't place a note between
+// individual checkboxes, so it sits just beneath the groups.
+export function deliverablePolicyNote(
+  selectedTypes: string[],
+  channelId: string,
+): any | null {
+  // Group checked deliverables by their resolved policy text so shared
+  // policies (e.g. talking points) list all the relevant deliverables once.
+  const byText = new Map<string, string[]>();
+  for (const t of selectedTypes) {
+    const resolved = requestTypePolicy(t, channelId);
+    if (!resolved) continue;
+    const label = REQUEST_TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
+    const arr = byText.get(resolved.text) ?? [];
+    arr.push(label);
+    byText.set(resolved.text, arr);
+  }
+  if (byText.size === 0) return null;
+  const elements = Array.from(byText.entries()).map(([text, labels]) => {
+    const clean = text.replace(/^:warning:\s*\*Heads up:\*\s*/i, '');
+    return { type: 'mrkdwn', text: `:warning: *${labels.join(', ')}:* ${clean}` };
+  });
+  return { type: 'context', block_id: POLICY_BLOCK_ID, elements };
 }
 
 function deliverableBlock(initial: string | null | undefined): any {

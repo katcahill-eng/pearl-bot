@@ -25,10 +25,10 @@ describe('parseModalState', () => {
   it('extracts a fully-populated modal state', () => {
     const values = {
       deliverable_types_a: {
-        value: { selected_options: [{ value: 'email' }] },
+        sage_v2_deliverables_change: { selected_options: [{ value: 'email' }] },
       },
       deliverable_types_b: {
-        value: { selected_options: [{ value: 'webinar' }] },
+        sage_v2_deliverables_change: { selected_options: [{ value: 'webinar' }] },
       },
       deliverable: { value: { value: 'Registration email for May 12 webinar' } },
       audience: { value: { value: 'real estate agents' } },

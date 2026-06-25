@@ -14,7 +14,7 @@
  */
 
 import type { App } from '@slack/bolt';
-import { CALLBACK_ID } from '../lib/modals/request-modal';
+import { CALLBACK_ID, DELIVERABLES_ACTION_ID } from '../lib/modals/request-modal';
 import { divisionForChannel, type Division } from '../lib/division-lookup';
 import {
   resolveMondayUserId,
@@ -111,10 +111,10 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
   // Merge them; the first selected type acts as the implicit "primary" for
   // policy/recommendation logic that still keys off a single requestType.
   const groupA: string[] = (
-    v.deliverable_types_a?.value?.selected_options ?? []
+    v.deliverable_types_a?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []
   ).map((o: any) => o.value as string);
   const groupB: string[] = (
-    v.deliverable_types_b?.value?.selected_options ?? []
+    v.deliverable_types_b?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []
   ).map((o: any) => o.value as string);
   const deliverables: string[] = [...groupA, ...groupB];
   const requestType = deliverables[0] ?? null;
