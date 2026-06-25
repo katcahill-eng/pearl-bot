@@ -107,12 +107,16 @@ export interface ModalMetadata {
 export function parseModalState(viewStateValues: any): ParsedModalState {
   const v = viewStateValues ?? {};
 
-  // Deliverables multi-select. The first selected type acts as the
-  // implicit "primary" for policy/recommendation logic that still keys
-  // off a single requestType.
-  const deliverables: string[] = (
-    v.deliverable_types?.value?.selected_options ?? []
+  // Deliverables are two checkbox groups (Slack caps a group at 10 options).
+  // Merge them; the first selected type acts as the implicit "primary" for
+  // policy/recommendation logic that still keys off a single requestType.
+  const groupA: string[] = (
+    v.deliverable_types_a?.value?.selected_options ?? []
   ).map((o: any) => o.value as string);
+  const groupB: string[] = (
+    v.deliverable_types_b?.value?.selected_options ?? []
+  ).map((o: any) => o.value as string);
+  const deliverables: string[] = [...groupA, ...groupB];
   const requestType = deliverables[0] ?? null;
 
   const deliverable =
@@ -199,6 +203,18 @@ export function registerViewSubmissionHandler(app: App): void {
       'social_media',
       'document',
     ]);
+
+    // At least one deliverable must be checked (both checkbox groups are
+    // block-level optional, so enforce the combined requirement here).
+    if (state.deliverables.length === 0) {
+      await ack({
+        response_action: 'errors',
+        errors: {
+          deliverable_types_a: 'Select at least one deliverable (check all that apply across both groups).',
+        },
+      });
+      return;
+    }
 
     const draftRequired = state.deliverables.some((d) => policyTypes.has(d));
     const draftMissing =

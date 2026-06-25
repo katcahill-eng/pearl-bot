@@ -230,7 +230,15 @@ export function buildRequestModal(
       type: 'header',
       text: { type: 'plain_text', text: 'Request details', emoji: true },
     },
-    deliverablesBlock(selectedTypes),
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '*What do you need?* Check all that apply for this project — each one you pick becomes its own tracked item on Monday.',
+      },
+    },
+    deliverableCheckboxBlock(DELIVERABLE_GROUP_A, 'Content & comms', deliverableOptions(DELIVERABLE_GROUP_A_VALUES), selectedTypes),
+    deliverableCheckboxBlock(DELIVERABLE_GROUP_B, 'Web, design & promotion', deliverableOptions(DELIVERABLE_GROUP_B_VALUES), selectedTypes),
     deliverablePolicyNote(),
     deliverableBlock(parsed.deliverable),
     audienceBlock(parsed.audience),
@@ -331,22 +339,41 @@ export function buildRequestModal(
 
 // --- Block builders ---
 
-// Single multi-select of deliverables — replaces the old primary +
-// additional dropdowns. Pick one or many; each becomes its own tracked
-// item on Monday.
-function deliverablesBlock(initial: string[] | null | undefined): any {
-  const selected = (initial ?? [])
+// Deliverables are shown as CHECKBOXES (not a dropdown) so it's obvious you
+// can pick several. Slack caps a checkbox group at 10 options and we have
+// 15, so they're split into two labeled groups. parseModalState merges
+// both block_ids back into one deliverables list.
+export const DELIVERABLE_GROUP_A = 'deliverable_types_a';
+export const DELIVERABLE_GROUP_B = 'deliverable_types_b';
+
+const DELIVERABLE_GROUP_A_VALUES = [
+  'blog', 'ebook', 'document', 'email', 'press_release', 'research', 'presentation',
+];
+const DELIVERABLE_GROUP_B_VALUES = [
+  'landing_page', 'website_update', 'graphic', 'social_media', 'advertising', 'webinar', 'event', 'other',
+];
+
+function deliverableOptions(values: string[]): { value: string; label: string }[] {
+  return values
     .map((v) => REQUEST_TYPE_OPTIONS.find((o) => o.value === v))
     .filter(Boolean) as { value: string; label: string }[];
+}
+
+function deliverableCheckboxBlock(
+  blockId: string,
+  label: string,
+  options: { value: string; label: string }[],
+  initial: string[],
+): any {
   const element: any = {
-    type: 'multi_static_select',
+    type: 'checkboxes',
     action_id: 'value',
-    placeholder: { type: 'plain_text', text: 'Select all that apply' },
-    options: REQUEST_TYPE_OPTIONS.map(({ value, label }) => ({
+    options: options.map(({ value, label }) => ({
       value,
       text: { type: 'plain_text', text: label },
     })),
   };
+  const selected = options.filter((o) => initial.includes(o.value));
   if (selected.length > 0) {
     element.initial_options = selected.map(({ value, label }) => ({
       value,
@@ -355,13 +382,11 @@ function deliverablesBlock(initial: string[] | null | undefined): any {
   }
   return {
     type: 'input',
-    block_id: 'deliverable_types',
-    label: { type: 'plain_text', text: 'What do you need?', emoji: true },
-    hint: {
-      type: 'plain_text',
-      text: 'Select everything this request needs. Pick more than one and each becomes its own tracked item on Monday.',
-      emoji: true,
-    },
+    block_id: blockId,
+    // Both groups optional at the block level; submission enforces that at
+    // least one deliverable is checked across the two.
+    optional: true,
+    label: { type: 'plain_text', text: label, emoji: true },
     element,
   };
 }

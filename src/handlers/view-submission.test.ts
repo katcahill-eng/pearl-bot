@@ -24,8 +24,11 @@ import {
 describe('parseModalState', () => {
   it('extracts a fully-populated modal state', () => {
     const values = {
-      deliverable_types: {
-        value: { selected_options: [{ value: 'webinar' }, { value: 'email' }] },
+      deliverable_types_a: {
+        value: { selected_options: [{ value: 'email' }] },
+      },
+      deliverable_types_b: {
+        value: { selected_options: [{ value: 'webinar' }] },
       },
       deliverable: { value: { value: 'Registration email for May 12 webinar' } },
       audience: { value: { value: 'real estate agents' } },
@@ -48,8 +51,8 @@ describe('parseModalState', () => {
 
     const state = parseModalState(values);
 
-    expect(state.deliverables).toEqual(['webinar', 'email']);
-    expect(state.requestType).toBe('webinar'); // first selected = implicit primary
+    expect(state.deliverables).toEqual(['email', 'webinar']); // group A then group B
+    expect(state.requestType).toBe('email'); // first selected = implicit primary
     expect(state.deliverable).toContain('Registration email');
     expect(state.audience).toBe('real estate agents');
     expect(state.eventOrProject).toBe('Realtor Association webinar');
