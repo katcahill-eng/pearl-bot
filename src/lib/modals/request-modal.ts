@@ -234,7 +234,7 @@ export function buildRequestModal(
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: '*What do you need?* Select at least one.',
+        text: '*What do you need?*',
       },
     },
     deliverableCheckboxBlock(DELIVERABLE_GROUP_COMMON, 'Common requests', deliverableOptions(DELIVERABLE_COMMON_VALUES), selectedTypes),

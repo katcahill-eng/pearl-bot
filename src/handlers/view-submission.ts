@@ -210,7 +210,7 @@ export function registerViewSubmissionHandler(app: App): void {
       await ack({
         response_action: 'errors',
         errors: {
-          deliverable_types_a: 'Select at least one deliverable (check all that apply across both groups).',
+          deliverable_types_a: 'Select at least one deliverable.',
         },
       });
       return;
