@@ -146,9 +146,9 @@ const REQUEST_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'presentation', label: 'Presentation / deck' },
   { value: 'press_release', label: 'Press release' },
   { value: 'event', label: 'Event / conference support' },
-  { value: 'product_launch', label: 'Product launch' },
   { value: 'landing_page', label: 'Landing page / website' },
   { value: 'social_media', label: 'Social media' },
+  { value: 'advertising', label: 'Advertising / paid ads' },
   { value: 'document', label: 'Document / one-pager' },
   { value: 'research', label: 'Research / analysis' },
   { value: 'other', label: 'Other' },
@@ -336,7 +336,12 @@ function requestTypeBlock(initial: string | null | undefined): any {
     // dispatch_action so the email-policy banner can show/hide
     // when the user changes the selection.
     dispatch_action: true,
-    label: { type: 'plain_text', text: 'Request Type', emoji: true },
+    label: { type: 'plain_text', text: 'Primary deliverable', emoji: true },
+    hint: {
+      type: 'plain_text',
+      text: 'The main thing you need. If your request includes several deliverables, pick the primary one here and describe the rest below.',
+      emoji: true,
+    },
     element: {
       type: 'static_select',
       action_id: REQUEST_TYPE_ACTION_ID,
@@ -394,14 +399,24 @@ function eventOrProjectBlock(initial: string | null | undefined): any {
   return {
     type: 'input',
     block_id: 'event_or_project',
+    optional: true,
     label: {
       type: 'plain_text',
-      text: "Event or project (or 'N/A' if standalone)",
+      text: 'Related event or project',
+      emoji: true,
+    },
+    hint: {
+      type: 'plain_text',
+      text: 'If this is part of a bigger event, launch, or campaign, name it here. Leave blank if it stands on its own.',
       emoji: true,
     },
     element: {
       type: 'plain_text_input',
       action_id: 'value',
+      placeholder: {
+        type: 'plain_text',
+        text: 'e.g. NAR Houston, Pearl Pro launch',
+      },
       ...(initial ? { initial_value: initial } : {}),
     },
   };
