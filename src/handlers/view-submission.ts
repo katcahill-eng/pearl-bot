@@ -110,13 +110,13 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
   // Deliverables are two checkbox groups (Slack caps a group at 10 options).
   // Merge them; the first selected type acts as the implicit "primary" for
   // policy/recommendation logic that still keys off a single requestType.
-  const groupA: string[] = (
+  const common: string[] = (
     v.deliverable_types_a?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []
   ).map((o: any) => o.value as string);
-  const groupB: string[] = (
-    v.deliverable_types_b?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []
+  const more: string[] = (
+    v.deliverable_types_more?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []
   ).map((o: any) => o.value as string);
-  const deliverables: string[] = [...groupA, ...groupB];
+  const deliverables: string[] = [...common, ...more];
   const requestType = deliverables[0] ?? null;
 
   const deliverable =

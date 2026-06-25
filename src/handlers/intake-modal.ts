@@ -30,7 +30,7 @@ import {
   scheduleCallBlock,
   deliverablePolicyNote,
   DELIVERABLES_ACTION_ID,
-  DELIVERABLE_GROUP_B,
+  DELIVERABLE_GROUP_MORE,
   DEADLINE_ACTION_ID,
   LIVE_DATE_ACTION_ID,
   EMAIL_POLICY_BLOCK_ID,
@@ -311,7 +311,7 @@ export function registerOpenModalAction(app: App): void {
       const vals = view.state?.values ?? {};
       const selectedTypes: string[] = [
         ...(vals.deliverable_types_a?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []),
-        ...(vals.deliverable_types_b?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []),
+        ...(vals.deliverable_types_more?.[DELIVERABLES_ACTION_ID]?.selected_options ?? []),
       ].map((o: any) => o.value as string);
 
       const newNote = deliverablePolicyNote(selectedTypes, metadata.channelId);
@@ -322,11 +322,11 @@ export function registerOpenModalAction(app: App): void {
         (b: any) => b.block_id !== EMAIL_POLICY_BLOCK_ID,
       );
       if (newNote) {
-        const groupBIdx = filtered.findIndex(
-          (b: any) => b.block_id === DELIVERABLE_GROUP_B,
+        const moreIdx = filtered.findIndex(
+          (b: any) => b.block_id === DELIVERABLE_GROUP_MORE,
         );
-        if (groupBIdx >= 0) {
-          filtered.splice(groupBIdx + 1, 0, newNote);
+        if (moreIdx >= 0) {
+          filtered.splice(moreIdx + 1, 0, newNote);
         } else {
           filtered.unshift(newNote);
         }

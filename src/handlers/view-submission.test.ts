@@ -27,7 +27,7 @@ describe('parseModalState', () => {
       deliverable_types_a: {
         sage_v2_deliverables_change: { selected_options: [{ value: 'email' }] },
       },
-      deliverable_types_b: {
+      deliverable_types_more: {
         sage_v2_deliverables_change: { selected_options: [{ value: 'webinar' }] },
       },
       deliverable: { value: { value: 'Registration email for May 12 webinar' } },

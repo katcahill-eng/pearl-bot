@@ -237,8 +237,8 @@ export function buildRequestModal(
         text: '*What do you need?* Check all that apply.',
       },
     },
-    deliverableCheckboxBlock(DELIVERABLE_GROUP_A, 'Content & communications', deliverableOptions(DELIVERABLE_GROUP_A_VALUES), selectedTypes),
-    deliverableCheckboxBlock(DELIVERABLE_GROUP_B, 'Web, design & promotion', deliverableOptions(DELIVERABLE_GROUP_B_VALUES), selectedTypes),
+    deliverableCheckboxBlock(DELIVERABLE_GROUP_COMMON, 'Common requests', deliverableOptions(DELIVERABLE_COMMON_VALUES), selectedTypes),
+    deliverableMoreDropdown(DELIVERABLE_GROUP_MORE, deliverableOptions(DELIVERABLE_MORE_VALUES), selectedTypes),
   );
 
   // Policy note for whatever's checked at open time (prefilled / conversational
@@ -350,17 +350,20 @@ export function buildRequestModal(
 // can pick several. Slack caps a checkbox group at 10 options and we have
 // 15, so they're split into two labeled groups. parseModalState merges
 // both block_ids back into one deliverables list.
-export const DELIVERABLE_GROUP_A = 'deliverable_types_a';
-export const DELIVERABLE_GROUP_B = 'deliverable_types_b';
+// Common deliverables show as visible checkboxes; rarer ones live in a
+// "More options" dropdown to keep the form short. Policy-bearing types
+// (draft required) stay in the checkbox group so their live warning fires.
+export const DELIVERABLE_GROUP_COMMON = 'deliverable_types_a';
+export const DELIVERABLE_GROUP_MORE = 'deliverable_types_more';
 // Fired (dispatch_action) when a deliverable checkbox is toggled, so the
 // policy note can re-render to match what's currently checked.
 export const DELIVERABLES_ACTION_ID = 'sage_v2_deliverables_change';
 
-const DELIVERABLE_GROUP_A_VALUES = [
-  'blog', 'ebook', 'document', 'email', 'press_release', 'research', 'presentation',
+const DELIVERABLE_COMMON_VALUES = [
+  'email', 'social_media', 'graphic', 'landing_page', 'blog', 'presentation', 'press_release', 'event',
 ];
-const DELIVERABLE_GROUP_B_VALUES = [
-  'landing_page', 'website_update', 'graphic', 'social_media', 'advertising', 'webinar', 'event', 'other',
+const DELIVERABLE_MORE_VALUES = [
+  'website_update', 'advertising', 'webinar', 'ebook', 'document', 'research', 'other',
 ];
 
 function deliverableOptions(values: string[]): { value: string; label: string }[] {
@@ -393,12 +396,46 @@ function deliverableCheckboxBlock(
   return {
     type: 'input',
     block_id: blockId,
-    // Both groups optional at the block level; submission enforces that at
-    // least one deliverable is checked across the two.
+    // Optional at the block level; submission enforces that at least one
+    // deliverable is selected across the checkboxes + the More dropdown.
     optional: true,
     // Re-render the policy note when a box is toggled.
     dispatch_action: true,
     label: { type: 'plain_text', text: label, emoji: true },
+    element,
+  };
+}
+
+// Less-common deliverables live in a multi-select dropdown to keep the form
+// short. No dispatch_action (a dropdown re-render would close the menu
+// mid-pick); its selections are still merged at parse time, and the policy
+// note refreshes to include them whenever a checkbox is toggled.
+function deliverableMoreDropdown(
+  blockId: string,
+  options: { value: string; label: string }[],
+  initial: string[],
+): any {
+  const element: any = {
+    type: 'multi_static_select',
+    action_id: DELIVERABLES_ACTION_ID,
+    placeholder: { type: 'plain_text', text: 'Pick any that apply' },
+    options: options.map(({ value, label }) => ({
+      value,
+      text: { type: 'plain_text', text: label },
+    })),
+  };
+  const selected = options.filter((o) => initial.includes(o.value));
+  if (selected.length > 0) {
+    element.initial_options = selected.map(({ value, label }) => ({
+      value,
+      text: { type: 'plain_text', text: label },
+    }));
+  }
+  return {
+    type: 'input',
+    block_id: blockId,
+    optional: true,
+    label: { type: 'plain_text', text: 'More options (less common)', emoji: true },
     element,
   };
 }
