@@ -76,6 +76,39 @@ async function getTopKeywords(domain: string, limit = 20) {
   }));
 }
 
+/** Paid-search keywords a competitor bids on (domain_adwords). */
+async function getPaidKeywords(domain: string, limit = 15) {
+  const rows = await call({
+    type: 'domain_adwords',
+    domain,
+    display_limit: String(limit),
+    export_columns: 'Ph,Po,Cp,Nq,Ur',
+    display_sort: 'tr_desc',
+  });
+  return rows.map((r) => ({
+    phrase: r['Keyword'] ?? r['Ph'] ?? '',
+    position: num(r['Position'] ?? r['Po']) ?? 0,
+    cpc: num(r['CPC'] ?? r['Cp']) ?? 0,
+    volume: num(r['Search Volume'] ?? r['Nq']) ?? 0,
+    url: r['Url'] ?? r['Ur'] ?? '',
+  }));
+}
+
+/** Actual ad copy a competitor runs (domain_adwords_unique). */
+async function getAdCopies(domain: string, limit = 10) {
+  const rows = await call({
+    type: 'domain_adwords_unique',
+    domain,
+    display_limit: String(limit),
+    export_columns: 'Tt,Ds,Vu',
+  });
+  return rows.map((r) => ({
+    title: r['Title'] ?? r['Tt'] ?? '',
+    description: r['Description'] ?? r['Ds'] ?? '',
+    visibleUrl: r['Visible Url'] ?? r['Vu'] ?? '',
+  }));
+}
+
 function num(v: string | undefined): number | undefined {
   if (v === undefined || v === '') return undefined;
   const n = Number(v);
@@ -85,11 +118,13 @@ function num(v: string | undefined): number | undefined {
 /** Full snapshot for one competitor domain. Never throws — returns {error}. */
 export async function snapshot(domain: string): Promise<SemrushSnapshot> {
   try {
-    const [overview, topKeywords] = await Promise.all([
+    const [overview, topKeywords, paidKeywords, adCopies] = await Promise.all([
       getOverview(domain),
       getTopKeywords(domain).catch(() => []),
+      getPaidKeywords(domain).catch(() => []),
+      getAdCopies(domain).catch(() => []),
     ]);
-    return { domain, ...overview, topKeywords };
+    return { domain, ...overview, topKeywords, paidKeywords, adCopies };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown';
     return { domain, error: message };

@@ -57,6 +57,11 @@ export const ciConfig = {
   deckId: process.env.COMPETITOR_INTEL_DECK_ID ?? '',
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
 
+  // Sprout Social Listening (optional — graceful skip if unset/not indexed)
+  sproutApiToken: process.env.SPROUT_API_TOKEN ?? '',
+  sproutCustomerId: process.env.SPROUT_CUSTOMER_ID ?? '2795704',
+  sproutTopicName: process.env.SPROUT_TOPIC_NAME ?? 'Pearl Competitive Intelligence',
+
   // Synthesis model — defaults to the Sonnet Sage already uses; bump to
   // claude-opus-4-8 here (or via env) for higher-grade board synthesis.
   model: process.env.COMPETITOR_INTEL_MODEL ?? 'claude-sonnet-4-20250514',

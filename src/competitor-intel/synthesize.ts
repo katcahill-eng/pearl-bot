@@ -9,32 +9,52 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ciConfig } from './config';
 import { loadWatchlist } from './watchlist';
 import type { RawResearch } from './collect';
-import type { AiVisibilityResult, SemrushSnapshot, WeeklySynthesis } from './types';
+import type {
+  AiVisibilityResult,
+  SemrushSnapshot,
+  SproutSOV,
+  VerifiedFinding,
+  WeeklySynthesis,
+} from './types';
 
 const anthropic = new Anthropic({ apiKey: ciConfig.anthropicApiKey });
 
 export interface SynthesisInput {
   runDate: string;
-  competitorNews: RawResearch[];
-  themes: RawResearch[];
+  verified: VerifiedFinding[]; // from the corroboration node
   newEntrants: RawResearch;
   semrush: SemrushSnapshot[];
+  sprout: SproutSOV;
   aiVisibility: AiVisibilityResult[];
   priorTake?: string; // last week's analyst take, for "what changed"
 }
 
 function buildPrompt(input: SynthesisInput): string {
   const wl = loadWatchlist();
-  const block = (arr: RawResearch[]) =>
-    arr.map((r) => `### ${r.subject}\n${r.text}\nSources: ${r.citations.join(', ')}`).join('\n\n');
+
+  const verifiedBlock = input.verified.length
+    ? input.verified
+        .map(
+          (f) =>
+            `[${f.confidence.toUpperCase()}] ${f.competitor} — ${f.headline} (${f.detail}) ` +
+            `[${f.sourceCount} src, best: ${f.bestSourceType}]`,
+        )
+        .join('\n')
+    : 'No material developments this period.';
 
   const semrushBlock = input.semrush
-    .map((s) =>
-      s.error
-        ? `${s.domain}: (no data — ${s.error})`
-        : `${s.domain}: organic keywords ${s.organicKeywords ?? '?'}, organic traffic ${s.organicTraffic ?? '?'}, adwords keywords ${s.adwordsKeywords ?? '?'}`,
-    )
+    .map((s) => {
+      if (s.error) return `${s.domain}: (no data — ${s.error})`;
+      const topAd = s.adCopies?.[0]?.title ? ` | sample ad: "${s.adCopies[0].title}"` : '';
+      return `${s.domain}: organic kw ${s.organicKeywords ?? '?'}, organic traffic ${s.organicTraffic ?? '?'}, paid/adwords kw ${s.adwordsKeywords ?? '?'}${topAd}`;
+    })
     .join('\n');
+
+  const sproutBlock = input.sprout.available
+    ? input.sprout.brands
+        .map((b) => `${b.name}: ${b.sovPct}% SOV (${b.volume} mentions)` + (b.sentimentNegative != null ? `, neg ${b.sentimentNegative}` : ''))
+        .join('\n')
+    : `(social share-of-voice unavailable: ${input.sprout.note ?? 'pending'})`;
 
   const aivBlock = input.aiVisibility
     .map(
@@ -49,14 +69,18 @@ function buildPrompt(input: SynthesisInput): string {
     `score covering all 5 for existing homes; competitors typically cover 1-2. Find where`,
     `competitors are exposed and where Pearl can take ground (product, marketing, positioning).`,
     ``,
-    input.priorTake ? `LAST WEEK'S TAKE (for "what changed"):\n${input.priorTake}\n` : ``,
-    `=== COMPETITOR NEWS (last 7 days) ===\n${block(input.competitorNews)}`,
+    `IMPORTANT — weight findings by confidence. Lead with CONFIRMED items. Treat REPORTED items`,
+    `as likely. For UNVERIFIED items (e.g. a competitor's own social post), hedge explicitly`,
+    `("reportedly", "per their own channel, unconfirmed") — never state them as established fact.`,
     ``,
-    `=== STANDING THEMES ===\n${block(input.themes)}`,
+    input.priorTake ? `LAST WEEK'S TAKE (for "what changed"):\n${input.priorTake}\n` : ``,
+    `=== VERIFIED FINDINGS (with confidence) ===\n${verifiedBlock}`,
     ``,
     `=== NEW-ENTRANT SCOUTING ===\n${input.newEntrants.text}\nSources: ${input.newEntrants.citations.join(', ')}`,
     ``,
-    `=== SEMRUSH SNAPSHOT ===\n${semrushBlock}`,
+    `=== SEMRUSH SNAPSHOT (search + paid ads) ===\n${semrushBlock}`,
+    ``,
+    `=== SOCIAL SHARE OF VOICE (Sprout Listening) ===\n${sproutBlock}`,
     ``,
     `=== AI-ANSWER VISIBILITY ===\n${aivBlock}`,
     ``,

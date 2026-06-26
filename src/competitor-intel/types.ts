@@ -45,7 +45,46 @@ export interface SemrushSnapshot {
   organicCost?: number;
   adwordsKeywords?: number;
   topKeywords?: Array<{ phrase: string; position: number; volume: number; url: string }>;
+  paidKeywords?: Array<{ phrase: string; position: number; cpc: number; volume: number; url: string }>;
+  adCopies?: Array<{ title: string; description: string; visibleUrl: string }>;
   error?: string;
+}
+
+/** Sprout Listening competitor share-of-voice + sentiment (one weekly pull). */
+export interface SproutSOV {
+  available: boolean; // false when topic not yet indexed / no data
+  topicId?: string;
+  note?: string;
+  brands: Array<{
+    name: string;
+    volume: number; // mention volume
+    sovPct: number; // share of voice %
+    sentimentPositive?: number;
+    sentimentNeutral?: number;
+    sentimentNegative?: number;
+  }>;
+}
+
+/** Confidence assigned by the corroboration node. */
+export type Confidence = 'confirmed' | 'reported' | 'unverified';
+
+/** A material finding after corroboration — only verified facts reach synthesis. */
+export interface VerifiedFinding {
+  competitor: string;
+  headline: string;
+  detail: string;
+  category: string;
+  confidence: Confidence; // confirmed = 2+ independent/authoritative; reported = single credible; unverified = social/single weak
+  sourceCount: number;
+  bestSourceType: string; // e.g. "press", "company social", "filing"
+  sources: string[];
+}
+
+/** A deck-design-node slide spec — deliberately low-text. */
+export interface SlideSpec {
+  title: string;
+  bullets: string[]; // max ~3, short
+  callout?: string; // one highlighted data point or takeaway
 }
 
 /** Who shows up when AI engines answer a category question. */

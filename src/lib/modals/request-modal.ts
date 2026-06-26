@@ -45,7 +45,7 @@ const TALKING_POINTS_POLICY_TEXT =
   ":warning: *Heads up:* You will need to provide talking points (audience, goal, key info) before Marketing can start.";
 
 const PRESS_RELEASE_POLICY_TEXT_DIVISION =
-  ":warning: *Heads up:* If you need a press release written, the fee ($500–$2,000 depending on length) is charged back to your division's budget. If you already have a draft, just paste it in the draft field below and Marketing will take it from there.";
+  ":warning: *Heads up:* Publishing a press release carries a fee ($500–$2,000 depending on length), charged back to your division's budget. Paste your draft or talking points in the field below and Marketing will take it from there.";
 
 const PRESS_RELEASE_POLICY_TEXT_CORPORATE =
   ":warning: *Heads up:* Corporate messaging press release costs are covered by Marketing. If you already have a draft, just paste it in the draft field below and Marketing will take it from there.";

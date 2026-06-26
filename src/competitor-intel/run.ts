@@ -17,10 +17,28 @@ import { loadWatchlist } from './watchlist';
 import { collectCompetitorNews, collectThemes, scoutNewEntrants } from './collect';
 import { snapshot } from './sources/semrush';
 import { runAiVisibility } from './sources/ai-visibility';
+import { getCompetitorSOV } from './sources/sprout';
+import { corroborate } from './nodes/corroborate';
+import { designDeck } from './nodes/deck-design';
 import { synthesize } from './synthesize';
 import { ensureSheet, writeWeek, readLatestTake } from './sinks/sheet';
 import { buildDeck } from './sinks/slides';
 import { postWeekly } from './sinks/slack';
+import type { AiVisibilityResult, SemrushSnapshot, SproutSOV } from './types';
+
+/** Compact, number-first highlights string for the deck-design node. */
+function buildHighlights(semrush: SemrushSnapshot[], ai: AiVisibilityResult[], sprout: SproutSOV): string {
+  const seo = semrush
+    .filter((s) => !s.error)
+    .map((s) => `${s.domain} ${s.organicKeywords ?? '?'}kw/${s.organicTraffic ?? '?'} traffic`)
+    .join('; ');
+  const pearlAi = ai.filter((a) => a.pearlMentioned).length;
+  const aiLine = `Pearl in ${pearlAi}/${ai.length} AI category answers`;
+  const sovLine = sprout.available
+    ? 'social SOV: ' + sprout.brands.map((b) => `${b.name} ${b.sovPct}%`).join(', ')
+    : 'social SOV pending';
+  return `SEO: ${seo}. ${aiLine}. ${sovLine}.`;
+}
 
 /** YYYY-MM-DD in ET, computed without Date.now arithmetic gymnastics. */
 function today(): string {
