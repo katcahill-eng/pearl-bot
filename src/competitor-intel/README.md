@@ -66,6 +66,18 @@ Optional:
   `claude-opus-4-8` for higher-grade synthesis
 - `SEMRUSH_DATABASE` — defaults to `us`
 - `GEMINI_API_KEY` — second AI-visibility engine (Phase 2)
+- `SPROUT_API_TOKEN` — Sprout Listening (competitor social SOV + sentiment); graceful skip if unset
+- `SPROUT_CUSTOMER_ID` — defaults to `2795704` (Pearl)
+- `SPROUT_TOPIC_NAME` — defaults to `Pearl Competitive Intelligence` (the Listening topic to read)
+
+## Node architecture
+
+The weekly run (`run.ts`) is a pipeline of nodes:
+1. **Source nodes** (parallel) — `collect.ts` (Perplexity news/themes/new-entrants), `sources/semrush.ts` (overview + organic keywords + paid keywords + ad copy), `sources/ai-visibility.ts` (Perplexity AEO proxy), `sources/sprout.ts` (Listening SOV + sentiment).
+2. **Corroboration node** — `nodes/corroborate.ts`: labels each finding confirmed/reported/unverified by source quality (press > company social). Synthesis is told to hedge unverified claims.
+3. **Synthesis node** — `synthesize.ts`: board narrative from verified findings + data.
+4. **Deck-design node** — `nodes/deck-design.ts`: low-text slide specs (≤3 bullets, one callout/slide) → `sinks/slides.ts` renders.
+5. **Delivery node** — `sinks/{sheet,slides,slack}.ts`.
 
 ## One-time setup (before first run)
 

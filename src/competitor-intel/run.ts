@@ -50,41 +50,48 @@ export async function runWeekly(): Promise<void> {
   console.log(`[competitor-intel] starting weekly run for ${runDate}`);
   const wl = loadWatchlist();
 
-  // 1 + 2: collect qualitative + quantitative in parallel
-  const [competitorNews, themes, newEntrants, aiVisibility, semrush] = await Promise.all([
+  // SOURCE NODES (parallel): Perplexity sweeps + SEMrush + AI-visibility + Sprout
+  const [competitorNews, themes, newEntrants, aiVisibility, semrush, sprout] = await Promise.all([
     collectCompetitorNews(),
     collectThemes(),
     scoutNewEntrants().then((r) => r.raw),
     runAiVisibility(),
     Promise.all(wl.competitors.map((c) => snapshot(c.domain))),
+    getCompetitorSOV(),
   ]);
   console.log(
-    `[competitor-intel] collected: ${competitorNews.length} competitor sweeps, ` +
-      `${themes.length} themes, ${semrush.length} SEMrush, ${aiVisibility.length} AI probes`,
+    `[competitor-intel] collected: ${competitorNews.length} sweeps, ${themes.length} themes, ` +
+      `${semrush.length} SEMrush, ${aiVisibility.length} AI probes, sprout=${sprout.available}`,
   );
 
-  // 3: synthesize (needs the Sheet first so we can pass last week's take)
+  // CORROBORATION NODE: verify claims, weight by source quality
+  const verified = await corroborate([...competitorNews, ...themes]);
+  console.log(`[competitor-intel] corroborated ${verified.length} material findings`);
+
+  // SYNTHESIS NODE (needs the Sheet first so we can pass last week's take)
   const sheetId = await ensureSheet();
   const priorTake = await readLatestTake(sheetId);
   const synthesis = await synthesize({
     runDate,
-    competitorNews,
-    themes,
+    verified,
     newEntrants,
     semrush,
+    sprout,
     aiVisibility,
     priorTake,
   });
   console.log('[competitor-intel] synthesis complete');
 
-  // 4: persist
+  // PERSIST to the Sheet (system of record)
   await writeWeek(sheetId, runDate, { semrush, aiVisibility }, synthesis);
 
-  // 5: render deck
-  const { deckUrl } = await buildDeck(synthesis, aiVisibility, runDate);
+  // DECK-DESIGN NODE → render the low-text board deck
+  const highlights = buildHighlights(semrush, aiVisibility, sprout);
+  const specs = await designDeck(synthesis, highlights, runDate);
+  const { deckUrl } = await buildDeck(specs, runDate);
   const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}`;
 
-  // 6: deliver
+  // DELIVERY NODE
   await postWeekly(synthesis, { deckUrl, sheetUrl }, runDate);
   console.log(`[competitor-intel] done — posted to Slack, deck: ${deckUrl}`);
 }
