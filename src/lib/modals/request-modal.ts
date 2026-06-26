@@ -360,10 +360,10 @@ export const DELIVERABLE_GROUP_MORE = 'deliverable_types_more';
 export const DELIVERABLES_ACTION_ID = 'sage_v2_deliverables_change';
 
 const DELIVERABLE_COMMON_VALUES = [
-  'email', 'social_media', 'graphic', 'landing_page', 'blog', 'presentation', 'press_release', 'event',
+  'email', 'social_media', 'graphic', 'landing_page', 'blog', 'presentation', 'press_release', 'website_update',
 ];
 const DELIVERABLE_MORE_VALUES = [
-  'website_update', 'advertising', 'webinar', 'ebook', 'document', 'research', 'other',
+  'event', 'advertising', 'webinar', 'ebook', 'document', 'research', 'other',
 ];
 
 function deliverableOptions(values: string[]): { value: string; label: string }[] {

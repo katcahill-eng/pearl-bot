@@ -16,19 +16,20 @@ export interface RawResearch {
   citations: string[];
 }
 
-/** Per-competitor: what moved in the last week. */
-export async function collectCompetitorNews(): Promise<RawResearch[]> {
+/** Per-competitor: what moved. `recencyDays` controls the window (7 = weekly, 1 = daily pulse). */
+export async function collectCompetitorNews(recencyDays = 7): Promise<RawResearch[]> {
   const wl = loadWatchlist();
+  const window = recencyDays <= 1 ? 'the last 24-48 hours' : `the last ${recencyDays} days`;
   const out: RawResearch[] = [];
   for (const c of wl.competitors) {
     const prompt =
-      `Report only developments from the last 7 days about ${c.name} (${c.domain}), ` +
+      `Report only developments from ${window} about ${c.name} (${c.domain}), ` +
       `a company in the ${c.category} space. Cover: product launches, pricing changes, ` +
       `funding, M&A, major partnerships, executive/strategy shifts, and press coverage. ` +
       `For each item give a one-line headline, the date, and the source. ` +
-      `If nothing material happened this week, reply exactly: "No material developments."`;
+      `If nothing material happened, reply exactly: "No material developments."`;
     try {
-      const ans = await ask(prompt, { recencyDays: 7 });
+      const ans = await ask(prompt, { recencyDays });
       out.push({ subject: c.name, text: ans.text, citations: ans.citations });
     } catch (err) {
       console.error(`[collect] ${c.name} sweep failed`, err);
@@ -38,16 +39,17 @@ export async function collectCompetitorNews(): Promise<RawResearch[]> {
 }
 
 /** Standing themes (consolidation, funding in category, climate-data moves, etc.). */
-export async function collectThemes(): Promise<RawResearch[]> {
+export async function collectThemes(recencyDays = 7): Promise<RawResearch[]> {
   const wl = loadWatchlist();
+  const window = recencyDays <= 1 ? 'the last 24-48 hours' : `the last ${recencyDays} days`;
   const out: RawResearch[] = [];
   for (const theme of wl.standing_threads) {
     const prompt =
       `In the residential real estate / home-data / home-scoring / climate-risk / ` +
-      `home-energy space, report developments from the last 7 days relevant to this theme: ` +
-      `"${theme}". Give dated, sourced one-liners. If nothing this week, reply "No material developments."`;
+      `home-energy space, report developments from ${window} relevant to this theme: ` +
+      `"${theme}". Give dated, sourced one-liners. If nothing, reply "No material developments."`;
     try {
-      const ans = await ask(prompt, { recencyDays: 7 });
+      const ans = await ask(prompt, { recencyDays });
       out.push({ subject: theme, text: ans.text, citations: ans.citations });
     } catch (err) {
       console.error(`[collect] theme sweep failed: ${theme}`, err);

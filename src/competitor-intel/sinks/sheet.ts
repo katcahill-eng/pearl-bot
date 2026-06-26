@@ -22,12 +22,13 @@ import type {
   WeeklySynthesis,
 } from '../types';
 
-const TABS = ['Data', 'AI Visibility', 'Synthesis', 'Suggested'] as const;
+const TABS = ['Data', 'AI Visibility', 'Synthesis', 'Suggested', 'Events'] as const;
 const HEADERS: Record<(typeof TABS)[number], string[]> = {
   Data: ['Run Date', 'Competitor', 'Metric', 'Value', 'Notes'],
   'AI Visibility': ['Run Date', 'Prompt', 'Engine', 'Brands Cited (in order)', 'Pearl Present', 'Citation Domains'],
   Synthesis: ['Run Date', 'Analyst Take', 'Pillar Notes', 'Top Movements'],
   Suggested: ['Run Date', 'Name', 'Category', 'Reason', 'Source'],
+  Events: ['Detected', 'Competitor', 'Category', 'Headline', 'Why It Matters', 'Source', 'Dedup Key'],
 };
 
 function sheetsClient() {
@@ -147,6 +148,51 @@ export async function writeWeek(
       p.source ?? '',
     ]),
   );
+}
+
+/** Dedup keys of events already alerted (so the pulse never repeats an alert). */
+export async function readSeenEventKeys(sheetId: string): Promise<Set<string>> {
+  try {
+    const res = await sheetsClient().spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: 'Events!G2:G',
+    });
+    return new Set((res.data.values ?? []).map((r) => r[0]).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Append newly-detected material events to the Events log. */
+export async function appendEvents(
+  sheetId: string,
+  detected: string,
+  events: import('../types').MaterialEvent[],
+): Promise<void> {
+  await append(
+    sheetId,
+    'Events',
+    events.map((e) => [detected, e.competitor, e.category, e.headline, e.why, e.source, e.dedupKey]),
+  );
+}
+
+/** Last recorded AI-visibility brand list per prompt (baseline for shift detection). */
+export async function readLatestAiVisibility(sheetId: string): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  try {
+    const res = await sheetsClient().spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: 'AI Visibility!B2:D', // Prompt | Engine | Brands Cited (in order)
+    });
+    for (const row of res.data.values ?? []) {
+      const prompt = row[0];
+      const brands = (row[2] ?? '').split('>').map((s: string) => s.trim()).filter(Boolean);
+      if (prompt) map.set(prompt, brands); // later rows overwrite -> latest wins
+    }
+  } catch {
+    /* no baseline yet */
+  }
+  return map;
 }
 
 /** Most recent analyst take (for "what changed" context next run). */

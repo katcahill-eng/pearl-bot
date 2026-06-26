@@ -49,8 +49,9 @@ export async function ask(
     messages,
     temperature: 0.2,
   };
-  // Perplexity recency filter: 'week' | 'month' | 'day'
-  if (opts.recencyDays && opts.recencyDays <= 7) body.search_recency_filter = 'week';
+  // Perplexity recency filter: 'day' | 'week' | 'month'
+  if (opts.recencyDays && opts.recencyDays <= 1) body.search_recency_filter = 'day';
+  else if (opts.recencyDays && opts.recencyDays <= 7) body.search_recency_filter = 'week';
   else if (opts.recencyDays && opts.recencyDays <= 31) body.search_recency_filter = 'month';
 
   const res = await fetch(ENDPOINT, {

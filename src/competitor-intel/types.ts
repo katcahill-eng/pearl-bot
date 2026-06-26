@@ -76,6 +76,16 @@ export interface WeeklySynthesis {
   suggestedAdditions: ProposedCompetitor[];
 }
 
+/** A material event detected by the daily pulse — worth an immediate alert. */
+export interface MaterialEvent {
+  competitor: string;
+  headline: string;
+  category: 'funding' | 'm&a' | 'product' | 'pricing' | 'partnership' | 'coverage' | 'ai-visibility' | 'ranking' | 'other';
+  why: string; // why it matters to Pearl
+  source: string;
+  dedupKey: string; // stable key so we never alert the same thing twice
+}
+
 /** A flat row written to the Sheet data layer (one metric, one competitor, one week). */
 export interface SheetRow {
   runDate: string;
