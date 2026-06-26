@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "competitor-intel": "node dist/competitor-intel/run.js",
     "competitor-intel:dev": "tsx src/competitor-intel/run.ts",
+    "competitor-intel:pulse": "node dist/competitor-intel/pulse.js",
+    "competitor-intel:pulse:dev": "tsx src/competitor-intel/pulse.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

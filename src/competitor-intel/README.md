@@ -77,18 +77,36 @@ Optional:
 4. First run auto-creates the Sheet and logs its id — add it back as
    `COMPETITOR_INTEL_SHEET_ID` to reuse it.
 
+## Two cadences
+
+| Cadence | Entry | When | Output |
+|---|---|---|---|
+| **Monday briefing** | `run.ts` | Mondays ~9am ET | Full synthesis → Sheet + dated board deck + Slack post |
+| **Daily pulse** | `pulse.ts` | Mon–Fri AM | Material-change detection → lightweight Slack heads-up only |
+
+The pulse exists so you never get insight a week late. It detects **material moves**
+(funding, M&A, product/pricing launches, major partnerships, big coverage) and
+**ranking/AI-visibility shifts**, dedupes against the Sheet's `Events` tab (so the
+same item never alerts twice), and posts a compact heads-up to the same channel.
+Full analysis still rolls up into Monday's briefing.
+
 ## Running
 
 ```bash
-npm run competitor-intel:dev   # local, against live keys
-npm run competitor-intel       # built (dist) — what the cron service runs
+npm run competitor-intel:dev          # weekly briefing — local, live keys
+npm run competitor-intel              # weekly briefing — built (dist)
+npm run competitor-intel:pulse:dev    # daily pulse — local, live keys
+npm run competitor-intel:pulse        # daily pulse — built (dist)
 ```
 
-## Railway cron
+## Railway cron (two services, both sharing the env vars)
 
-Add a second service in the same project, sharing the env vars:
-- **Start command:** `npm run competitor-intel`
-- **Cron schedule:** `0 13 * * 1` (Mondays 13:00 UTC ≈ 9am ET; adjust for DST)
+1. **Weekly briefing** — start: `npm run competitor-intel` · schedule: `0 13 * * 1`
+   (Mondays 13:00 UTC ≈ 9am ET)
+2. **Daily pulse** — start: `npm run competitor-intel:pulse` · schedule: `0 12 * * 1-5`
+   (Mon–Fri 12:00 UTC ≈ 8am ET)
+
+Adjust the UTC hours for EST/EDT as needed.
 
 ## Editing the watchlist
 

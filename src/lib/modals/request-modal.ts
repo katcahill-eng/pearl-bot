@@ -475,13 +475,22 @@ function deliverableBlock(initial: string | null | undefined): any {
     block_id: 'deliverable',
     label: {
       type: 'plain_text',
-      text: 'Tell us more (context & specifics — the more detail, the better)',
+      text: 'What are you trying to accomplish, and why?',
+      emoji: true,
+    },
+    hint: {
+      type: 'plain_text',
+      text: "Tell us what you need and the goal behind it — what's driving the request, what success looks like, and any background that helps marketing get it right. The more context, the better.",
       emoji: true,
     },
     element: {
       type: 'plain_text_input',
       action_id: 'value',
       multiline: true,
+      placeholder: {
+        type: 'plain_text',
+        text: "e.g. We're exhibiting at Inman in March and want to drive booth traffic and capture leads…",
+      },
       ...(initial ? { initial_value: initial } : {}),
     },
   };
