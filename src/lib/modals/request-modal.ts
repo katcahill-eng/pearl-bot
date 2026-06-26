@@ -180,8 +180,13 @@ export function rushBannerBlock(
   liveDate: string | null | undefined,
   today: Date = new Date(),
 ): any | null {
-  const target = deadline ?? liveDate;
-  if (!target || !/^\d{4}-\d{2}-\d{2}$/.test(target)) return null;
+  // Earliest of the in-hand deadline and the go-live date — must be ready
+  // by whichever comes first, so a sooner go-live still triggers the banner.
+  const target =
+    [deadline, liveDate]
+      .filter((d): d is string => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort()[0] ?? null;
+  if (!target) return null;
   const targetDate = new Date(target + 'T00:00:00');
   const todayMidnight = new Date(today);
   todayMidnight.setHours(0, 0, 0, 0);

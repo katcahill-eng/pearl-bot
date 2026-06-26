@@ -73,7 +73,14 @@ export function assessRush(
   liveDate: string | null,
   today: Date = new Date(),
 ): RushAssessment {
-  const target = deadline ?? liveDate;
+  // Measure against the EARLIEST of the in-hand deadline and the go-live
+  // date — the work must be ready by whichever comes first. (ISO dates
+  // sort chronologically as strings.) A go-live sooner than the stated
+  // deadline is the binding constraint and should still flag a rush.
+  const target =
+    [deadline, liveDate]
+      .filter((d): d is string => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort()[0] ?? null;
   if (!target) {
     return { isRush: false, daysUntilInHand: null, effectiveDate: null };
   }
