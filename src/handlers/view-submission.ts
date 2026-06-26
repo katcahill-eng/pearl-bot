@@ -35,6 +35,7 @@ import { matchRecommendations, type Recommendation } from '../lib/director-rules
 interface ParsedModalState {
   requestType: string | null;
   deliverable: string;
+  desiredOutcomes: string | null;
   audience: string | null;
   eventOrProject: string | null;
   draftSource: string | null;
@@ -122,6 +123,9 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
   const deliverable =
     v.deliverable?.value?.value ?? '';
 
+  const desiredOutcomes =
+    v.desired_outcomes?.value?.value ?? null;
+
   const audience =
     v.audience?.value?.value ?? null;
 
@@ -160,6 +164,7 @@ export function parseModalState(viewStateValues: any): ParsedModalState {
   return {
     requestType,
     deliverable,
+    desiredOutcomes,
     audience,
     eventOrProject,
     draftSource,
@@ -362,6 +367,7 @@ export function registerViewSubmissionHandler(app: App): void {
         // and the full description lives in Context & Background.
         deliverable: '',
         audience: state.audience,
+        desiredOutcomes: state.desiredOutcomes,
         contextBackground,
         dueDate: state.deadline,
         supportingLinks: state.draftSource ?? null,

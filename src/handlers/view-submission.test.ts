@@ -31,6 +31,7 @@ describe('parseModalState', () => {
         sage_v2_deliverables_change: { selected_options: [{ value: 'webinar' }] },
       },
       deliverable: { value: { value: 'Registration email for May 12 webinar' } },
+      desired_outcomes: { value: { value: 'Drive 100 webinar signups' } },
       audience: { value: { value: 'real estate agents' } },
       event_or_project: { value: { value: 'Realtor Association webinar' } },
       deadline: { value: { selected_date: '2026-05-08' } },
@@ -54,6 +55,7 @@ describe('parseModalState', () => {
     expect(state.deliverables).toEqual(['email', 'webinar']); // group A then group B
     expect(state.requestType).toBe('email'); // first selected = implicit primary
     expect(state.deliverable).toContain('Registration email');
+    expect(state.desiredOutcomes).toBe('Drive 100 webinar signups');
     expect(state.audience).toBe('real estate agents');
     expect(state.eventOrProject).toBe('Realtor Association webinar');
     expect(state.deadline).toBe('2026-05-08');

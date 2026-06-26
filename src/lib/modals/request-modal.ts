@@ -210,7 +210,7 @@ export function rushBannerBlock(
  * recommendations.
  */
 export function buildRequestModal(
-  parsed: ParsedRequest & { additionalDivisionsImpacted?: Division[] | null; deadline?: string | null; deliverables?: string[] | null },
+  parsed: ParsedRequest & { additionalDivisionsImpacted?: Division[] | null; deadline?: string | null; deliverables?: string[] | null; desiredOutcomes?: string | null },
   recommendations: Recommendation[],
   metadata: ModalMetadata,
 ): any {
@@ -248,6 +248,7 @@ export function buildRequestModal(
 
   blocks.push(
     deliverableBlock(parsed.deliverable),
+    desiredOutcomesBlock(parsed.desiredOutcomes ?? null),
     audienceBlock(parsed.audience),
     eventOrProjectBlock(parsed.eventOrProject),
     draftBlock(driverType),
@@ -475,12 +476,12 @@ function deliverableBlock(initial: string | null | undefined): any {
     block_id: 'deliverable',
     label: {
       type: 'plain_text',
-      text: 'What are you trying to accomplish, and why?',
+      text: 'Tell us about your request',
       emoji: true,
     },
     hint: {
       type: 'plain_text',
-      text: "Tell us what you need and the goal behind it — what's driving the request, what success looks like, and any background that helps marketing get it right. The more context, the better.",
+      text: "What exactly you need plus any background — what's prompting it, must-haves, and links to examples. The more context, the better.",
       emoji: true,
     },
     element: {
@@ -489,7 +490,34 @@ function deliverableBlock(initial: string | null | undefined): any {
       multiline: true,
       placeholder: {
         type: 'plain_text',
-        text: "e.g. We're exhibiting at Inman in March and want to drive booth traffic and capture leads…",
+        text: "e.g. We're exhibiting at Inman in March and need booth graphics plus pre-show promo to agents.",
+      },
+      ...(initial ? { initial_value: initial } : {}),
+    },
+  };
+}
+
+function desiredOutcomesBlock(initial: string | null | undefined): any {
+  return {
+    type: 'input',
+    block_id: 'desired_outcomes',
+    label: {
+      type: 'plain_text',
+      text: "What's the goal?",
+      emoji: true,
+    },
+    hint: {
+      type: 'plain_text',
+      text: 'What should this achieve — the call-to-action and what success looks like (e.g. drive booth traffic, capture 50 leads, get demo sign-ups).',
+      emoji: true,
+    },
+    element: {
+      type: 'plain_text_input',
+      action_id: 'value',
+      multiline: true,
+      placeholder: {
+        type: 'plain_text',
+        text: 'e.g. Capture 50+ qualified agent leads; CTA = book a demo at the booth.',
       },
       ...(initial ? { initial_value: initial } : {}),
     },
