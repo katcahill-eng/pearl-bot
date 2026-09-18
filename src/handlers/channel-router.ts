@@ -150,8 +150,14 @@ export function isPrintRequest(rawText: string): boolean {
  *   4. Validates intent for the channel's role.
  *   5. Stub-routes to a handler (real handlers wired in later stories).
  */
-export function registerChannelRouter(app: App): void {
-  app.event('app_mention', async ({ event, say, client }) => {
+/**
+ * Shared body for both entry points into a Sage-managed channel:
+ * an explicit @mention, and — in intake/test channels only — a plain
+ * message. Staff talk to these channels the way they'd talk to a person,
+ * so requiring a mention there just loses requests.
+ */
+async function handleChannelEvent(event: any, say: any, client: any): Promise<void> {
+  {
     const channelId = event.channel;
     const text = event.text ?? '';
     const threadTs = event.thread_ts ?? event.ts;
@@ -335,6 +341,45 @@ export function registerChannelRouter(app: App): void {
         });
         return;
     }
+  }
+}
+
+/**
+ * Whether a plain (un-mentioned) Slack message should open the router.
+ *
+ * True only for real human posts in an intake or test channel. Alerts
+ * channels are excluded on purpose: marketing holds internal conversations
+ * in un-mentioned threads there, and Sage must not answer those. An
+ * @mention is excluded too, because Slack fires app_mention AND message
+ * for the same post and app_mention already handles it.
+ */
+export function shouldHandleAmbientMessage(
+  event: { subtype?: string; bot_id?: string; channel?: string; user?: string; text?: string },
+  botUserId?: string,
+): boolean {
+  if (event.subtype) return false;            // edits, joins, deletes, bot posts
+  if (event.bot_id) return false;             // never react to another bot
+  if (!event.channel || !event.user) return false;
+
+  const role = roleForChannel(event.channel);
+  if (role !== 'intake' && role !== 'test') return false;
+
+  if (botUserId && (event.text ?? '').includes(`<@${botUserId}>`)) return false;
+
+  return true;
+}
+
+export function registerChannelRouter(app: App): void {
+  app.event('app_mention', async ({ event, say, client }) => {
+    await handleChannelEvent(event, say, client);
+  });
+
+  // Ambient listening: in intake/test channels a plain message is a request.
+  // Alerts channels are deliberately excluded — marketing coordinates there in
+  // un-mentioned threads and Sage must stay quiet unless spoken to.
+  app.event('message', async ({ event, say, client, context }) => {
+    if (!shouldHandleAmbientMessage(event as any, (context as any)?.botUserId)) return;
+    await handleChannelEvent(event as any, say, client);
   });
 }
 

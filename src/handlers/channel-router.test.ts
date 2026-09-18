@@ -15,7 +15,7 @@ vi.mock('../lib/config', () => ({
   },
 }));
 
-import { decideRoute } from './channel-router';
+import { decideRoute, shouldHandleAmbientMessage } from './channel-router';
 import { _resetCacheForTesting } from '../lib/division-lookup';
 
 describe('channel-router decideRoute', () => {
@@ -175,5 +175,53 @@ describe('channel-router decideRoute', () => {
       });
       expect(decision).toEqual({ kind: 'follow_up' });
     });
+  });
+});
+
+
+describe('shouldHandleAmbientMessage (un-mentioned posts)', () => {
+  beforeEach(() => {
+    _resetCacheForTesting();
+  });
+
+  const BD = 'C0B1P92785C';      // intake
+  const TEST = 'C0ABY48HRDL';    // test
+  const ALERTS = 'C0ACWP7PGHE';  // alerts
+  const BOT = 'UBOT123';
+
+  it('handles a plain message in an intake channel', () => {
+    expect(shouldHandleAmbientMessage({ channel: BD, user: 'U1', text: 'we need a video made' }, BOT)).toBe(true);
+  });
+
+  it('handles a plain message in the test channel', () => {
+    expect(shouldHandleAmbientMessage({ channel: TEST, user: 'U1', text: 'run an ad campaign' }, BOT)).toBe(true);
+  });
+
+  it('stays silent in the alerts channel — marketing coordinates there', () => {
+    expect(shouldHandleAmbientMessage({ channel: ALERTS, user: 'U1', text: 'can you take this one?' }, BOT)).toBe(false);
+  });
+
+  it('ignores unconfigured channels', () => {
+    expect(shouldHandleAmbientMessage({ channel: 'CNOPE', user: 'U1', text: 'hi' }, BOT)).toBe(false);
+  });
+
+  it('defers to app_mention when Sage is mentioned', () => {
+    expect(shouldHandleAmbientMessage({ channel: BD, user: 'U1', text: `<@${BOT}> I need a one-pager` }, BOT)).toBe(false);
+  });
+
+  it('still handles a message mentioning someone else', () => {
+    expect(shouldHandleAmbientMessage({ channel: BD, user: 'U1', text: '<@U999> and I need event support' }, BOT)).toBe(true);
+  });
+
+  it('ignores joins, edits and other subtypes', () => {
+    expect(shouldHandleAmbientMessage({ channel: BD, user: 'U1', text: 'x', subtype: 'channel_join' }, BOT)).toBe(false);
+  });
+
+  it('ignores other bots', () => {
+    expect(shouldHandleAmbientMessage({ channel: BD, user: 'U1', text: 'Offer Alert', bot_id: 'B123' }, BOT)).toBe(false);
+  });
+
+  it('ignores events with no user', () => {
+    expect(shouldHandleAmbientMessage({ channel: BD, text: 'orphan' }, BOT)).toBe(false);
   });
 });
